@@ -22,9 +22,25 @@ def loopback(host):
         return False
 
 
-def relay_config(enabled=False, url="", downloads=True):
+def relay_config(enabled=False, url="", downloads=True, mode="local", line_id="", server_ip="", expected_ip=""):
     if not enabled:
         return {"enabled": False, "downloads": bool(downloads)}
+    if mode not in ("local", "managed"):
+        raise SPXError("请选择本机代理兼容模式或软件内双跳。")
+    try:
+        expected_ip = str(ipaddress.IPv4Address(expected_ip.strip())) if expected_ip.strip() else ""
+        if expected_ip and not ipaddress.ip_address(expected_ip).is_global:
+            raise ValueError()
+        server_ip = str(ipaddress.IPv4Address(server_ip.strip())) if server_ip.strip() else ""
+    except (ValueError, AttributeError) as error:
+        raise SPXError("线路服务器地址应为 IPv4；锁定的线路出口应为公网 IPv4。") from error
+    result = {"enabled": True, "mode": mode, "downloads": bool(downloads), "expected_ip": expected_ip}
+    if mode == "managed":
+        if not isinstance(line_id, str) or not line_id:
+            raise SPXError("请先导入并选择线路节点；落地节点在上方单独选择。")
+        result.update(line_id=line_id, server_ip=server_ip)
+        if not url.strip():
+            return result
     try:
         node = uri_node(url.strip())
         value = node["outbound"]
@@ -32,17 +48,25 @@ def relay_config(enabled=False, url="", downloads=True):
             raise ValueError()
     except (ValueError, TypeError) as error:
         raise SPXError("本机线路请填写回环代理地址，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080。") from error
-    return {"enabled": True, "outbound": value, "downloads": bool(downloads)}
+    result["outbound" if mode == "local" else "download_outbound"] = value
+    return result
 
 
 def validate_relay(config):
-    return relay_config(bool(config.get("enabled")), proxy_url(config) or "", config.get("downloads", True))
+    return relay_config(bool(config.get("enabled")), proxy_url(config) or "", config.get("downloads", True), config.get("mode", "local"), config.get("line_id", ""), config.get("server_ip", ""), config.get("expected_ip", ""))
+
+
+def route_config(config):
+    return {k: v for k, v in validate_relay(config).items() if k not in ("downloads", "download_outbound")}
 
 
 def proxy_url(config):
     if not config.get("enabled"):
         return None
-    value = normalize(config["outbound"])["outbound"]
+    value = config.get("download_outbound") if config.get("mode") == "managed" else config.get("outbound")
+    if not value:
+        return None
+    value = normalize(value)["outbound"]
     scheme = "socks5" if value["type"] == "socks" else "https" if value.get("tls", {}).get("enabled") else "http"
     auth = ""
     if value.get("username"):
@@ -56,14 +80,14 @@ def proxy_url(config):
 def download_proxy(config):
     if not config.get("downloads", True):
         return None, "直接连接"
-    if config.get("enabled"):
+    if config.get("enabled") and proxy_url(config):
         url, origin = proxy_url(config), "已配置的本机代理"
     else:
         try:
             detected = relay_config(True, detect_system_proxy())
             url, origin = proxy_url(detected), "系统本机代理"
-        except SPXError:
-            return None, "直接连接（未检测到本机回环代理）"
+        except SPXError as error:
+            raise SPXError("已要求通过本机代理下载，但未检测到可用的回环代理。请填写 v2ray 的 HTTP/SOCKS 监听地址，或主动取消“下载运行环境时使用本机代理”后直连下载。") from error
     parsed = urllib.parse.urlsplit(url)
     # Deliberately exclude user info when reporting the chosen download route.
     return url, f"{origin} {parsed.scheme}://{parsed.hostname}:{parsed.port}"

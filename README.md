@@ -5,7 +5,7 @@
 
 ENGE SPX is a personal project maintained by [engeeeee](https://github.com/engeeeee). It runs Claude Code, Codex and a shared Chromium browser in Linux containers, controlled by a Windows desktop client.
 
-The client supports a local line proxy followed by a remote SOCKS5, HTTP or HTTPS landing proxy. The landing proxy determines the final exit. Connections are checked before work starts and monitored while the environment runs.
+The client supports a fixed encrypted first hop followed by a SOCKS5, HTTP or HTTPS landing proxy, plus a compatibility mode for a local v2ray proxy. First-hop and final exit IPs are checked separately before confirmation and monitored while the environment runs.
 
 ![ENGE SPX workspace](docs/images/spx-overview.png)
 
@@ -13,10 +13,10 @@ The screenshot shows the actual empty-state source UI in the Linux graphical tes
 
 ## Download
 
-Current version: **0.4.0 Preview**. Get the [Windows x64 release](https://github.com/engeeeee/-enge-spx/releases/tag/v0.4.0-windows).
+Current version: **0.5.0 Preview**. Get the [Windows x64 release](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.0-windows).
 
-- `ENGE-SPX-Windows-x64-0.4.0-Setup.exe`: per-user installation with shortcuts.
-- `ENGE-SPX-Windows-x64-0.4.0-Portable.zip`: extract everything and run `ENGE-SPX.exe`; keep `_internal` beside it.
+- `ENGE-SPX-Windows-x64-0.5.0-Setup.exe`: per-user installation with shortcuts.
+- `ENGE-SPX-Windows-x64-0.5.0-Portable.zip`: extract everything and run `ENGE-SPX.exe`; keep `_internal` beside it.
 - `spx.exe`: the console entry point, included in both packages.
 
 No separate Python installation is needed for packaged builds. The executables are unsigned. Install and start [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) with Linux containers and the WSL 2 backend; Docker Engine 28+ is required.
@@ -25,17 +25,19 @@ No separate Python installation is needed for packaged builds. The executables a
 
 1. Download and install the runtime from the app. Downloads support pause, resume, progress and SHA-256 verification before Docker import.
 2. Add your landing proxy, including optional username and password. Import URI lists, JSON, Clash configurations or an explicitly selected HTTPS subscription.
-3. Enable the local line proxy when needed, such as `http://127.0.0.1:7890`. It does not need LAN access.
-4. Check the connection, review the measured landing exit IP and configured time zone, then confirm.
+3. Import a supported encrypted line share link from v2ray and choose managed chaining, with separate line and landing selections. A domain-based line requires its server IPv4; its TLS name and verification are preserved. Alternatively, select the explicitly labeled local-proxy compatibility mode.
+4. Check the connection, review both first-hop and landing exit IPs and the configured time zone, then confirm.
 5. Choose a project and open a tool. Sign in inside the shared browser when required.
 
 ```text
-Tools / Chromium → local line proxy → remote landing proxy → destination
+Tools / Chromium → fixed encrypted line → remote landing proxy → destination
 ```
 
 The app does not modify the Windows system proxy. Speed depends on the actual route. A detected connection failure or exit change stops the environment; it does not switch to direct access. Monitoring has a detection interval.
 
-Runtime downloads can use a configured local line or automatically read the system's loopback proxy. The selected route is shown without credentials. The Docker launcher retains credential-helper lookup even when Windows inherited a PATH from before Docker Desktop was installed.
+Managed chaining configures no direct or automatic fallback outbound, delegates landing DNS through the line and keeps its diagnostic listener on the gateway's loopback. The external-client compatibility mode cannot prove per-destination routing from a diagnostic exit alone. See [line protection and v2ray setup](docs/line-protection.zh-CN.md).
+
+Runtime and subscription downloads use a separately configured local proxy or the system's loopback proxy. Selecting proxy downloads now fails if no proxy is available; direct downloads require explicitly disabling the option. Source builds use Docker Desktop's own networking. The Docker launcher retains credential-helper lookup even when Windows inherited a PATH from before Docker Desktop was installed.
 
 ## Terminal and storage preferences
 

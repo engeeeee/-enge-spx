@@ -155,12 +155,13 @@ class DownloadRouteTests(unittest.TestCase):
 
     def test_remote_system_proxy_is_not_automatically_adopted(self):
         with patch("enge_spx.proxy.detect_system_proxy", return_value="http://192.168.1.2:8080"):
-            via, route = download_proxy({"enabled": False, "downloads": True})
-        self.assertIsNone(via)
+            with self.assertRaises(SPXError):
+                download_proxy({"enabled": False, "downloads": True})
 
-    def test_absent_system_proxy_keeps_direct_download_available(self):
+    def test_absent_system_proxy_cannot_silently_fall_back_to_direct(self):
         with patch("enge_spx.proxy.detect_system_proxy", side_effect=SPXError("not found")):
-            self.assertIsNone(download_proxy({"enabled": False, "downloads": True})[0])
+            with self.assertRaises(SPXError):
+                download_proxy({"enabled": False, "downloads": True})
 
 
 class TunnelTests(unittest.IsolatedAsyncioTestCase):

@@ -3,9 +3,9 @@
 <p align="center">自己的项目，独立的工作环境，可核对的代理出口。</p>
 <p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
 
-ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为 Windows 上的 Claude Code、Codex 和共享 Chromium 提供 Linux 容器工作环境。你可以直接使用自己的项目文件，并将流量按“本机线路 → 落地代理 → 目标服务”的顺序转发。
+ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为 Windows 上的 Claude Code、Codex 和共享 Chromium 提供 Linux 容器工作环境。支持软件内固定“加密线路 → 落地代理 → 目标服务”，也可兼容本机 v2ray 代理。线路出口和落地出口分别核对。
 
-当前版本：**0.4.0 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
+当前版本：**0.5.0 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
 
 ![ENGE SPX 工作台](docs/images/spx-overview.png)
 
@@ -13,10 +13,10 @@ ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为
 
 ## 下载安装
 
-打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.4.0-windows)：
+打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.0-windows)：
 
-- **安装版**：`ENGE-SPX-Windows-x64-0.4.0-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
-- **免安装版**：`ENGE-SPX-Windows-x64-0.4.0-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
+- **安装版**：`ENGE-SPX-Windows-x64-0.5.0-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
+- **免安装版**：`ENGE-SPX-Windows-x64-0.5.0-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
 
 两个版本都不需要另外安装 Python。命令行入口为 `spx.exe`。程序尚未代码签名。
 
@@ -32,21 +32,23 @@ Docker 镜像、容器和账号数据卷在 Docker 自己的数据盘中，需�
 
 两项迁移可以独立执行；完成应用数据迁移不会自动移动 Docker 数据盘。项目原文件夹与程序安装目录也各自保留。详细步骤、失败恢复和参数例子见 [存储与终端设置](docs/storage-terminal.zh-CN.md)。
 
-## 使用本机线路和落地代理
+## 线路保护与落地代理
 
 ```text
-Claude Code / Codex / Chromium → 本机线路代理 → 落地代理 → 目标服务
+Claude Code / Codex / Chromium → 固定加密线路 → 落地代理 → 目标服务
 ```
 
-1. 启动你的线路客户端，确认本机监听地址，例如 `http://127.0.0.1:7890`，无需开放局域网访问。
-2. 在“连接与代理”添加远程 SOCKS5、HTTP 或 HTTPS 落地，填入地址、端口及可选的用户名和密码。
-3. 开启“通过本机代理连接落地”，填写线路地址；“读取系统代理”只读取设置，不修改系统代理，也不执行 PAC。
-4. 保存并检查连接，核对实际落地出口 IP、预计地区与时区，再确认启用。
+1. 在“连接与代理”添加远程 SOCKS5、HTTP 或 HTTPS 落地。通过“批量导入”追加线路节点不会删除已有落地。
+2. 从 v2ray 复制受支持的线路分享链接并导入。在“前置线路保护”启用线路，选择“软件内双跳（推荐）”，再选择导入的加密线路节点；线路和落地分别选择。
+3. 线路服务器地址为域名时，填写服务商提供的服务器 IPv4。软件保留原 TLS 名称和证书校验，不通过本机 DNS 查询线路或落地。
+4. 保存并检查连接，分别核对线路出口、落地出口、预计地区与时区，再确认启用。可填写已知的线路出口 IPv4，在首次检查前就限制出口。
 5. 选择项目，打开 Claude Code、Codex 或 Linux 终端。需要授权时，在共享 Chromium 的远程画面内完成登录。
 
-最终出口由落地提供，能否加速取决于线路质量。线路断开或出口变化被检测后，环境停止，不自动切换为直连。检测存在周期和网络超时。
+软件内双跳直接控制固定的线路出站，不包含直连或自动回退出口。线路失效时连接失败；确认后的线路出口或落地出口变化被检测后停止环境。IP 变化检测有周期和超时；它不能替代对线路服务商的信任，也不提供匿名保证。
 
-勾选“下载运行环境时使用本机代理”后，下载优先使用已配置的前置线路；未启用前置线路时，自动读取系统中的回环代理。取消勾选则直接下载。界面会显示实际下载线路，代理密码不显示在日志里。这个选项不设置 Docker 自身拉取镜像的代理；源码构建使用 Docker Desktop 的网络配置。
+如果继续使用现有 v2ray 客户端，在模式中选择“本机代理（v2ray 兼容）”，填写实际回环监听地址或读取系统代理。可导出 v2rayN 路由规则并在客户端置顶。兼容模式会锁定线路检查测得的出口，但不能证明外部客户端对每个目标都未使用 DIRECT，特别是首次检查已被错误分流时。详见 [v2ray 线路保护与检测边界](docs/line-protection.zh-CN.md)。
+
+勾选“下载运行环境时使用本机代理”后，下载和订阅使用配置的本机下载代理或系统回环代理；找不到代理会停止，不自动改为直连。主动取消勾选才直接下载。下载不经过工作区的双跳链路，源码构建使用 Docker Desktop 自己的网络和代理配置。
 
 ## 导入格式
 
@@ -62,7 +64,7 @@ https://user:password@proxy.example:443
 
 导入窗口区分“代理链接 / JSON / Clash”和“订阅地址（HTTPS）”，避免把 HTTPS 代理当成订阅。订阅仅主动获取，不保存其地址，不自动刷新。
 
-还支持 Trojan TCP/TLS、VLESS TCP/TLS、VMess AEAD TCP（可选 TLS）、Shadowsocks AEAD / 2022 TCP。暂不支持 WS、gRPC、Reality、XTLS、插件、uTLS、自定义证书、跳过 TLS 校验或 SOCKS5 外加 TLS。当前仅支持 IPv4 出口，节点域名由本机解析；不支持的条目会报告原因。
+还支持 Trojan TCP/TLS、VLESS TCP/TLS、VMess AEAD TCP（可选 TLS）、Shadowsocks AEAD / 2022 TCP。暂不支持 WS、gRPC、Reality、XTLS、插件、uTLS、自定义证书、跳过 TLS 校验或 SOCKS5 外加 TLS；不支持的条目会明确拒绝，不会剥掉参数后继续连接。软件内线路要求加密，普通 HTTP/SOCKS5 可作为落地。当前仅支持 IPv4 出口；启用线路后落地域名由线路解析，未启用线路时节点地址仍由本机解析。
 
 ## 数据和隔离边界
 

@@ -22,6 +22,7 @@ from .state import Store, SPXError, fingerprint, status_snapshot
 from .brand import CONTAINERS, LEGACY_LABEL_ROOT
 from .compat import LEGACY_RECIPES, LEGACY_RUNTIME_DIRECTORY, LEGACY_BROWSER_TOKEN
 from .docker_env import environment as docker_environment
+from .line_security import LineSecurityError
 
 OWNER = "io.enge.spx.instance"
 ROLE = "io.enge.spx.role"
@@ -259,12 +260,17 @@ class Engine:
             self._image_abis[role] = "legacy" if image_recipe(obj) == LEGACY_RECIPES[role] else "spx"
         return expected
 
-    def save_nodes(self, nodes: list[dict]):
+    def save_nodes(self, nodes: list[dict], append=False):
+        if not nodes:
+            raise SPXError("没有可导入的节点。")
         with self.store.lock():
             self._stop("已导入新节点，请重新检查和确认连接。")
+            if append:
+                nodes = [*nodes, *[node for node in self.store.read("nodes.json", []) if node["id"] not in {item["id"] for item in nodes}]]
             self.store.write("nodes.json", nodes)
             settings = self.store.settings()
-            settings["selected"] = nodes[0]["id"]
+            if not append or settings["selected"] not in {node["id"] for node in nodes}:
+                settings["selected"] = nodes[0]["id"]
             self.store.write("settings.json", settings)
 
     def save_settings(self, selected: str, timezone: str, context: str, relay=None):
@@ -276,21 +282,29 @@ class Engine:
             raise SPXError("Docker 上下文名称无效。")
         with self.store.lock():
             old = self.store.settings()
-            from .proxy import validate_relay
+            from .proxy import validate_relay, route_config
             relay = validate_relay(old["relay"] if relay is None else relay)
+            if relay.get("mode") == "managed":
+                from .line_security import managed_line, chain_outbounds
+                line = self.node_by_id(relay["line_id"])
+                managed_line(line, relay["server_ip"])
+                if selected:
+                    chain_outbounds(self.node_by_id(selected), relay, line)
             if old.get("context") != context and self.store.read("images.json"):
                 raise SPXError("已安装的环境不能切换 Docker 上下文。请使用新的专用数据目录。")
             established = self.store.read("environment.json")
             if established and established["timezone"] != timezone:
                 raise SPXError("已有持久化环境的时区固定。改变时区请使用新的专用数据目录。")
-            old_route = {k: v for k, v in old["relay"].items() if k != "downloads"}
-            new_route = {k: v for k, v in relay.items() if k != "downloads"}
+            old_route = route_config(old["relay"])
+            new_route = route_config(relay)
             if (old["selected"], old["timezone"], old["context"], old_route) != (selected, timezone, context, new_route):
                 self._stop("设置已更新，请重新检查连接。")
             self.store.write("settings.json", {**old, "selected": selected, "timezone": timezone, "context": context, "relay": relay})
 
     def node(self):
-        selected = self.store.settings()["selected"]
+        return self.node_by_id(self.store.settings()["selected"])
+
+    def node_by_id(self, selected):
         node = next((n for n in self.store.read("nodes.json", []) if n["id"] == selected), None)
         if not node:
             raise SPXError("请先导入并选择节点。")
@@ -305,8 +319,10 @@ class Engine:
 
     def policy(self):
         settings = self.store.settings()
-        relay = {k: v for k, v in settings["relay"].items() if k != "downloads"}
-        return fingerprint({"node": self.node(), "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe})
+        from .proxy import route_config
+        relay = route_config(settings["relay"])
+        line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
+        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 1})
 
     def networks(self):
         for name, internal in ((self.internal, True), (self.external, False)):
@@ -349,30 +365,30 @@ class Engine:
     def setup(self):
         ids = self.image_ids()
         gateway_ip, session_ip = self.networks()
-        outbound = dict(self.node()["outbound"])
         from .proxy import loopback, validate_relay
+        from .line_security import chain_outbounds, LINE_CHECK, LINE_PROXY, line_rules
         relay = validate_relay(self.store.settings()["relay"])
-        forward_target = None
-        extra = []
-        if relay["enabled"]:
-            if loopback(outbound["server"]):
-                raise SPXError("启用本机线路中转时，落地节点请填写远端地址；本机代理填写到前置中转。")
-            middle = dict(relay["outbound"])
-            forward_target = {"host": middle["server"], "port": middle["server_port"]}
-            middle.update({"tag": "host-line", "server": "127.0.0.1", "server_port": 2081})
-            extra.append(middle)
-            outbound["detour"] = "host-line"
-        elif loopback(outbound["server"]) and outbound["type"] in ("socks", "http"):
+        line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
+        outbounds, forward_target = chain_outbounds(self.node(), relay, line)
+        outbound = outbounds[0]
+        if not relay["enabled"] and loopback(outbound["server"]) and outbound["type"] in ("socks", "http"):
             forward_target = {"host": outbound["server"], "port": outbound["server_port"]}
             outbound.update({"server": "127.0.0.1", "server_port": 2081})
-        try:
-            answers = socket.getaddrinfo(outbound["server"], outbound["server_port"], socket.AF_INET, socket.SOCK_STREAM)
-            outbound["server"] = answers[0][4][0]
-        except OSError as error:
-            raise SPXError("本机无法解析节点的 IPv4 地址。") from error
+        # Detoured destinations are resolved by the first hop. Host DNS would
+        # disclose the landing name and defeat domain routing in v2ray.
+        if not relay["enabled"]:
+            try:
+                answers = socket.getaddrinfo(outbound["server"], outbound["server_port"], socket.AF_INET, socket.SOCK_STREAM)
+                outbound["server"] = answers[0][4][0]
+            except OSError as error:
+                raise SPXError("本机无法解析节点的 IPv4 地址。") from error
         directory = self.store.home / "gateway"
         directory.mkdir(exist_ok=True)
-        config = {"log": {"level": "warn"}, "inbounds": [{"type": "mixed", "tag": "clients", "listen": gateway_ip, "listen_port": 2080}], "outbounds": [outbound, *extra], "route": {"final": "selected"}}
+        config = {"log": {"level": "warn"}, "inbounds": [{"type": "mixed", "tag": "clients", "listen": gateway_ip, "listen_port": 2080}], "outbounds": outbounds, "route": {"final": "selected"}}
+        if relay["enabled"]:
+            # Work containers must not reach the line-only diagnostic listener.
+            config["inbounds"].append({"type": "mixed", "tag": LINE_CHECK, "listen": "127.0.0.1", "listen_port": 2082})
+            config["route"]["rules"] = line_rules(outbounds)
         from .state import atomic_json
         atomic_json(directory / "config.json", config)
         atomic_json(directory / "lease.json", {"expires": time.time() + 300})
@@ -381,7 +397,7 @@ class Engine:
             self.docker.run("network", "connect", "--gw-priority", "1", self.external, gateway["Id"])
         session = self.ensure_container("session", ids["work"], ["--network", self.internal, "--ip", session_ip, "--dns", "127.0.0.1", "--read-only", "--tmpfs", "/tmp", "--memory", "128m"], ["sleep", "infinity"])
         self.store.write("environment.json", {"timezone": self.store.settings()["timezone"]})
-        return {"gateway": gateway["Id"], "session": session["Id"], "proxy": f"http://{gateway_ip}:2080", "config_hash": fingerprint(config), "forward_target": forward_target}
+        return {"gateway": gateway["Id"], "session": session["Id"], "proxy": f"http://{gateway_ip}:2080", "config_hash": fingerprint(config), "forward_target": forward_target, "line_proxy": LINE_PROXY if relay["enabled"] else None, "line_mode": relay.get("mode")}
 
     def ensure_forward(self, state):
         if not state.get("forward_target"):
@@ -412,6 +428,40 @@ class Engine:
         except (ValueError, KeyError) as error:
             raise SPXError("出口核对或直连阻断检查未通过。") from error
 
+    def probe_line(self, state):
+        from .line_security import LINE_CHECK_CODE
+        try:
+            output = self.docker.run("exec", state["gateway"], "python3", "-c", LINE_CHECK_CODE, timeout=30)
+            value = json.loads(output)
+            if not ipaddress.IPv4Address(value["ip"]).is_global:
+                raise ValueError()
+            return value
+        except (SPXError, ValueError, KeyError, TypeError) as error:
+            raise LineSecurityError("前置线路出口检查失败，已拒绝继续连接落地。请检查线路，不会改走直连。") from error
+
+    def wait_line_listener(self, state):
+        if not state.get("line_proxy"):
+            return
+        for _ in range(40):
+            try:
+                self.docker.run("exec", state["gateway"], "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',2082),.3).close()", timeout=3)
+                return
+            except SPXError:
+                time.sleep(.1)
+        raise LineSecurityError("前置线路检查入口未能启动，请检查网关日志和节点配置。")
+
+    def probe_chain(self, state):
+        line = None
+        if state.get("line_proxy"):
+            line = self.probe_line(state)
+            expected = self.store.settings()["relay"].get("expected_ip") or (state.get("evidence") or {}).get("line_ip")
+            if expected and line["ip"] != expected:
+                raise LineSecurityError("前置线路出口 IP 已改变，已停止环境。请检查 v2ray 分流、线路选择或直连回退，再重新核对。")
+        evidence = dict(self.probe(state))
+        if line:
+            evidence.update(line_ip=line["ip"], line_mode=state["line_mode"])
+        return evidence
+
     def check(self):
         with self.store.lock():
             self.doctor()
@@ -422,13 +472,14 @@ class Engine:
                 state.update({"phase": "checking", "policy": self.policy()})
                 self.store.write("runtime.json", state)
                 self.ensure_forward(state)
+                self.wait_line_listener(state)
                 self.log("通过所选节点核对两个出口来源，并检查容器直连是否被阻断…")
-                evidence = self.probe(state)
+                evidence = self.probe_chain(state)
                 state.update({"phase": "review", "policy": self.policy(), "checked": time.time(), "evidence": evidence})
                 self.store.write("runtime.json", state)
                 return evidence
-            except Exception:
-                self._stop("连接检查失败，环境已停止。")
+            except Exception as error:
+                self._stop(str(error) if isinstance(error, LineSecurityError) else "连接检查失败，环境已停止。")
                 raise
 
     def take_over_legacy_guard(self):
@@ -478,7 +529,7 @@ class Engine:
                 if state.get("phase") != "review" or time.time() - state["checked"] > 300:
                     raise SPXError("检查结果已过期，请重新检查节点。")
                 self.audit_topology(state)
-                evidence = self.probe(state)
+                evidence = self.probe_chain(state)
                 if evidence["ip"] != state["evidence"]["ip"]:
                     raise SPXError("复核时出口 IP 已改变，请重新检查和核对。")
                 state.update({"phase": "ready", "evidence": evidence, "heartbeat": time.time(), "confirmed": time.time(), "browser_token": secrets.token_hex(32)})
@@ -486,8 +537,8 @@ class Engine:
                 self.store.write("runtime.json", state)
                 self.start_guard()
                 return evidence
-            except Exception:
-                self._stop("连接尚未确认，环境已停止。")
+            except Exception as error:
+                self._stop(str(error) if isinstance(error, LineSecurityError) else "连接尚未确认，环境已停止。")
                 raise
 
     def background(self, action):
@@ -507,15 +558,15 @@ class Engine:
             self.audit_topology(state)
             if time.time() - state.get("heartbeat", 0) > 100:
                 raise SPXError("连接监测进程已失联，请重新检查连接。")
-            result = self.probe(state)
+            result = self.probe_chain(state)
             if result["ip"] != state["evidence"]["ip"]:
                 raise SPXError("检测到出口 IP 改变，环境已停止。")
             state["heartbeat"] = time.time()
             self.store.write("gateway/lease.json", {"expires": time.time() + 180})
             self.store.write("runtime.json", state)
             return state
-        except Exception:
-            self._stop("连接监测未通过，请重新检查节点。")
+        except Exception as error:
+            self._stop(str(error) if isinstance(error, LineSecurityError) else "连接监测未通过，请重新检查节点。")
             raise
 
     def guard(self):

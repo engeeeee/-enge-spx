@@ -1,5 +1,28 @@
 # Changes
 
+## 0.5.0 Preview — 2026-11-08
+
+- Add managed encrypted first-hop routing with a fixed line-to-landing chain and
+  no direct or automatic fallback outbound. Import a supported line share link
+  from v2ray and choose the landing separately. Pin the line server's IPv4 when
+  its address is a domain, preserving TLS verification and SNI.
+- Check and pin the first-hop exit separately from the final landing exit.
+  Reject line mismatch or failure before querying the landing, and preserve the
+  specific stop reason. Keep the diagnostic listener on the gateway's loopback
+  interface so tools cannot use it to bypass the landing.
+- Delegate landing-domain resolution through the first hop instead of host DNS.
+  Retain a clearly labeled v2ray-compatible local-proxy mode and export v2rayN
+  destination rules without credentials. A matching diagnostic exit alone does
+  not prove the external client's per-destination routing.
+- Stop downloads when proxy downloads are selected but no loopback proxy is
+  available. Direct downloads now require explicitly disabling that option.
+  Subscription downloads share the selected download proxy, reject HTTP
+  redirects and bound the decompressed response size.
+- Preserve existing nodes and landing selection when importing additional line
+  nodes. Extend native integration with independent line pins, remote landing DNS,
+  diagnostic-port isolation, and failure of a managed first hop while the landing
+  remains alive. Container recipes stay compatible with the previous release.
+
 ## 0.4.0 Preview — 2026-11-08
 
 - Add configurable workspace terminals, with a Pebrel preset, automatic discovery,

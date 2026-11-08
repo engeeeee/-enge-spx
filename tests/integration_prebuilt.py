@@ -44,7 +44,7 @@ def main():
         with tempfile.TemporaryDirectory() as private:
             store = Store(Path(private))
             settings = store.settings()
-            store.write("settings.json", {**settings, "context": args.context})
+            store.write("settings.json", {**settings, "context": args.context, "relay": {"enabled": False, "downloads": False}})
             engine = Engine(store)
             stages = []
             with patch.object(downloads, "RELEASE", f"http://127.0.0.1:{server.server_port}/"):

@@ -16,8 +16,9 @@ from .downloads import DownloadPaused
 from .engine import Docker, Engine
 from .nodes import fetch_subscription, normalize, parse_nodes
 from .platform_ui import ASSETS, WindowInstance, install_icons, prepare_windows
-from .proxy import detect_system_proxy, protocol, proxy_url, relay_config
-from .state import Store, SPXError, status_snapshot
+from .proxy import detect_system_proxy, download_proxy, protocol, proxy_url, relay_config, route_config
+from .state import Store, SPXError, atomic_json, status_snapshot
+from .line_security import LINE_MODES, v2ray_rules
 from . import terminal
 from .storage import DOCKER_STORAGE_DOC, desktop_storage, plan_migration, prepare_docker_move, verify_docker_move
 
@@ -64,6 +65,15 @@ class App:
             setattr(self, key, tk.StringVar(value=value))
         self.relay_enabled = tk.BooleanVar(value=settings["relay"].get("enabled", False))
         self.relay_downloads = tk.BooleanVar(value=settings["relay"].get("downloads", True))
+        saved_relay = settings["relay"]
+        default_mode = saved_relay.get("mode", "local" if saved_relay.get("enabled") else "managed")
+        self.line_mode = tk.StringVar(value=next(label for label, value in LINE_MODES.items() if value == default_mode))
+        self.line_selected = tk.StringVar(value="")
+        self.line_saved_id = saved_relay.get("line_id", "")
+        self.line_server_ip = tk.StringVar(value=saved_relay.get("server_ip", ""))
+        self.line_expected_ip = tk.StringVar(value=saved_relay.get("expected_ip", ""))
+        self.line_status = tk.StringVar(value="尚未检查前置线路")
+        self.line_ip = tk.StringVar(value="—")
         terminal_config = terminal.validate(settings["terminal"])
         self.terminal_kind = tk.StringVar(value=next(label for label, key in terminal.PRESETS.items() if key == terminal_config["kind"]))
         self.terminal_exe = tk.StringVar(value=terminal_config["executable"])
@@ -192,16 +202,33 @@ class App:
         self.node_box.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.button(row, "添加代理", self.proxy_dialog, True).pack(side="left")
         self.button(card, "批量导入链接 / 订阅 / 配置", self.import_dialog).pack(anchor="w", pady=(12, 0))
-        card = self.card(parent, "本机线路中转", "已有线路客户端时启用：本机线路 → 落地代理 → 目标服务。无需开放到局域网。")
-        ttk.Checkbutton(card, text="通过本机代理连接落地", variable=self.relay_enabled).pack(anchor="w", pady=(0, 12))
+        card = self.card(parent, "前置线路保护", "线路 → 落地代理 → 目标服务。软件内双跳直接使用导入的线路节点，避免依赖 v2ray 的分流与直连回退。")
+        ttk.Checkbutton(card, text="启用前置线路", variable=self.relay_enabled).pack(anchor="w", pady=(0, 12))
+        ttk.Combobox(card, textvariable=self.line_mode, values=list(LINE_MODES), state="readonly").pack(fill="x", pady=(0, 12))
+        ttk.Label(card, text="软件内双跳的线路节点（从 v2ray 复制分享链接，使用上方批量导入）").pack(anchor="w", pady=(0, 6))
+        self.line_box = ttk.Combobox(card, textvariable=self.line_selected, state="readonly")
+        self.line_box.pack(fill="x", pady=(0, 10))
+        ttk.Label(card, text="线路服务器 IPv4（线路地址为域名时必填，避免使用本机 DNS）").pack(anchor="w", pady=(0, 6))
+        ttk.Entry(card, textvariable=self.line_server_ip).pack(fill="x", pady=(0, 12))
+        ttk.Label(card, text="本机回环代理（v2ray 兼容模式／下载使用）").pack(anchor="w", pady=(0, 6))
         row = self.row(card)
         ttk.Entry(row, textvariable=self.relay_url).pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.button(row, "读取系统代理", self.read_system_proxy).pack(side="left")
-        ttk.Label(card, text="例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", style="PanelMuted.TLabel").pack(anchor="w", pady=(8, 12))
+        ttk.Label(card, text="填写 v2ray 实际监听地址，通常可用“读取系统代理”获取；无需开放局域网。", style="PanelMuted.TLabel").pack(anchor="w", pady=(8, 12))
+        ttk.Label(card, text="锁定线路出口 IPv4（可选；留空时首次核对后锁定测得的出口）").pack(anchor="w", pady=(0, 6))
+        ttk.Entry(card, textvariable=self.line_expected_ip).pack(fill="x", pady=(0, 12))
+        self.button(card, "导出 v2rayN 防直连路由规则", self.export_v2ray_rules).pack(anchor="w", pady=(0, 12))
         ttk.Checkbutton(card, text="下载运行环境时使用本机代理", variable=self.relay_downloads).pack(anchor="w")
-        ttk.Label(card, text="下载优先使用已配置的线路；未启用线路时读取系统回环代理。", style="PanelMuted.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Label(card, text="勾选时，找不到代理就停止下载；主动取消才使用直连。下载和源码构建与工作区线路分别配置。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(8, 10))
+        ttk.Label(card, textvariable=self.line_status, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w")
         card = self.card(parent, "核对并启用", "检查会停止本环境中的工作，请先保存项目，再核对实际落地出口。")
         ttk.Label(card, textvariable=self.route, wraplength=780).pack(anchor="w", pady=(0, 12))
+        evidence_row = self.row(card)
+        ttk.Label(evidence_row, text="前置线路出口：").pack(side="left")
+        ttk.Label(evidence_row, textvariable=self.line_ip).pack(side="left", padx=(0, 24))
+        ttk.Label(evidence_row, text="落地出口：").pack(side="left")
+        ttk.Label(evidence_row, textvariable=self.ip).pack(side="left")
+        evidence_row.pack_configure(pady=(0, 12))
         row = self.row(card)
         for text, action in [("保存设置", self.save_settings), ("检查连接", self.check)]:
             self.button(row, text, action).pack(side="left", padx=(0, 8))
@@ -352,11 +379,25 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def refresh_nodes(self):
+        previous_line = self.line_id() if getattr(self, "nodes", None) else self.line_saved_id
         self.nodes = self.store.read("nodes.json", [])
         self.node_box["values"] = [f"{protocol(n)}  ·  {n['label']}" for n in self.nodes]
         index = next((i for i, n in enumerate(self.nodes) if n["id"] == self.store.settings()["selected"]), 0)
         if self.nodes:
             self.node_box.current(index)
+        self.line_box["values"] = [f"{protocol(n)}  线路  {n['label']}" for n in self.nodes]
+        line_index = next((i for i, n in enumerate(self.nodes) if n["id"] == previous_line), -1)
+        if line_index >= 0:
+            self.line_box.current(line_index)
+        else:
+            self.line_selected.set("")
+
+    def line_id(self):
+        index = self.line_box.current()
+        return self.nodes[index]["id"] if 0 <= index < len(self.nodes) else ""
+
+    def captured_relay(self):
+        return relay_config(self.relay_enabled.get(), self.relay_url.get(), self.relay_downloads.get(), LINE_MODES[self.line_mode.get()], self.line_id(), self.line_server_ip.get(), self.line_expected_ip.get())
 
     def node_id(self):
         index = self.node_box.current()
@@ -364,7 +405,7 @@ class App:
 
     def captured_settings(self):
         try:
-            return self.node_id(), self.timezone.get().strip(), self.context.get().strip(), relay_config(self.relay_enabled.get(), self.relay_url.get(), self.relay_downloads.get())
+            return self.node_id(), self.timezone.get().strip(), self.context.get().strip(), self.captured_relay()
         except SPXError as error:
             messagebox.showinfo("检查本机线路地址", str(error), parent=self.root)
             return None
@@ -372,8 +413,8 @@ class App:
     def settings_match(self):
         saved = self.store.settings()
         try:
-            relay = relay_config(self.relay_enabled.get(), self.relay_url.get(), self.relay_downloads.get())
-            return (self.node_id(), self.timezone.get().strip(), self.context.get().strip(), {k: v for k, v in relay.items() if k != "downloads"}) == (saved["selected"], saved["timezone"], saved["context"], {k: v for k, v in saved["relay"].items() if k != "downloads"})
+            relay = self.captured_relay()
+            return (self.node_id(), self.timezone.get().strip(), self.context.get().strip(), route_config(relay)) == (saved["selected"], saved["timezone"], saved["context"], route_config(saved["relay"]))
         except SPXError:
             return False
 
@@ -501,7 +542,7 @@ class App:
             self.run(action)
 
     def confirm(self):
-        if self.settings_match() and messagebox.askyesno("核对落地出口", f"出口 IP：{self.ip.get()}\n预计地区：{self.region.get()}\n环境时区：{self.timezone.get()}\n\n确认后启用环境？", parent=self.root):
+        if self.settings_match() and messagebox.askyesno("核对线路与落地", f"前置线路出口：{self.line_ip.get()}\n落地出口 IP：{self.ip.get()}\n预计地区：{self.region.get()}\n环境时区：{self.timezone.get()}\n\n{self.line_status.get()}\n\n确认上述线路与落地后启用环境？", parent=self.root):
             self.run(lambda e: e.confirm())
 
     def choose_project(self):
@@ -527,9 +568,22 @@ class App:
         try:
             self.relay_url.set(detect_system_proxy())
             self.relay_enabled.set(True)
-            self.operation.set("已读取本机代理，请保存后检查连接。")
+            self.operation.set("已读取本机代理。仅使用现有 v2ray 时，请选择“本机代理（v2ray 兼容）”再保存。")
         except SPXError as error:
             messagebox.showinfo("手动填写本机代理", str(error), parent=self.root)
+
+    def export_v2ray_rules(self):
+        index = self.node_box.current()
+        if not 0 <= index < len(self.nodes):
+            messagebox.showinfo("先选择落地", "请先导入并选择落地节点。", parent=self.root)
+            return
+        path = filedialog.asksaveasfilename(title="保存 v2rayN 路由规则", defaultextension=".json", initialfile="ENGE-SPX-v2rayN-rules.json", filetypes=[("JSON", "*.json")], parent=self.root)
+        if path:
+            try:
+                atomic_json(Path(path), v2ray_rules(self.nodes[index]))
+                messagebox.showinfo("规则已导出", "在 v2rayN 的自定义路由规则中导入并置顶，并确保 proxy 出口使用指定线路、没有直连回退。兼容模式无法仅凭出口检查证明每个目标的分流；软件内双跳可避免这项依赖。", parent=self.root)
+            except OSError as error:
+                messagebox.showerror("保存失败", str(error), parent=self.root)
 
     def proxy_dialog(self):
         if not self.consent_stop():
@@ -593,8 +647,8 @@ class App:
             text, subscription = entry.get("1.0", "end").strip(), mode.get() == "订阅地址（HTTPS）"
             dialog.destroy()
             def action(engine):
-                nodes, warnings = parse_nodes(fetch_subscription(text) if subscription else text)
-                engine.save_nodes(nodes)
+                nodes, warnings = parse_nodes(fetch_subscription(text, download_proxy(engine.store.settings()["relay"])[0]) if subscription else text)
+                engine.save_nodes(nodes, append=True)
                 return len(nodes), warnings
             def done(result):
                 self.refresh_nodes()
@@ -718,11 +772,20 @@ class App:
         evidence = state.get("evidence") or {}
         self.ip.set(evidence.get("ip", "—"))
         self.region.set(evidence.get("country", "—") + " / " + evidence.get("city", "—"))
+        self.line_ip.set(evidence.get("line_ip", "—"))
+        if not self.relay_enabled.get():
+            self.line_status.set("前置线路未启用；仅核对落地出口。")
+        elif LINE_MODES[self.line_mode.get()] == "managed":
+            self.line_status.set("软件内双跳：固定加密线路，无直连备用出口；首次连接请核对线路出口。")
+        else:
+            self.line_status.set("v2ray 兼容：锁定已确认的线路出口；目标分流仍由 v2ray 决定，检查不能证明所有目标都未直连。")
+        if state["phase"] in ("ready", "review") and not matching:
+            self.line_status.set("线路设置尚未应用，请保存并重新检查；显示的出口来自上一次检查。")
         index = self.node_box.current()
         if 0 <= index < len(self.nodes):
             node = self.nodes[index]
             value = node["outbound"]
-            self.route.set(("本机线路 → " if self.relay_enabled.get() else "") + f"{protocol(node)} 落地  {value['server']}:{value['server_port']}  →  目标服务")
+            self.route.set((("软件内固定线路 → " if LINE_MODES[self.line_mode.get()] == "managed" else "v2ray 本机线路 → ") if self.relay_enabled.get() else "") + f"{protocol(node)} 落地  {value['server']}:{value['server_port']}  →  目标服务")
         for button, needs_ready in self.buttons:
             button.configure(state="disabled" if self.busy or needs_ready and not ready else "normal")
         self.confirm_button.configure(state="normal" if not self.busy and state["phase"] == "review" and matching else "disabled")

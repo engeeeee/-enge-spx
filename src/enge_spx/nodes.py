@@ -203,22 +203,25 @@ def parse_nodes(text: str) -> tuple[list[dict], list[str]]:
     return nodes, errors
 
 
-def fetch_subscription(url: str) -> str:
+def fetch_subscription(url: str, proxy=None) -> str:
     parsed = urllib.parse.urlsplit(url.strip())
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         raise SPXError("订阅地址必须为 HTTPS，且不能在地址中携带用户名和密码。")
-    class HTTPSRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            if urllib.parse.urlsplit(newurl).scheme != "https":
-                raise SPXError("订阅重定向到了非 HTTPS 地址，已停止下载。")
-            return super().redirect_request(req, fp, code, msg, headers, newurl)
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "ENGE-SPX/" + __version__})
-        with urllib.request.build_opener(HTTPSRedirect).open(request, timeout=25) as response:
-            data = response.read(MAX_IMPORT + 1)
-        if len(data) > MAX_IMPORT:
-            raise SPXError("订阅超过 2 MiB。")
-        return data.decode("utf-8-sig")
+        from .downloads import client
+        def https_only(request):
+            if request.url.scheme != "https":
+                raise SPXError("订阅重定向到了非 HTTPS 地址，已停止下载。")
+        with client(proxy) as session:
+            session.event_hooks["request"].append(https_only)
+            with session.stream("GET", url, headers={"User-Agent": "ENGE-SPX/" + __version__}) as response:
+                response.raise_for_status()
+                data = bytearray()
+                for chunk in response.iter_bytes(65536):
+                    data.extend(chunk)
+                    if len(data) > MAX_IMPORT:
+                        raise SPXError("订阅超过 2 MiB。")
+                return data.decode("utf-8-sig")
     except SPXError:
         raise
     except Exception as error:
