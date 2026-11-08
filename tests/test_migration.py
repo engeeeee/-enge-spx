@@ -114,6 +114,19 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(store.read("controller.json"), {"app": "enge-spx"})
 
+    def test_forward_heartbeat_does_not_replace_a_ready_guest_listener(self):
+        store = Store(self.base / "fresh")
+        state = {"gateway": "owned-gateway", "policy": "policy", "forward_target": {"host": "127.0.0.1", "port": 7890}}
+        store.write("forward.json", {"gateway": state["gateway"], "policy": state["policy"], "heartbeat": time.time()})
+        engine = Engine(store)
+        engine.docker = Mock()
+        engine.background = Mock()
+        engine.docker.run.side_effect = [SPXError("listener not ready"), ""]
+        with patch("enge_spx.engine.time.sleep"):
+            engine.ensure_forward(state)
+        self.assertEqual(engine.docker.run.call_count, 2)
+        self.assertEqual(engine.docker.run.call_args.args[:2], ("exec", state["gateway"]))
+
 
 if __name__ == "__main__":
     unittest.main()

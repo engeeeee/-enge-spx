@@ -384,8 +384,13 @@ class Engine:
         for attempt in range(40):
             current = self.store.read("forward.json", {})
             if current.get("gateway") == state["gateway"] and current.get("policy") == state["policy"] and time.time() - current.get("heartbeat", 0) < 5:
-                time.sleep(.2)
-                return
+                try:
+                    # The host heartbeat can precede Docker exec and the guest
+                    # listener. Check the actual endpoint instead of sleeping.
+                    self.docker.run("exec", state["gateway"], "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',2081),.5).close()", timeout=3)
+                    return
+                except SPXError:
+                    pass
             if attempt % 4 == 0:
                 self.background("forward")
             time.sleep(.25)

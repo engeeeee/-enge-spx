@@ -11,6 +11,8 @@
   priority; disabling proxy downloads keeps a direct connection.
 - Show the chosen download route without credentials, and distinguish timeouts,
   HTTP status errors and incompatible runtime manifests in installation feedback.
+- Wait for the guest forwarding listener to accept connections before measuring
+  the exit, instead of relying on a fixed delay after the host heartbeat.
 - Add regression coverage for Windows credential-helper resolution and download
   routing. Container recipes are unchanged, preserving compatible installed images.
 

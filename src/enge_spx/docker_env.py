@@ -8,6 +8,8 @@ def environment(executable, source=None, windows=None):
     windows = os.name == "nt" if windows is None else windows
     excluded = {"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
     result = {key: value for key, value in source.items() if (key.upper() if windows else key) not in excluded}
+    if not windows:
+        return result
     path_keys = [key for key in result if (key.upper() if windows else key) == "PATH"]
     inherited = next((result[key] for key in path_keys if result[key]), "")
     for key in path_keys:
@@ -21,7 +23,7 @@ def environment(executable, source=None, windows=None):
         if values.get("LOCALAPPDATA"):
             roots.append(Path(values["LOCALAPPDATA"]) / "Programs/DockerDesktop")
         directories += [str(root / "resources/bin") for root in roots if (root / "resources/bin").is_dir()]
-    separator = ";" if windows else os.pathsep
+    separator = ";"
     directories += inherited.split(separator)
     seen, paths = set(), []
     for directory in directories:

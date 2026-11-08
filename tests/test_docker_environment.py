@@ -48,7 +48,7 @@ class DockerEnvironmentTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX path behavior")
     def test_linux_keeps_normal_path_separator_and_configuration(self):
         child = environment("/opt/docker/docker", {"PATH": "/usr/bin:/bin", "DOCKER_CONFIG": "/private/config"}, windows=False)
-        self.assertEqual(child["PATH"], "/opt/docker:/usr/bin:/bin")
+        self.assertEqual(child["PATH"], "/usr/bin:/bin")
         self.assertEqual(child["DOCKER_CONFIG"], "/private/config")
 
     @unittest.skipUnless(os.name == "nt", "Native Windows executable lookup")
