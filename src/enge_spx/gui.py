@@ -69,8 +69,8 @@ class App:
         tk.Label(brand, image=self.pictures["logo"], bg=WHITE).pack(side="left", padx=(0, 10))
         titles = tk.Frame(brand, bg=WHITE)
         titles.pack(side="left")
-        tk.Label(titles, text="ENGE", fg=INK, bg=WHITE, font=("Segoe UI", 17, "bold")).pack(anchor="w")
-        tk.Label(titles, text="SPX · PERSONAL WORKSPACE", fg=MUTED, bg=WHITE, font=("Segoe UI", 7)).pack(anchor="w")
+        tk.Label(titles, text="ENGE SPX", fg=INK, bg=WHITE, font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(titles, text="PERSONAL WORKSPACE", fg=MUTED, bg=WHITE, font=("Segoe UI", 7)).pack(anchor="w")
         self.nav, self.pages = {}, {}
         names = [("overview", "工作台"), ("connection", "连接与代理"), ("workspace", "项目工作区"), ("downloads", "下载与安装"), ("logs", "运行日志"), ("settings", "偏好设置")]
         for name, label in names:

@@ -190,7 +190,20 @@ class Engine:
                 self.log("构建 " + role + " 镜像；首次安装需要下载工具和 Chromium…")
                 if progress:
                     progress({"stage": "build", "role": role})
-                self.docker.run("build", "--network", "default", "--label", RECIPE + "=" + self.recipes[role], "--build-arg", "WORK_IMAGE=" + installed.get("work", self.images["work"]), "-f", str(RESOURCES / ("Dockerfile." + role)), "-t", self.images[role], str(RESOURCES), timeout=2400, log=build_log, on_line=self.log, cancel=cancel)
+                work_reference = self.images["work"]
+                if role == "browser":
+                    base = self.docker.inspect("image", work_reference)
+                    if not base or base["Id"] != installed["work"]:
+                        # BuildKit FROM requires a named reference. A bare image
+                        # ID is parsed as a registry repository; preserve the old
+                        # image under an instance-scoped alias without moving tags.
+                        work_reference = "enge-spx/build-base:" + self.store.instance + "-" + installed["work"].split(":")[-1][:12]
+                        alias = self.docker.inspect("image", work_reference)
+                        if alias and alias["Id"] != installed["work"]:
+                            raise SPXError("构建基础镜像的别名发生冲突，请保留数据并检查 Docker 镜像。")
+                        if not alias:
+                            self.docker.run("tag", installed["work"], work_reference)
+                self.docker.run("build", "--network", "default", "--label", RECIPE + "=" + self.recipes[role], "--build-arg", "WORK_IMAGE=" + work_reference, "-f", str(RESOURCES / ("Dockerfile." + role)), "-t", self.images[role], str(RESOURCES), timeout=2400, log=build_log, on_line=self.log, cancel=cancel)
                 installed[role] = self.docker.inspect("image", self.images[role])["Id"]
             self.store.write("images.json", installed)
             self.log("环境安装完成。请导入节点，再检查和确认连接。")
