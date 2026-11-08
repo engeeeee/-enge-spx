@@ -7,6 +7,10 @@ ENGE SPX is a personal project maintained by [engeeeee](https://github.com/engee
 
 The client supports a local line proxy followed by a remote SOCKS5, HTTP or HTTPS landing proxy. The landing proxy determines the final exit. Connections are checked before work starts and monitored while the environment runs.
 
+![ENGE SPX workspace](docs/images/spx-overview.png)
+
+The screenshot shows the actual empty-state source UI in the Linux graphical test environment. See [branding and interface details](docs/branding.zh-CN.md).
+
 ## Download
 
 Current version: **0.3.0 Preview**. Get the [Windows x64 release](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.0-windows).

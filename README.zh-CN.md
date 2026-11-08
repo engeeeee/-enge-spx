@@ -7,6 +7,10 @@ ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为
 
 当前版本：**0.3.0 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
 
+![ENGE SPX 工作台](docs/images/spx-overview.png)
+
+界面截图来自源码图形测试环境；[查看品牌、界面和命名说明](docs/branding.zh-CN.md)。
+
 ## 下载安装
 
 打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.0-windows)：
