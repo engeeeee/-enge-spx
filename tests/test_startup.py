@@ -129,7 +129,7 @@ class StartupTests(StartupCase):
             self.assertEqual(launch_desktop(self.engine.docker), "application")
         self.assertNotIn("--context", run.call_args.args[0])
         self.assertEqual(run.call_args.kwargs["env"], {"DOCKER_CONFIG": "preserved"})
-        self.assertEqual(launch.call_args.args[0], ["D:/Docker App/Docker Desktop.exe"])
+        self.assertEqual(launch.call_args.args[0], [str(Path("D:/Docker App/Docker Desktop.exe"))])
         with patch("enge_spx.startup.subprocess.run", return_value=subprocess.CompletedProcess([], 0)), patch("enge_spx.startup.subprocess.Popen") as launch:
             self.assertEqual(launch_desktop(self.engine.docker), "cli")
         launch.assert_not_called()

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import threading
 import time
 
 from .downloads import DownloadPaused
@@ -60,9 +61,12 @@ def launch_desktop(docker):
     if not application:
         raise StartupIssue("docker_missing", "未找到 Docker Desktop。请先安装 Docker Desktop、完成首次初始化，再点击“一键准备”。")
     try:
-        subprocess.Popen([str(application)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=docker.environment(), creationflags=hidden)
+        process = subprocess.Popen([str(application)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=docker.environment(), creationflags=hidden)
     except OSError as error:
         raise StartupIssue("launch_failed", "无法打开 Docker Desktop，请检查安装目录或在 Windows 中打开一次后重试。") from error
+    # Keep and reap the launcher without waiting in the UI worker or terminating
+    # Desktop when the user cancels preparation or closes ENGE SPX.
+    threading.Thread(target=process.wait, daemon=True).start()
     return "application"
 
 
