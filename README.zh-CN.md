@@ -96,6 +96,8 @@ python -m venv .venv
 
 在 x64 Windows 安装 Inno Setup 6，运行 `packaging/windows/Build-Windows.ps1`，安装版、免安装版和校验文件输出到 `dist`。开发结构和验证命令见 [开发说明](docs/development.md)。
 
+安装或下载失败时，参见 [运行环境安装问题](docs/installation-troubleshooting.zh-CN.md)。
+
 ## 项目与许可
 
 ENGE SPX 由 engeeeee 独立维护，使用自己的品牌和图标。项目延续此前为该账号开发的 Windows 实现；设计参考和历史来源见 [NOTICE.md](NOTICE.md)，第三方组件见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。这不表示所有依赖均由本项目作者编写。
