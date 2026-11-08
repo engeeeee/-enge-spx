@@ -1,0 +1,41 @@
+name: Remove published runtime transfer artifact
+
+on:
+  workflow_run:
+    workflows: ['ENGE SPX Windows']
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    if: github.repository == 'engeeeee/-enge-spx' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const run = context.payload.workflow_run;
+            if (owner !== 'engeeeee' || repo !== '-enge-spx' || run.head_repository?.full_name !== `${owner}/${repo}`) return;
+            const artifacts = (await github.rest.actions.listWorkflowRunArtifacts({owner, repo, run_id: run.id, per_page: 100})).data.artifacts;
+            for (const artifact of artifacts) {
+              const match = /^ENGE-SPX-Runtime-(\d+\.\d+\.\d+)$/.exec(artifact.name);
+              if (!match || artifact.expired) continue;
+              const tag = `v${match[1]}-windows`;
+              let release;
+              try { release = (await github.rest.repos.getReleaseByTag({owner, repo, tag})).data; }
+              catch (e) { if (e.status === 404) continue; throw e; }
+              if (release.draft) continue;
+              const ref = (await github.rest.git.getRef({owner, repo, ref: 'tags/' + tag})).data;
+              if (ref.object.type !== 'commit' || ref.object.sha !== run.head_sha) continue;
+              const expected = `ENGE-SPX-Runtime-linux-amd64-${match[1]}.tar.gz`;
+              const assets = (await github.rest.repos.listReleaseAssets({owner, repo, release_id: release.id})).data;
+              if (!assets.some(a => a.name === expected && a.size > 0 && /^sha256:[a-f0-9]{64}$/.test(a.digest || ''))) continue;
+              // This archive is only the inter-job transfer. Its verified copy
+              // remains in Releases; keep the smaller Windows build artifact.
+              await github.rest.actions.deleteArtifact({owner, repo, artifact_id: artifact.id});
+              core.notice('Removed the completed runtime transfer artifact: ' + artifact.name);
+            }
