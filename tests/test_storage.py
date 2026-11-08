@@ -88,6 +88,10 @@ class StorageTests(StorageCase):
                 storage.migrate_home(self.store, self.target, stop)
             stop.assert_not_called()
 
+    def test_missing_drive_is_rejected_without_searching_forever(self):
+        with patch.object(Path, "exists", return_value=False), self.assertRaises(SPXError):
+            storage._parent(self.target)
+
     def test_bad_copy_keeps_source_and_default_pointer(self):
         self.store.write("nodes.json", [{"secret": "keep"}])
         old = self.store.home
@@ -114,7 +118,7 @@ class StorageTests(StorageCase):
             with self.assertRaises(SPXError):
                 storage.migrate_home(self.store, self.target, self.stop, wait_seconds=0)
         self.assertFalse(self.target.exists())
-        self.assertEqual(default_home(), self.store.home)
+        self.assertEqual(default_home().resolve(), self.store.home)
         held = threading.Event()
         self.store.write("runtime.json", {"phase": "ready"})
         def guard():
@@ -142,6 +146,23 @@ class StorageTests(StorageCase):
         self.assertTrue(result["leftovers"])
         self.assertEqual(Store().home, self.target.resolve())
         self.assertEqual((self.target / payload.name).read_bytes(), b"verified")
+
+    @unittest.skipUnless(os.name == "nt", "native Windows drive relocation")
+    def test_migrate_to_another_windows_drive(self):
+        workspace = os.environ.get("GITHUB_WORKSPACE")
+        if not workspace or Path(workspace).drive.lower() == self.store.home.drive.lower():
+            self.skipTest("a second writable drive is not available")
+        payload = self.store.home / "partial-download.part"
+        payload.write_bytes(b"cross-drive fixture" * 4096)
+        expected = payload.read_bytes()
+        with tempfile.TemporaryDirectory(prefix="spx-drive-test-", dir=workspace) as temporary:
+            target = Path(temporary) / "移植 data"
+            storage.migrate_home(self.store, target, self.stop)
+            reopened = Store()
+            self.assertNotEqual(reopened.home.drive.lower(), self.store.home.drive.lower())
+            self.assertEqual(reopened.instance, self.store.instance)
+            self.assertEqual((reopened.home / payload.name).read_bytes(), expected)
+            self.assertFalse(payload.exists())
 
     def test_bootstrap_failure_can_still_follow_original_location(self):
         original = storage.atomic_json

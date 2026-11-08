@@ -76,6 +76,8 @@ def destination_path(value: str | Path, forbidden=()) -> Path:
 def _parent(path: Path) -> Path:
     parent = path.parent
     while not parent.exists():
+        if parent == parent.parent:
+            raise SPXError("目标磁盘尚未连接或路径不可用，请先连接磁盘再迁移。")
         parent = parent.parent
     if not parent.is_dir():
         raise SPXError("迁移目标的父路径不是文件夹。")
