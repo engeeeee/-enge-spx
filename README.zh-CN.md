@@ -5,7 +5,7 @@
 
 ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为 Windows 上的 Claude Code、Codex 和共享 Chromium 提供 Linux 容器工作环境。你可以直接使用自己的项目文件，并将流量按“本机线路 → 落地代理 → 目标服务”的顺序转发。
 
-当前版本：**0.3.1 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
+当前版本：**0.4.0 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
 
 ![ENGE SPX 工作台](docs/images/spx-overview.png)
 
@@ -13,14 +13,24 @@ ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为
 
 ## 下载安装
 
-打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.1-windows)：
+打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.4.0-windows)：
 
-- **安装版**：`ENGE-SPX-Windows-x64-0.3.1-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
-- **免安装版**：`ENGE-SPX-Windows-x64-0.3.1-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
+- **安装版**：`ENGE-SPX-Windows-x64-0.4.0-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
+- **免安装版**：`ENGE-SPX-Windows-x64-0.4.0-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
 
 两个版本都不需要另外安装 Python。命令行入口为 `spx.exe`。程序尚未代码签名。
 
 先安装并启动 [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)。打开 ENGE SPX，在“下载与安装”获取运行环境。下载支持暂停、续传、速度与剩余时间显示，完成后校验 SHA-256，再导入 Docker。预构建包同时支持 classic 和 containerd 镜像存储，不覆盖已有镜像标签。
+
+## Pebrel 和 D 盘设置
+
+在“偏好设置 → 工作区终端”选择 **Pebrel**，点击“检测终端”或手动选择 `pebrel.exe`，测试后保存。此后 Claude Code、Codex、Linux 终端和登录窗口都使用这个设置。自动选择会优先寻找 Pebrel，其次是 Windows Terminal、PowerShell 7、Windows PowerShell。也可选择“自定义程序”填写其他终端的 exe 和启动参数。命令行 `spx claude` 继续使用当前终端。
+
+在“偏好设置 → 应用数据与下载缓存”选择专用空目录，例如 `D:\ENGE-SPX\data`，点击“检查并迁移应用数据”。软件会停止工作区，复制并校验配置、日志及已下载或部分下载的运行环境文件，然后切换默认位置、清理原目录的已校验副本。已有安装标识和 Docker 资源会保留，之后的新下载也进入新目录。
+
+Docker 镜像、容器和账号数据卷在 Docker 自己的数据盘中，需要使用下方的“Docker 数据盘迁移助手”另行迁移。例如选择 `D:\DockerData`，点击“准备迁移”，在 Docker Desktop 的 **Settings → Resources → Advanced → Disk image location** 选择同一目录并 **Apply**。等待 Docker 恢复运行，返回软件点击“核验迁移结果”，再检查并确认连接。这里需要在 Docker 确认一次；软件不会直接搬动正在使用的 VHDX 文件。
+
+两项迁移可以独立执行；完成应用数据迁移不会自动移动 Docker 数据盘。项目原文件夹与程序安装目录也各自保留。详细步骤、失败恢复和参数例子见 [存储与终端设置](docs/storage-terminal.zh-CN.md)。
 
 ## 使用本机线路和落地代理
 
@@ -56,7 +66,7 @@ https://user:password@proxy.example:443
 
 ## 数据和隔离边界
 
-新安装的设置位于 `%LOCALAPPDATA%\ENGE-SPX`，程序位于 `%LOCALAPPDATA%\Programs\ENGE-SPX`。设置包含代理密码，当前未使用 Windows 凭据库加密。账号、会话和浏览器资料保存在 Docker 数据卷，项目文件仍在你选择的原目录。
+新安装的设置默认位于 `%LOCALAPPDATA%\ENGE-SPX`，迁移后跟随自选目录；`%LOCALAPPDATA%\ENGE-SPX-location.json` 只保留很小的位置记录。程序默认位于 `%LOCALAPPDATA%\Programs\ENGE-SPX`。设置包含代理密码，当前未使用 Windows 凭据库加密；迁移会为目标设置个人访问权限。账号、会话和浏览器资料保存在 Docker 数据卷，项目文件仍在你选择的原目录。
 
 **项目目录可读写共享。** 工具能修改或删除真实项目文件，也能读取其中的密钥和配置。只共享必要目录，正常使用版本管理。未选中的本机目录不主动挂载；工具容器不挂载 Docker 管理接口，浏览器不挂载项目和工具账号卷。
 

@@ -1,5 +1,25 @@
 # Changes
 
+## 0.4.0 Preview — 2026-11-08
+
+- Add configurable workspace terminals, with a Pebrel preset, automatic discovery,
+  Windows Terminal and PowerShell options, custom exe/argument templates, and a
+  local terminal test. Claude Code, Codex, Linux shells and login windows share
+  the saved choice. Automatic selection prefers Pebrel and does not invoke CMD.
+- Add application-data relocation to a chosen drive, including partial downloads,
+  settings and logs. Stop background services, verify each copied file, preserve
+  the installation identity, switch the default location and release verified
+  source files. Old explicit data paths redirect to the new location.
+- Protect relocated credentials with a private target directory; report missing
+  drives without creating a fresh environment. Recreate only the stopped gateway
+  whose host bind mount changed, preserving project containers and writable layers.
+- Add a Docker Desktop disk-migration assistant with a target folder, resource
+  snapshot and post-move checks. Moving the VHDX itself requires confirmation in
+  Docker Desktop's supported Disk image location settings.
+- Extend native Docker integration to verify project, account, browser and layer
+  persistence after relocation; exercise migration through the source GUI and
+  native Windows process argument handling in CI.
+
 ## 0.3.1 Preview — 2026-11-08
 
 - Fix Docker credential-helper lookup when ENGE SPX inherits a PATH that does

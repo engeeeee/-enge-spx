@@ -17,7 +17,9 @@ from .engine import Docker, Engine
 from .nodes import fetch_subscription, normalize, parse_nodes
 from .platform_ui import ASSETS, WindowInstance, install_icons, prepare_windows
 from .proxy import detect_system_proxy, protocol, proxy_url, relay_config
-from .state import SPXError, status_snapshot
+from .state import Store, SPXError, status_snapshot
+from . import terminal
+from .storage import DOCKER_STORAGE_DOC, desktop_storage, plan_migration, prepare_docker_move, verify_docker_move
 
 BG, WHITE, INK, MUTED, BLUE, BORDER = "#F3F5F9", "#FFFFFF", "#17243D", "#78849A", "#3355D6", "#E6EAF2"
 
@@ -41,10 +43,12 @@ class Page(ttk.Frame):
 
 
 class App:
-    def __init__(self, root, store, auto_check=True):
+    def __init__(self, root, store, auto_check=True, on_relocated=None):
         self.root, self.store = root, store
+        self.on_relocated = on_relocated
         self.events, self.buttons, self.nodes = queue.Queue(), [], []
         self.busy = self.cancelable = self.close_pending = False
+        self.migrating = False
         self.cancel = threading.Event()
         self.compatible = False
         self.runtime_ok = len(store.read("images.json", {})) == 3
@@ -60,6 +64,19 @@ class App:
             setattr(self, key, tk.StringVar(value=value))
         self.relay_enabled = tk.BooleanVar(value=settings["relay"].get("enabled", False))
         self.relay_downloads = tk.BooleanVar(value=settings["relay"].get("downloads", True))
+        terminal_config = terminal.validate(settings["terminal"])
+        self.terminal_kind = tk.StringVar(value=next(label for label, key in terminal.PRESETS.items() if key == terminal_config["kind"]))
+        self.terminal_exe = tk.StringVar(value=terminal_config["executable"])
+        self.terminal_args = tk.StringVar(value=terminal_config["arguments"])
+        self.terminal_status = tk.StringVar(value="工作区、Linux 终端和登录窗口均使用此设置。")
+        self.workspace_terminal = tk.StringVar(value="终端：" + self.terminal_kind.get())
+        self.data_location = tk.StringVar(value=str(store.home))
+        self.data_target = tk.StringVar(value="D:\\ENGE-SPX\\data" if os.name == "nt" and Path("D:/").exists() else "")
+        move = store.read("docker-move.json", {})
+        self.docker_target = tk.StringVar(value=move.get("target", "D:\\DockerData" if os.name == "nt" and Path("D:/").exists() else ""))
+        self.storage_status = tk.StringVar(value="可将配置、日志和运行环境下载缓存迁移到其他磁盘。")
+        self.docker_location = tk.StringVar(value="点击“检测存储位置”查看 Docker 数据目录。")
+        self.docker_move_status = tk.StringVar(value="已保存迁移计划，完成 Docker 设置后点击核验。" if move.get("phase") == "prepared" else "Docker 数据盘包含镜像、容器、工具账号和浏览器资料。")
         side = tk.Frame(root, bg=WHITE, width=216, highlightbackground=BORDER, highlightthickness=1)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
@@ -202,6 +219,8 @@ class App:
         row = self.row(card)
         for label, tool in [("Claude Code", "claude"), ("Codex", "codex"), ("Linux 终端", "shell")]:
             self.button(row, label + "  ↗", lambda t=tool: self.open_terminal(t), accent=tool == "claude", ready=True).pack(side="left", padx=(0, 10))
+        ttk.Label(card, textvariable=self.workspace_terminal, style="PanelMuted.TLabel").pack(anchor="w", pady=(14, 8))
+        self.button(card, "更换工作区终端", lambda: self.show_page("settings")).pack(anchor="w")
         card = self.card(parent, "账号与共享浏览器", "授权页面在共享 Chromium 中打开；关闭远程显示网页会保留浏览器。")
         row = self.row(card)
         for label, tool in [("登录 Claude Code", "login-claude"), ("登录 Codex", "login-codex")]:
@@ -234,13 +253,55 @@ class App:
         self.button(card, "打开数据目录", self.open_data).pack(anchor="w", pady=(12, 0))
 
     def build_settings(self, parent):
+        card = self.card(parent, "工作区终端", "选择你自己的终端打开 Claude Code、Codex 和登录窗口。工具继续在当前隔离环境中运行。")
+        self.terminal_box = ttk.Combobox(card, textvariable=self.terminal_kind, values=list(terminal.PRESETS), state="readonly")
+        self.terminal_box.pack(fill="x", pady=(0, 12))
+        self.terminal_box.bind("<<ComboboxSelected>>", lambda event: self.terminal_changed())
+        ttk.Label(card, text="终端程序（预设可自动寻找；自定义程序和便携版请选 exe）").pack(anchor="w", pady=(0, 6))
+        row = self.row(card)
+        self.terminal_path_entry = ttk.Entry(row, textvariable=self.terminal_exe)
+        self.terminal_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.button(row, "选择 exe", self.choose_terminal).pack(side="left")
+        ttk.Label(card, text="自定义启动参数（仅“自定义程序”使用）").pack(anchor="w", pady=(14, 6))
+        self.terminal_args_entry = ttk.Entry(card, textvariable=self.terminal_args)
+        self.terminal_args_entry.pack(fill="x")
+        ttk.Label(card, text="{project} 为项目目录，{title} 为窗口标题；独立的 {command} 会自动插入工作区命令。Pebrel 预设无需填写参数。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(8, 12))
+        row = self.row(card)
+        for label, action in [("检测终端", self.detect_terminal), ("测试终端", self.test_terminal), ("保存终端设置", self.save_terminal)]:
+            self.button(row, label, action, accent=label.startswith("保存")).pack(side="left", padx=(0, 8))
+        ttk.Label(card, textvariable=self.terminal_status, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(12, 0))
+        self.terminal_fields()
+        card = self.card(parent, "应用数据与下载缓存", "将 ENGE SPX 的配置、日志和下载缓存搬到 D 盘或其他磁盘，之后的下载也保存在新位置。")
+        ttk.Label(card, text="当前位置").pack(anchor="w")
+        ttk.Label(card, textvariable=self.data_location, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(6, 14))
+        row = self.row(card)
+        ttk.Entry(row, textvariable=self.data_target).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.button(row, "选择目标目录", lambda: self.choose_storage(self.data_target)).pack(side="left")
+        row = self.row(card)
+        self.button(row, "检查并迁移应用数据", self.migrate_data, True).pack(side="left", pady=(14, 0), padx=(0, 8))
+        self.button(row, "打开当前目录", self.open_data).pack(side="left", pady=(14, 0))
+        self.storage_bar = ttk.Progressbar(card, maximum=100)
+        self.storage_bar.pack(fill="x", pady=(16, 8))
+        ttk.Label(card, textvariable=self.storage_status, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w")
+        ttk.Label(card, text="迁移会停止工作区；复制校验成功后切换默认位置并释放原目录中的已校验副本。项目文件仍在你选择的项目目录中。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(8, 0))
+        card = self.card(parent, "Docker 数据盘迁移助手", "Docker Desktop 负责搬迁整个数据盘。该操作也涉及这台电脑上其他软件的 Docker 环境，请先保存工作。")
+        ttk.Label(card, textvariable=self.docker_location, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(0, 12))
+        row = self.row(card)
+        ttk.Entry(row, textvariable=self.docker_target).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.button(row, "选择 Docker 目标", lambda: self.choose_storage(self.docker_target)).pack(side="left")
+        ttk.Label(card, text="1. 检测位置，选择空目录，点击“准备迁移”。\n2. 在 Docker Desktop 的 Settings → Resources → Advanced 中，把 Disk image location 设为目标目录，再点击 Apply。\n3. 等待 Docker 恢复运行，回到这里点击“核验迁移结果”。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(14, 14))
+        row = self.row(card)
+        for label, action in [("检测存储位置", self.detect_storage), ("准备迁移", self.prepare_docker_migration), ("打开 Docker", self.start_docker), ("核验迁移结果", self.verify_docker_migration)]:
+            self.button(row, label, action, accent=label == "准备迁移").pack(side="left", padx=(0, 6))
+        ttk.Label(card, textvariable=self.docker_move_status, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(14, 8))
+        self.button(card, "查看 Docker 官方迁移说明", lambda: webbrowser.open(DOCKER_STORAGE_DOC)).pack(anchor="w")
         card = self.card(parent, "环境设置", "已建立的环境固定时区；其他时区请使用独立数据目录。")
         for label, variable in [("IANA 时区", self.timezone), ("本机 Docker 上下文", self.context)]:
             ttk.Label(card, text=label).pack(anchor="w", pady=(5, 6))
             ttk.Entry(card, textvariable=variable, width=45).pack(anchor="w", pady=(0, 12))
         self.button(card, "保存设置", self.save_settings, True).pack(anchor="w")
         card = self.card(parent, "数据与后台运行")
-        ttk.Label(card, text=str(self.store.home), wraplength=780).pack(anchor="w", pady=(10, 8))
+        ttk.Label(card, textvariable=self.data_location, wraplength=780).pack(anchor="w", pady=(10, 8))
         ttk.Label(card, text="配置保存在本机；工具账号、会话和浏览器资料位于 Docker 数据卷。\n关闭窗口后，已确认的环境与监测进程继续运行；退出工作请点击“停止环境”。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w")
         self.button(card, "打开数据目录", self.open_data).pack(anchor="w", pady=(14, 0))
         card = self.card(parent, "关于 ENGE SPX")
@@ -320,6 +381,111 @@ class App:
         values = self.captured_settings()
         if values:
             self.run(lambda e: e.save_settings(*values))
+
+    def terminal_fields(self):
+        kind = terminal.PRESETS[self.terminal_kind.get()]
+        self.terminal_path_entry.configure(state="disabled" if kind == "auto" else "normal")
+        self.terminal_args_entry.configure(state="normal" if kind == "custom" else "disabled")
+
+    def terminal_changed(self):
+        if terminal.PRESETS[self.terminal_kind.get()] != "custom":
+            self.terminal_exe.set("")
+        self.terminal_fields()
+
+    def terminal_config(self):
+        return terminal.validate({"kind": terminal.PRESETS[self.terminal_kind.get()], "executable": self.terminal_exe.get(), "arguments": self.terminal_args.get()})
+
+    def choose_terminal(self):
+        value = filedialog.askopenfilename(title="选择第三方终端程序", filetypes=[("Windows 程序", "*.exe")], parent=self.root)
+        if value:
+            self.terminal_exe.set(value)
+            if self.terminal_kind.get() == "自动选择（优先 Pebrel）":
+                self.terminal_kind.set("Pebrel" if Path(value).stem.lower() == "pebrel" else "自定义程序")
+            self.terminal_fields()
+
+    def detect_terminal(self):
+        def done(result):
+            kind, executable = result
+            self.terminal_kind.set(next(label for label, key in terminal.PRESETS.items() if key == kind))
+            self.terminal_exe.set(executable)
+            self.terminal_fields()
+            self.terminal_status.set("已找到 " + executable + "；可先测试再保存。")
+        self.run(lambda engine: terminal.resolve({"kind": "auto"}), done)
+
+    def save_terminal(self):
+        try:
+            config = self.terminal_config()
+        except SPXError as error:
+            messagebox.showinfo("检查终端设置", str(error), parent=self.root)
+            return
+        def done(result):
+            self.workspace_terminal.set("终端：" + next(label for label, key in terminal.PRESETS.items() if key == result["kind"]))
+            self.terminal_status.set("已保存。下一次启动工作区或登录窗口时生效。")
+        self.run(lambda engine: engine.save_terminal(config), done)
+
+    def test_terminal(self):
+        try:
+            config = self.terminal_config()
+        except SPXError as error:
+            messagebox.showinfo("检查终端设置", str(error), parent=self.root)
+            return
+        self.run(lambda engine: terminal.test(config, engine.docker.environment()), lambda result: self.terminal_status.set("测试窗口已启动；确认可用后点击“保存终端设置”。"))
+
+    def choose_storage(self, variable):
+        value = filedialog.askdirectory(title="选择专用的空目标文件夹", mustexist=False, parent=self.root)
+        if value:
+            variable.set(value)
+
+    def migrate_data(self):
+        target = self.data_target.get().strip()
+        def reviewed(plan):
+            text = f"当前位置：{plan['source']}\n目标位置：{plan['target']}\n数据大小：{size_text(plan['bytes'])}，共 {plan['files']} 个文件\n目标盘可用：{size_text(plan['free'])}\n\n会停止本工作区，请先保存工作。复制校验成功后清理原目录中的已校验副本；Docker 数据盘需单独迁移。\n\n开始迁移？"
+            if not messagebox.askyesno("迁移应用数据", text, parent=self.root):
+                return
+            def done(result):
+                self.migrating = False
+                self.store = Store(Path(result["target"]))
+                self.data_location.set(str(self.store.home))
+                self.data_target.set(str(self.store.home))
+                if self.on_relocated:
+                    if self.on_relocated(self.store) is False:
+                        self.close_pending = True
+                        return
+                self.refresh_nodes()
+                self.storage_bar.configure(value=100)
+                self.storage_status.set("已迁移至 " + result["target"] + "。重新检查连接后即可继续工作。")
+                if result["leftovers"]:
+                    messagebox.showinfo("数据已迁移", "原目录有少量文件未能清理，新目录已生效。详情见新目录中的 storage-migration.json。", parent=self.root)
+                self.check_docker()
+            self.migrating = True
+            self.run(lambda engine: engine.migrate_storage(target, lambda value: self.events.put(("storage", value))), done)
+        self.run(lambda engine: plan_migration(engine.store, target), reviewed)
+
+    def detect_storage(self):
+        def done(result):
+            total = sum(disk["bytes"] for disk in result["disks"])
+            source = "读取 Docker 设置" if result["configured"] else "默认候选位置，请在 Docker 设置中核对"
+            self.docker_location.set(f"{result['folder']}\n{source} · 找到 {len(result['disks'])} 个数据盘文件，文件长度合计 {size_text(total)}（稀疏磁盘的实际占用可能更小）")
+        self.run(lambda engine: desktop_storage(), done)
+
+    def prepare_docker_migration(self):
+        target = self.docker_target.get().strip()
+        if not messagebox.askyesno("准备 Docker 数据盘迁移", f"目标位置：{target or '尚未选择'}\n\n会停止本工作区，并记录现有容器、镜像和账号数据卷。随后需要在 Docker Desktop 中选择同一目录并确认迁移整个数据盘。\n\n请先保存其他 Docker 软件中的工作。继续准备？", parent=self.root):
+            return
+        def done(result):
+            self.docker_target.set(result["target"])
+            self.root.clipboard_clear()
+            self.root.clipboard_append(result["target"])
+            self.docker_move_status.set(f"已准备，目标路径已复制。另有 {result['other_running']} 个运行中的 Docker 容器。请在 Docker 的 Resources → Advanced → Disk image location 中选择 {result['target']} 并 Apply，完成后回来核验。")
+            self.start_docker()
+        self.run(lambda engine: prepare_docker_move(engine, target), done)
+
+    def verify_docker_migration(self):
+        def done(result):
+            self.docker_location.set(result["detected"])
+            self.docker_move_status.set(f"已确认数据盘位于 {result['detected']}，原容器、镜像和数据卷均已找到。请重新检查连接后继续工作。")
+            self.check_docker()
+        self.run(verify_docker_move, done)
 
     def consent_stop(self):
         return status_snapshot(self.store)["phase"] != "ready" or messagebox.askyesno("更新连接", "此操作会停止当前环境，请先保存工作。继续？", parent=self.root)
@@ -571,6 +737,11 @@ class App:
                     self.add_log(value)
                 elif kind == "progress":
                     self.update_progress(value)
+                elif kind == "storage":
+                    self.storage_status.set(value["message"])
+                    self.operation.set(value["message"])
+                    if value.get("total"):
+                        self.storage_bar.configure(value=min(95, value["bytes"] / value["total"] * 95))
                 elif kind in ("docker", "docker_error"):
                     self.doctor_pending = False
                     if kind == "docker":
@@ -593,6 +764,9 @@ class App:
                         self.download_detail.set(value)
                         self.operation.set(value)
                     else:
+                        if self.migrating:
+                            self.migrating = False
+                            self.storage_status.set("迁移未完成，请查看错误信息；原数据已保留。")
                         self.operation.set("操作未完成：" + str(value)[:160])
                         self.add_log(value)
                         if self.cancelable:
@@ -631,7 +805,16 @@ def launch(store, smoke=False):
     root = tk.Tk()
     root.withdraw()
     try:
-        App(root, store, auto_check=not smoke)
+        def relocated(new_store):
+            nonlocal instance
+            replacement = WindowInstance(new_store.home, legacy=new_store.legacy)
+            if not replacement.acquire():
+                return False
+            replacement.register(root)
+            instance.close()
+            instance = replacement
+            return True
+        App(root, store, auto_check=not smoke, on_relocated=relocated)
         instance.register(root)
         root.after_idle(root.deiconify)
         if smoke:

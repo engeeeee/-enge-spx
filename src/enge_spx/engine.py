@@ -25,6 +25,7 @@ from .docker_env import environment as docker_environment
 
 OWNER = "io.enge.spx.instance"
 ROLE = "io.enge.spx.role"
+STORAGE = "io.enge.spx.storage"
 RECIPE = "io.enge.spx.recipe"
 GATEWAY_IMAGE = "ghcr.io/sagernet/sing-box:v1.14.3"
 RESOURCES = CONTAINERS
@@ -325,9 +326,11 @@ class Engine:
 
     def ensure_container(self, role, image, arguments, command=(), name=None):
         name = name or self.prefix + "-" + role
+        storage = fingerprint(os.path.normcase(str(self.store.home)))[:24]
         obj = self.inspect(role, name)
         if obj:
-            if obj["Image"] != image:
+            moved_gateway = role == "gateway" and (obj.get("Config", {}).get("Labels") or {}).get(STORAGE) != storage
+            if obj["Image"] != image or moved_gateway:
                 if role in ("gateway", "browser") and not obj["State"]["Running"]:
                     self.docker.run("rm", obj["Id"])
                     obj = None
@@ -338,6 +341,8 @@ class Engine:
                 self.docker.run("start", name)
             return self.inspect(role, name)
         common = ["run", "-d", "--name", name, "--label", self.owner + "=" + self.store.instance, "--label", self.role + "=" + role, "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "512", "--env", "TZ=" + self.store.settings()["timezone"]]
+        if role == "gateway":
+            common += ["--label", STORAGE + "=" + storage]
         self.docker.run(*common, *arguments, image, *command)
         return self.inspect(role, name)
 
@@ -554,6 +559,20 @@ class Engine:
         with self.store.lock():
             self._stop()
 
+    def save_terminal(self, config):
+        from .terminal import validate, resolve
+        config = validate(config)
+        resolve(config)
+        with self.store.lock():
+            settings = self.store.settings()
+            settings["terminal"] = config
+            self.store.write("settings.json", settings)
+        return config
+
+    def migrate_storage(self, target, progress=lambda value: None):
+        from .storage import migrate_home
+        return migrate_home(self.store, target, self._stop, progress)
+
     def proxy_env(self, state):
         result = []
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
@@ -655,13 +674,17 @@ class Engine:
             return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), obj["Id"], *command)
 
     def terminal(self, path, tool):
+        from .terminal import launch, resolve
         commands = {"claude": ["claude"], "codex": ["codex"], "shell": ["bash", "-l"], "login-claude": ["claude", "auth", "login"], "login-codex": ["codex", "login"]}
         if tool not in commands:
             raise SPXError("未知工具。")
-        command = self.tool_command(path, commands[tool])
         if os.name != "nt":
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
-        subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE, env=self.docker.environment())
+        config = self.store.settings()["terminal"]
+        resolve(config)
+        command = self.tool_command(path, commands[tool])
+        directory, _ = self.store.project(path)
+        launch(config, command, str(directory), "ENGE SPX · " + tool, self.docker.environment())
         # Open the viewer so any account authorization URL stays in Chromium.
         self.browser()
 

@@ -18,10 +18,61 @@ class SPXError(RuntimeError):
 
 def default_home() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local/share"))
+    pointer = location_file()
+    if pointer.is_file():
+        try:
+            value = json.loads(pointer.read_text(encoding="utf-8"))
+            target = Path(value["home"])
+            if not target.is_absolute():
+                raise ValueError()
+            target = relocated_home(target)
+            identity = json.loads((target / "instance.json").read_text(encoding="utf-8"))
+            if not target.is_absolute() or identity["id"] != value["instance"]:
+                raise ValueError()
+            return target
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise SPXError(f"已迁移的数据目录不可用。请连接对应磁盘，或检查位置记录：{pointer}") from error
     current, previous = base / DATA_DIRECTORY, base / LEGACY_DATA_DIRECTORY
+    if (current / "relocated.json").is_file():
+        return relocated_home(current)
+    if not (current / "instance.json").is_file() and (previous / "relocated.json").is_file():
+        return relocated_home(previous)
     if not (current / "instance.json").is_file() and (previous / "instance.json").is_file():
         return previous
     return current
+
+
+def location_file() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local/share")) / "ENGE-SPX-location.json"
+
+
+def relocated_home(home: Path) -> Path:
+    visited, required = set(), None
+    for _ in range(16):
+        home = home.expanduser().resolve()
+        if home in visited:
+            raise SPXError("数据目录的迁移记录存在循环，请检查 relocated.json。")
+        visited.add(home)
+        marker = home / "relocated.json"
+        if not marker.exists():
+            if required is not None:
+                try:
+                    identity = json.loads((home / "instance.json").read_text(encoding="utf-8"))
+                    if identity["id"] != required:
+                        raise ValueError()
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    raise SPXError("迁移后的数据目录不可用，请检查磁盘和 relocated.json。") from error
+            return home
+        try:
+            value = json.loads(marker.read_text(encoding="utf-8"))
+            target = Path(value["home"])
+            if not target.is_absolute() or not isinstance(value["instance"], str) or required is not None and value["instance"] != required:
+                raise ValueError()
+            required = value["instance"]
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise SPXError("迁移后的数据目录不可用，请检查磁盘和 relocated.json。") from error
+        home = target
+    raise SPXError("数据目录的迁移记录过长，请直接选择最新的数据目录。")
 
 
 def atomic_json(path: Path, value) -> None:
@@ -44,7 +95,7 @@ def fingerprint(value) -> str:
 
 class Store:
     def __init__(self, home: Path | None = None):
-        self.home = (home or default_home()).expanduser().resolve()
+        self.home = relocated_home(home or default_home())
         if any(c in str(self.home) for c in (",", "\n", "\r")):
             raise SPXError("数据目录不能包含逗号或换行。")
         self.home.mkdir(parents=True, exist_ok=True)
@@ -68,13 +119,19 @@ class Store:
             raise SPXError(f"无法读取 {name}；请保留数据目录并检查文件。") from error
 
     def write(self, name: str, value) -> None:
+        self.check_location()
         atomic_json(self.home / name, value)
 
+    def check_location(self):
+        if (self.home / "relocated.json").exists():
+            raise SPXError("数据已迁移，请重新打开 ENGE SPX 后继续。")
+
     def settings(self) -> dict:
-        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {})}
+        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {})}
 
     @contextmanager
     def lock(self, name="operation"):
+        self.check_location()
         path = self.home / (name + ".lock")
         with path.open("a+b") as stream:
             stream.seek(0, os.SEEK_END)
@@ -92,6 +149,7 @@ class Store:
             except OSError as error:
                 raise SPXError("环境正在执行其他操作，请稍后重试。") from error
             try:
+                self.check_location()
                 yield
             finally:
                 stream.seek(0)

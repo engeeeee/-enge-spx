@@ -13,7 +13,7 @@ from .state import Store, SPXError
 def main():
     parser = argparse.ArgumentParser(prog="spx", description="ENGE SPX — 本机项目、共享工具与受控代理出口")
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("--data", type=Path, help="专用数据目录，默认位于 LocalAppData")
+    parser.add_argument("--data", type=Path, help="专用数据目录；默认跟随偏好设置中的迁移位置")
     parser.add_argument("--project", default=str(Path.cwd()), help="项目目录")
     parser.add_argument("--smoke-gui", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
@@ -88,6 +88,13 @@ def main():
     except (SPXError, OSError) as error:
         if sys.stderr:
             print(str(error), file=sys.stderr)
+        elif args.action in (None, "gui"):
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("无法打开 ENGE SPX", str(error), parent=root)
+            root.destroy()
         return 1
 
 

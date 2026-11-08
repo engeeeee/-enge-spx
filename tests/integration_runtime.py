@@ -15,6 +15,7 @@ import tempfile
 import time
 import urllib.request
 import urllib.parse
+from unittest.mock import patch
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
@@ -153,6 +154,42 @@ def run(context, output):
             assert execute(engine, resumed["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
             assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
             passed("project files, tool home, writable layer and browser home survive stop/recheck")
+            # Exercise the actual data-directory migration against stopped Docker
+            # resources. A gateway bind mount must follow the new path, while the
+            # project container (including its writable layer) must stay intact.
+            previous_home = store.home
+            previous_gateway = engine.inspect("gateway")["Id"]
+            previous_session = engine.inspect("session")["Id"]
+            previous_images = engine.image_ids()
+            (store.home / "cache").mkdir(exist_ok=True)
+            (store.home / "cache/partial-download.part").write_bytes(b"resume fixture")
+            with patch.dict("os.environ", {"LOCALAPPDATA": str(base / "launcher")}):
+                engine.migrate_storage(base / "relocated data", lambda value: print("MIGRATE", value["message"], flush=True))
+                assert Store().home == (base / "relocated data").resolve()
+            store = Store(previous_home)
+            engine = Engine(store, lambda message: print(message, flush=True))
+            assert (store.home / "cache/partial-download.part").read_bytes() == b"resume fixture"
+            assert not (previous_home / "cache/partial-download.part").exists()
+            assert engine.image_ids() == previous_images
+            engine.check()
+            engine.confirm()
+            lock = wait_lock(store)
+            try:
+                state = engine.ready()
+                engine._browser(state)
+                migrated, _ = engine._project(str(project), state)
+                assert migrated["Id"] == worker["Id"]
+                assert engine.inspect("session")["Id"] == previous_session
+                gateway = engine.inspect("gateway")
+                assert gateway["Id"] != previous_gateway
+                mount = next(item for item in gateway["Mounts"] if item["Destination"] == "/config")
+                assert Path(mount["Source"]).resolve() == (store.home / "gateway").resolve()
+            finally:
+                lock.__exit__(None, None, None)
+            assert (project / "marker.txt").read_text() == "project"
+            assert execute(engine, migrated["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
+            assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
+            passed("data relocation preserves project container, layer, accounts and browser; gateway uses new bind mount")
             report = {"passed": records, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
             output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         finally:
