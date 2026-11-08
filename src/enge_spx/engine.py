@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .state import Store, SPXError, fingerprint, status_snapshot
 from .brand import CONTAINERS, LEGACY_LABEL_ROOT
 from .compat import LEGACY_RECIPES, LEGACY_RUNTIME_DIRECTORY, LEGACY_BROWSER_TOKEN
+from .docker_env import environment as docker_environment
 
 OWNER = "io.enge.spx.instance"
 ROLE = "io.enge.spx.role"
@@ -56,9 +57,10 @@ class Docker:
             raise SPXError("未找到 Docker Desktop，请安装并启动 Docker Desktop，切换到 Linux containers。")
         return [self.executable, "--context", self.context, *map(str, args)]
 
-    @staticmethod
-    def environment():
-        return {k: v for k, v in os.environ.items() if k not in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")}
+    def environment(self):
+        # A desktop shortcut can inherit PATH from before Docker was installed.
+        # The absolute CLI path alone does not make its credential helpers visible.
+        return docker_environment(self.executable)
 
     def run(self, *args, timeout=60, log: Path | None = None, on_line=None, cancel=None) -> str:
         try:
@@ -210,7 +212,7 @@ class Engine:
 
     def install_prebuilt(self, progress=lambda data: None, cancel=None):
         from .downloads import manifest, download, RELEASE
-        from .proxy import proxy_url
+        from .proxy import download_proxy
         with self.store.lock():
             info = self.doctor()
             available = {}
@@ -223,9 +225,10 @@ class Engine:
                 return
             if info["architecture"] not in ("x86_64", "amd64"):
                 raise SPXError("预构建环境目前提供 x64 版本。ARM64 可选择从源码构建。")
-            progress({"stage": "manifest"})
             relay = self.store.settings()["relay"]
-            via = proxy_url(relay) if relay.get("downloads") else None
+            via, route = download_proxy(relay)
+            self.log("运行环境下载线路：" + route)
+            progress({"stage": "manifest", "route": route})
             meta = manifest("linux/amd64", self.recipes, via)
             archive = download(RELEASE + meta["filename"], self.store.home / "cache" / meta["filename"], meta["sha256"], meta["bytes"], progress, cancel, via)
             if cancel and cancel.is_set():

@@ -53,6 +53,22 @@ def proxy_url(config):
     return f"{scheme}://{auth}{host}:{value['server_port']}"
 
 
+def download_proxy(config):
+    if not config.get("downloads", True):
+        return None, "直接连接"
+    if config.get("enabled"):
+        url, origin = proxy_url(config), "已配置的本机代理"
+    else:
+        try:
+            detected = relay_config(True, detect_system_proxy())
+            url, origin = proxy_url(detected), "系统本机代理"
+        except SPXError:
+            return None, "直接连接（未检测到本机回环代理）"
+    parsed = urllib.parse.urlsplit(url)
+    # Deliberately exclude user info when reporting the chosen download route.
+    return url, f"{origin} {parsed.scheme}://{parsed.hostname}:{parsed.port}"
+
+
 def detect_system_proxy():
     if os.name == "nt":
         import winreg

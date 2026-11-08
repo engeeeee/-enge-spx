@@ -181,7 +181,8 @@ class App:
         ttk.Entry(row, textvariable=self.relay_url).pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.button(row, "读取系统代理", self.read_system_proxy).pack(side="left")
         ttk.Label(card, text="例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", style="PanelMuted.TLabel").pack(anchor="w", pady=(8, 12))
-        ttk.Checkbutton(card, text="下载运行环境时也使用本机线路", variable=self.relay_downloads).pack(anchor="w")
+        ttk.Checkbutton(card, text="下载运行环境时使用本机代理", variable=self.relay_downloads).pack(anchor="w")
+        ttk.Label(card, text="下载优先使用已配置的线路；未启用线路时读取系统回环代理。", style="PanelMuted.TLabel").pack(anchor="w", pady=(8, 0))
         card = self.card(parent, "核对并启用", "检查会停止本环境中的工作，请先保存项目，再核对实际落地出口。")
         ttk.Label(card, textvariable=self.route, wraplength=780).pack(anchor="w", pady=(0, 12))
         row = self.row(card)
@@ -528,6 +529,8 @@ class App:
             self.progressbar.configure(mode="indeterminate")
             self.progressbar.start(12)
             self.download_detail.set({"manifest": "正在通过所选下载线路读取文件信息…", "verify": "下载已完成，正在核对 SHA-256…", "import": "校验通过，正在交给 Docker 导入…", "build": "详细构建进度见运行日志。", "retry": "进度已保留，正在重新连接…"}.get(stage, "正在处理…"))
+            if stage == "manifest" and value.get("route"):
+                self.download_detail.set("正在读取文件信息 · " + value["route"])
 
     def render(self):
         state = status_snapshot(self.store)

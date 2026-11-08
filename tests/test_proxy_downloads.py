@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 import httpx
 
-from enge_spx.downloads import download, DownloadPaused
+from enge_spx.downloads import download, DownloadPaused, manifest, network_error
 from enge_spx.nodes import parse_nodes, uri_node
-from enge_spx.proxy import relay_config, proxy_url, protocol, validate_relay
+from enge_spx.proxy import relay_config, proxy_url, protocol, validate_relay, download_proxy
 from enge_spx.state import SPXError
 
 
@@ -119,6 +119,48 @@ class DownloadTests(unittest.TestCase):
         self.path.write_bytes(self.data)
         transport = httpx.MockTransport(lambda r: self.fail("Unexpected network request"))
         download("https://example.com/runtime", self.path, self.sha, len(self.data), transport=transport)
+
+    def test_manifest_timeout_explains_download_stage_without_leaking_credentials(self):
+        with patch("enge_spx.downloads.client", side_effect=httpx.ConnectTimeout("proxy http://user:secret@localhost:1234")):
+            with self.assertRaises(SPXError) as caught:
+                manifest("linux/amd64", {})
+        self.assertIn("超时", str(caught.exception))
+        self.assertNotIn("secret", str(caught.exception))
+
+    def test_http_errors_include_status_but_not_the_signed_url(self):
+        response = httpx.Response(403, request=httpx.Request("GET", "https://example.com?token=secret"))
+        error = network_error(httpx.HTTPStatusError("secret", request=response.request, response=response), "下载")
+        self.assertIn("HTTP 403", str(error))
+        self.assertNotIn("secret", str(error))
+
+
+class DownloadRouteTests(unittest.TestCase):
+    def test_uses_a_loopback_system_proxy_without_requiring_a_landing(self):
+        with patch("enge_spx.proxy.detect_system_proxy", return_value="http://127.0.0.1:7890"):
+            via, route = download_proxy({"enabled": False, "downloads": True})
+        self.assertEqual(via, "http://127.0.0.1:7890")
+        self.assertIn("系统", route)
+
+    def test_explicit_line_wins_and_route_output_hides_authentication(self):
+        settings = relay_config(True, "socks5://user:secret@127.0.0.1:1080")
+        with patch("enge_spx.proxy.detect_system_proxy", side_effect=AssertionError("Unexpected system lookup")):
+            via, route = download_proxy(settings)
+        self.assertIn("user:secret@", via)
+        self.assertNotIn("secret", route)
+        self.assertNotIn("user", route)
+
+    def test_disabling_download_proxy_respects_direct_choice(self):
+        with patch("enge_spx.proxy.detect_system_proxy", side_effect=AssertionError("Unexpected system lookup")):
+            self.assertEqual(download_proxy({"downloads": False}), (None, "直接连接"))
+
+    def test_remote_system_proxy_is_not_automatically_adopted(self):
+        with patch("enge_spx.proxy.detect_system_proxy", return_value="http://192.168.1.2:8080"):
+            via, route = download_proxy({"enabled": False, "downloads": True})
+        self.assertIsNone(via)
+
+    def test_absent_system_proxy_keeps_direct_download_available(self):
+        with patch("enge_spx.proxy.detect_system_proxy", side_effect=SPXError("not found")):
+            self.assertIsNone(download_proxy({"enabled": False, "downloads": True})[0])
 
 
 class TunnelTests(unittest.IsolatedAsyncioTestCase):

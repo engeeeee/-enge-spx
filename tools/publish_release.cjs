@@ -50,6 +50,8 @@ module.exports = async ({github, context, core}) => {
     '',
     '### 这个版本',
     '',
+    '- 修复从桌面快捷方式启动时 Docker 找不到 docker-credential-desktop 的问题，为 Docker 子进程补齐工具路径并保留原凭据配置。',
+    '- 预构建环境下载可在未设置落地时读取系统回环代理，显示实际下载线路，并分别报告超时、HTTP 状态和清单不匹配。',
     '- 统一 ENGE SPX 的界面、原创图标、程序名、安装目录、快捷方式、Windows 产品信息与发布文件名。',
     '- 使用 src/enge_spx 包结构，集中管理品牌信息，提供 spx 命令行和可重复构建的 Windows 包。',
     '- 保留 SOCKS5 / HTTP / HTTPS 导入、本机线路 → 落地代理、出口核对、下载暂停与续传。',

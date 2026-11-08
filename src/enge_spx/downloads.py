@@ -26,7 +26,21 @@ def client(proxy=None, transport=None):
                         timeout=httpx.Timeout(20, read=25), event_hooks={"request": [secure]})
 
 
+def network_error(error, stage):
+    import httpx
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        reason = "本版本文件暂不可用" if status == 404 else "下载服务拒绝请求或正在限流" if status in (403, 429) else "下载服务返回错误"
+        return SPXError(f"{stage}失败：{reason}（HTTP {status}）。请检查本机代理，稍后重试。")
+    if isinstance(error, httpx.TimeoutException):
+        return SPXError(f"{stage}超时。请在“连接与代理”检查本机代理，开启“下载运行环境时使用本机代理”后重试。")
+    if isinstance(error, httpx.ProxyError):
+        return SPXError(f"{stage}失败：无法连接本机下载代理，请检查线路客户端、监听端口和代理认证。")
+    return SPXError(f"{stage}失败：无法建立 HTTPS 连接（{type(error).__name__}）。请检查网络、本机代理和系统时间。")
+
+
 def manifest(platform, recipes, proxy=None):
+    import httpx
     filename = "ENGE-SPX-Runtime-" + platform.replace("/", "-") + "-" + __version__ + ".json"
     try:
         with client(proxy) as session:
@@ -47,8 +61,12 @@ def manifest(platform, recipes, proxy=None):
         if value["filename"] != expected:
             raise ValueError()
         return value
-    except Exception as error:
-        raise SPXError("暂时无法获取本版本运行环境。请检查本机线路后重试，或在高级选项中选择从源码构建。") from error
+    except SPXError:
+        raise
+    except (httpx.RequestError, httpx.HTTPStatusError) as error:
+        raise network_error(error, "获取运行环境信息") from error
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError) as error:
+        raise SPXError("运行环境清单与当前程序不匹配或格式异常，请确认使用同一版本的程序和环境包。") from error
 
 
 def digest(path, cancel=None):
@@ -115,7 +133,7 @@ def download(url, target, sha256, size, progress=lambda data: None, cancel=None,
             if cancel and cancel.is_set():
                 raise DownloadPaused("下载已暂停。") from error
             if attempt == 3 or isinstance(error, httpx.HTTPStatusError) and error.response.status_code < 500 and error.response.status_code != 429:
-                raise SPXError("下载中断，已保留进度。请检查本机线路代理或网络后点击重试。") from error
+                raise SPXError(str(network_error(error, "运行环境下载")) + " 已保留下载进度。") from error
             progress({"stage": "retry", "attempt": attempt + 1})
             if cancel:
                 cancel.wait(min(2**attempt, 5))

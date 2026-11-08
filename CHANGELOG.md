@@ -1,5 +1,19 @@
 # Changes
 
+## 0.3.1 Preview — 2026-11-08
+
+- Fix Docker credential-helper lookup when ENGE SPX inherits a PATH that does
+  not include the Docker Desktop tools. Docker subprocesses receive the CLI's
+  directory and available Desktop helper directories while retaining the user's
+  Docker credential configuration.
+- Let runtime downloads use the system's loopback proxy when proxy downloads
+  are enabled and no explicit line proxy is selected. An explicit line takes
+  priority; disabling proxy downloads keeps a direct connection.
+- Show the chosen download route without credentials, and distinguish timeouts,
+  HTTP status errors and incompatible runtime manifests in installation feedback.
+- Add regression coverage for Windows credential-helper resolution and download
+  routing. Container recipes are unchanged, preserving compatible installed images.
+
 ## 0.3.0 Preview — 2026-11-08
 
 - Introduce ENGE SPX as engeeeee's separately maintained personal project.

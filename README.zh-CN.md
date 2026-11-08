@@ -5,7 +5,7 @@
 
 ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为 Windows 上的 Claude Code、Codex 和共享 Chromium 提供 Linux 容器工作环境。你可以直接使用自己的项目文件，并将流量按“本机线路 → 落地代理 → 目标服务”的顺序转发。
 
-当前版本：**0.3.0 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
+当前版本：**0.3.1 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
 
 ![ENGE SPX 工作台](docs/images/spx-overview.png)
 
@@ -13,10 +13,10 @@ ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为
 
 ## 下载安装
 
-打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.0-windows)：
+打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.1-windows)：
 
-- **安装版**：`ENGE-SPX-Windows-x64-0.3.0-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
-- **免安装版**：`ENGE-SPX-Windows-x64-0.3.0-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
+- **安装版**：`ENGE-SPX-Windows-x64-0.3.1-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
+- **免安装版**：`ENGE-SPX-Windows-x64-0.3.1-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
 
 两个版本都不需要另外安装 Python。命令行入口为 `spx.exe`。程序尚未代码签名。
 
@@ -36,7 +36,7 @@ Claude Code / Codex / Chromium → 本机线路代理 → 落地代理 → 目�
 
 最终出口由落地提供，能否加速取决于线路质量。线路断开或出口变化被检测后，环境停止，不自动切换为直连。检测存在周期和网络超时。
 
-勾选“下载运行环境时也使用本机线路”可让环境包下载经过前置代理。这个选项不设置 Docker 自身拉取镜像的代理；源码构建使用 Docker Desktop 的网络配置。
+勾选“下载运行环境时使用本机代理”后，下载优先使用已配置的前置线路；未启用前置线路时，自动读取系统中的回环代理。取消勾选则直接下载。界面会显示实际下载线路，代理密码不显示在日志里。这个选项不设置 Docker 自身拉取镜像的代理；源码构建使用 Docker Desktop 的网络配置。
 
 ## 导入格式
 
