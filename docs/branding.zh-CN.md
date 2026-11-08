@@ -1,7 +1,7 @@
 # ENGE SPX 的项目标识
 
 项目名称为 **ENGE SPX**，维护者为 **engeeeee**，独立仓库地址为
-[engeeeee/-enge-spx](https://github.com/engeeeee/-enge-spx)。新仓库使用独立的
+[engeeeee/ENGE-SPX](https://github.com/engeeeee/ENGE-SPX)。新仓库使用独立的
 Git 提交起点，没有连接原仓库的 fork 网络。
 
 | 位置 | 当前名称 |

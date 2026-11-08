@@ -2,8 +2,8 @@
 
 日期：2026-11-08。应用代码提交：`570dc74bd20169268f7dfd4f47a57ba118dab1c8`。
 
-- [修复版下载](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.1-windows)
-- [完整成功构建](https://github.com/engeeeee/-enge-spx/actions/runs/42456082216)
+- [修复版下载](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.3.1-windows)
+- [完整成功构建](https://github.com/engeeeee/ENGE-SPX/actions/runs/42456082216)
 - [安装问题排查](installation-troubleshooting.zh-CN.md)
 
 用户提供的源码构建日志显示，Docker 找到了 CLI，却无法通过 PATH 找到

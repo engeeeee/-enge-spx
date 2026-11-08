@@ -1,5 +1,22 @@
 # Changes
 
+## 0.6.0 Preview — 2026-11-08
+
+- Prepare a workspace in one flow: detect or start Docker Desktop, wait for the
+  local Linux engine, verify or install runtime images, then check the configured
+  route and require explicit exit confirmation. Opening the app does not start
+  the first runtime download. Add cancellation, a bounded Desktop wait, startup
+  preferences, actionable installation feedback and a private-data-free summary.
+- Support Docker's management CLI and older Desktop installations, including
+  custom-drive paths. Never switch the global Docker context or container engine;
+  reuse matching images and preserve existing account and project data.
+- Add `spx start` and `spx diagnostics`, plus startup, cancellation and native
+  Windows fake-Desktop integration checks.
+- Move all active repository and release URLs to `engeeeee/ENGE-SPX`. Make the
+  default README Chinese, lead with the app's purpose and core isolation/routing
+  features, and add a quick start, security model, contribution and support docs,
+  issue/PR templates and a versioned Chinese About configuration.
+
 ## 0.5.2 Preview — 2026-11-08
 
 - Prevent Docker-injected `NO_PROXY` and other proxy environment variables from
@@ -87,7 +104,7 @@
   GUI title, executable metadata, installer, shortcuts and `spx` command.
 - Organize the Python implementation under `src/enge_spx`, package its resources
   and separate Windows build files under `packaging/windows`.
-- Move source and release links to `engeeeee/-enge-spx` and publish verified
+- Move source and release links to `engeeeee/ENGE-SPX` and publish verified
   Windows and runtime packages through the independent repository's CI.
 - Preserve supported earlier Windows installations through explicit data,
   resource, runtime-protocol and browser-profile compatibility handling.

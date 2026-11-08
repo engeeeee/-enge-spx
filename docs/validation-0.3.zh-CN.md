@@ -3,8 +3,8 @@
 日期：2026-11-08。被构建和测试的应用代码提交：
 `96bc5f19b5f0baeffd73003189e4c82967254cd9`。
 
-- [发布与下载](https://github.com/engeeeee/-enge-spx/releases/tag/v0.3.0-windows)
-- [成功的完整构建](https://github.com/engeeeee/-enge-spx/actions/runs/42452653604)
+- [发布与下载](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.3.0-windows)
+- [成功的完整构建](https://github.com/engeeeee/ENGE-SPX/actions/runs/42452653604)
 - [品牌与界面](branding.zh-CN.md)
 
 ## 独立项目与标识

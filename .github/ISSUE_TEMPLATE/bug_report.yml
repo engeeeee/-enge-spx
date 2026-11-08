@@ -1,0 +1,39 @@
+name: 问题报告
+description: 报告可复现的启动、下载、代理或工作区问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: 请先查看快速入门和已有问题。不要粘贴节点、订阅、密码、令牌或未经脱敏的日志；安全漏洞请遵循 SECURITY.md。
+  - type: input
+    id: version
+    attributes:
+      label: ENGE SPX 版本与安装方式
+      placeholder: 例如 0.6.0 Preview，安装版 / 便携版 / 源码
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 系统和 Docker 环境
+      description: Windows 版本、Docker Desktop / Engine 版本、Linux containers / WSL 2 状态；可附“复制诊断信息”的摘要。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 从哪一页、点击什么、何时出现问题；代理问题请说明软件内双跳 / 本机兼容 / 单落地模式。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 已脱敏的错误信息或截图
+      description: 删除节点、订阅、密码、令牌、个人路径和真实出口 IP 后再提交。

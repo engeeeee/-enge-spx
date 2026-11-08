@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
+import json
 from pathlib import Path
 import queue
 import threading
@@ -21,6 +22,7 @@ from .state import Store, SPXError, atomic_json, status_snapshot
 from .line_security import LINE_MODES, v2ray_rules
 from . import terminal
 from .storage import DOCKER_STORAGE_DOC, desktop_storage, plan_migration, prepare_docker_move, verify_docker_move
+from .startup import StartupIssue, DOCKER_INSTALL_URL, diagnostics, prepare_workspace
 
 BG, WHITE, INK, MUTED, BLUE, BORDER = "#F3F5F9", "#FFFFFF", "#17243D", "#78849A", "#3355D6", "#E6EAF2"
 
@@ -54,6 +56,10 @@ class App:
         self.compatible = False
         self.runtime_ok = len(store.read("images.json", {})) == 3
         self.doctor_pending = False
+        self.docker_ready = False
+        self.startup_active = False
+        self.startup_error = None
+        self.last_docker_info = None
         self.style()
         root.title(APP_NAME)
         root.geometry("1180x840")
@@ -65,6 +71,10 @@ class App:
             setattr(self, key, tk.StringVar(value=value))
         self.relay_enabled = tk.BooleanVar(value=settings["relay"].get("enabled", False))
         self.relay_downloads = tk.BooleanVar(value=settings["relay"].get("downloads", True))
+        self.auto_start_docker = tk.BooleanVar(value=settings.get("auto_start_docker", True))
+        self.startup_title = tk.StringVar(value="准备你的工作区")
+        self.startup_detail = tk.StringVar(value="软件会自动启动 Docker Desktop，核验运行环境，再引导你检查连接。")
+        self.startup_steps = {key: tk.StringVar(value=value) for key, value in {"docker": "○ Docker Desktop：等待检测", "runtime": "○ 运行环境：等待核验", "connection": "○ 线路与落地：等待配置或检查", "review": "○ 核对出口：由你确认后启用"}.items()}
         saved_relay = settings["relay"]
         default_mode = saved_relay.get("mode", "local" if saved_relay.get("enabled") else "managed")
         self.line_mode = tk.StringVar(value=next(label for label, value in LINE_MODES.items() if value == default_mode))
@@ -179,8 +189,28 @@ class App:
         self.dot.pack(anchor="w")
         ttk.Label(card, textvariable=self.phase, font=("Segoe UI", 19, "bold")).pack(anchor="w", pady=(6, 8))
         ttk.Label(card, textvariable=self.detail, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w")
-        self.next_button = self.button(card, "准备运行环境", self.next_step, True)
-        self.next_button.pack(anchor="w", pady=(18, 0))
+        actions = self.row(card)
+        self.next_button = self.button(actions, "准备运行环境", self.next_step, True)
+        self.next_button.pack(side="left", pady=(18, 0), padx=(0, 10))
+        self.startup_cancel = ttk.Button(actions, text="取消准备", command=self.pause, state="disabled")
+        self.startup_cancel.pack(side="left", pady=(18, 0))
+        card = self.card(parent, "一键准备")
+        ttk.Label(card, textvariable=self.startup_title, font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 7))
+        ttk.Label(card, textvariable=self.startup_detail, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(0, 12))
+        for value in self.startup_steps.values():
+            ttk.Label(card, textvariable=value, style="PanelMuted.TLabel").pack(anchor="w", pady=3)
+        self.startup_bar = ttk.Progressbar(card, maximum=100)
+        self.startup_bar.pack(fill="x", pady=(12, 12))
+        ttk.Label(card, text="下载代理（留空读取系统代理，首次安装无需先导入节点）").pack(anchor="w", pady=(0, 6))
+        row = self.row(card)
+        ttk.Entry(row, textvariable=self.relay_url).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.button(row, "读取系统代理", self.read_system_proxy).pack(side="left")
+        ttk.Checkbutton(card, text="通过本机代理下载；不可用时停止，主动取消才直连", variable=self.relay_downloads).pack(anchor="w", pady=(10, 8))
+        ttk.Label(card, text="首次运行环境约 1 GB，支持续传；已有匹配环境会直接复用。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(0, 10))
+        actions = self.row(card)
+        self.startup_help = self.button(actions, "快速入门与排障", self.startup_help_action)
+        self.startup_help.pack(side="left", padx=(0, 10))
+        self.button(actions, "复制诊断信息", self.copy_diagnostics).pack(side="left")
         row = ttk.Frame(parent, style="App.TFrame")
         row.pack(fill="x", pady=(0, 16))
         for column, (label, variable) in enumerate([("落地出口 IP", self.ip), ("预计地区", self.region), ("环境时区", self.timezone)]):
@@ -280,6 +310,11 @@ class App:
         self.button(card, "打开数据目录", self.open_data).pack(anchor="w", pady=(12, 0))
 
     def build_settings(self, parent):
+        card = self.card(parent, "启动行为", "打开软件后自动检测 Docker；未运行时尝试启动并等待 Linux 引擎就绪。")
+        startup_toggle = ttk.Checkbutton(card, text="打开 ENGE SPX 时自动启动 Docker Desktop", variable=self.auto_start_docker, command=self.save_startup_preference)
+        startup_toggle.pack(anchor="w")
+        self.buttons.append((startup_toggle, False))
+        ttk.Label(card, text="关闭此选项后，仍可点击“一键准备”明确启动。软件退出不会自动关闭 Docker 或其他容器。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(10, 0))
         card = self.card(parent, "工作区终端", "选择你自己的终端打开 Claude Code、Codex 和登录窗口。工具继续在当前隔离环境中运行。")
         self.terminal_box = ttk.Combobox(card, textvariable=self.terminal_kind, values=list(terminal.PRESETS), state="readonly")
         self.terminal_box.pack(fill="x", pady=(0, 12))
@@ -374,6 +409,8 @@ class App:
                 self.events.put(("done", (result, done, compatible)))
             except DownloadPaused as error:
                 self.events.put(("paused", str(error)))
+            except StartupIssue as error:
+                self.events.put(("startup_error", {"code": error.code, "message": str(error)}))
             except Exception as error:
                 self.events.put(("error", str(error)))
         threading.Thread(target=worker, daemon=True).start()
@@ -422,6 +459,70 @@ class App:
         values = self.captured_settings()
         if values:
             self.run(lambda e: e.save_settings(*values))
+
+    def save_startup_preference(self):
+        value = self.auto_start_docker.get()
+        def action(engine):
+            with engine.store.lock():
+                settings = engine.store.settings()
+                settings["auto_start_docker"] = value
+                engine.store.write("settings.json", settings)
+        self.run(action)
+
+    def startup_help_action(self):
+        if self.startup_error == "docker_missing":
+            webbrowser.open(DOCKER_INSTALL_URL)
+        elif self.startup_error in ("docker_timeout", "docker_configuration", "launch_failed"):
+            self.start_docker()
+        else:
+            webbrowser.open(PROJECT_URL + "/blob/main/docs/quickstart.zh-CN.md")
+
+    def copy_diagnostics(self):
+        value = diagnostics(self.store, self.last_docker_info, self.startup_error)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(json.dumps(value, ensure_ascii=False, indent=2))
+        self.operation.set("已复制诊断信息，不包含节点、密码、出口 IP 或项目路径。")
+
+    def preparation_progress(self, value):
+        if value.get("stage") in ("manifest", "download", "retry", "verify", "import", "build", "done"):
+            self.events.put(("progress", value))
+        self.events.put(("startup", value))
+
+    def prepare(self, install=True, check=True, source=False):
+        if self.busy:
+            return
+        if not self.consent_stop():
+            return
+        values = self.captured_settings()
+        if not values:
+            return
+        self.startup_active = True
+        self.startup_error = None
+        self.show_page("overview")
+        def done(result):
+            self.startup_active = False
+            self.docker_ready = True
+            self.last_docker_info = result["docker"]
+            self.runtime_ok = result["runtime"]
+            self.docker_text.set(f"Docker 已就绪 · {result['docker']['docker']} · {result['docker']['architecture']}")
+            self.runtime_text.set("运行环境已核验" if self.runtime_ok else "尚未安装运行环境")
+            self.startup_title.set("环境已准备好" if self.runtime_ok else "Docker 已就绪")
+            self.startup_steps["docker"].set("✓ Docker Desktop：Linux 引擎已就绪")
+            self.startup_steps["runtime"].set("✓ 运行环境：已核验" if self.runtime_ok else "○ 运行环境：等待安装")
+            self.startup_bar.stop()
+            self.startup_bar.configure(mode="determinate", value=100 if self.runtime_ok else 35)
+            phase = result["phase"]
+            self.render()
+            if phase == "needs_configuration":
+                self.operation.set("环境已准备好，接下来配置线路和落地。")
+                self.show_page("connection")
+                if not self.nodes:
+                    self.proxy_dialog()
+            elif phase == "review":
+                self.confirm()
+            elif phase == "ready":
+                self.show_page("workspace")
+        self.run(lambda engine: prepare_workspace(engine, values, self.preparation_progress, self.cancel, install=install, check=check, source=source), done, cancelable=True)
 
     def terminal_fields(self):
         kind = terminal.PRESETS[self.terminal_kind.get()]
@@ -532,14 +633,7 @@ class App:
         return status_snapshot(self.store)["phase"] != "ready" or messagebox.askyesno("更新连接", "此操作会停止当前环境，请先保存工作。继续？", parent=self.root)
 
     def check(self):
-        if not self.consent_stop():
-            return
-        values = self.captured_settings()
-        if values:
-            def action(engine):
-                engine.save_settings(*values)
-                return Engine(self.store, engine.log).check()
-            self.run(action)
+        self.prepare()
 
     def confirm(self):
         if self.settings_match() and messagebox.askyesno("核对线路与落地", f"前置线路出口：{self.line_ip.get()}\n落地出口 IP：{self.ip.get()}\n预计地区：{self.region.get()}\n环境时区：{self.timezone.get()}\n\n{self.line_status.get()}\n\n确认上述线路与落地后启用环境？", parent=self.root):
@@ -666,56 +760,44 @@ class App:
         ttk.Button(row, text="导入", command=accept, style="Accent.TButton").pack(side="right")
 
     def install_runtime(self, source=False):
-        values = self.captured_settings()
-        if not values:
-            return
-        self.show_page("downloads")
-        def action(engine):
-            engine.save_settings(*values)
-            current = Engine(self.store, engine.log)
-            progress = lambda value: self.events.put(("progress", value))
-            return current.install(progress, self.cancel) if source else current.install_prebuilt(progress, self.cancel)
-        def done(result):
-            self.runtime_ok = True
-            self.download_title.set("安装完成")
-            self.download_detail.set("现在可以配置落地代理并核对连接。")
-            self.check_docker()
-        self.run(action, done, cancelable=True)
+        self.prepare(check=False, source=source)
 
     def pause(self):
         self.cancel.set()
-        self.download_detail.set("正在暂停，已完成部分会保留…")
+        message = "正在取消准备；当前检查或导入步骤完成后停止后续操作，已有数据会保留…" if self.startup_active else "正在暂停，已完成部分会保留…"
+        self.download_detail.set(message)
+        self.startup_detail.set(message)
 
-    def check_docker(self):
-        if self.doctor_pending:
+    def check_docker(self, auto_start_override=None):
+        if self.busy:
             return
-        self.doctor_pending = True
-        self.docker_text.set("正在检测 Docker Desktop…")
-        def worker():
-            try:
-                engine = Engine(self.store)
-                info = engine.doctor()
-                try:
-                    engine.image_ids()
-                    installed = True
-                except SPXError:
-                    installed = False
-                state = self.store.read("runtime.json", {})
-                valid = state.get("phase") != "ready" or state.get("policy") == engine.policy()
-                self.events.put(("docker", (info, installed, valid)))
-            except Exception as error:
-                self.events.put(("docker_error", str(error)))
-        threading.Thread(target=worker, daemon=True).start()
+        self.startup_active = True
+        self.startup_error = None
+        auto_start = self.auto_start_docker.get() if auto_start_override is None else auto_start_override
+        def done(result):
+            self.startup_active = False
+            self.docker_ready = True
+            self.last_docker_info = result["docker"]
+            self.runtime_ok = result["runtime"]
+            self.docker_text.set(f"Docker 已就绪 · {result['docker']['docker']} · {result['docker']['architecture']}")
+            self.runtime_text.set("运行环境已核验" if self.runtime_ok else "点击“一键准备”获取运行环境")
+            self.startup_steps["runtime"].set("✓ 运行环境：已核验" if self.runtime_ok else "○ 运行环境：等待安装")
+            self.startup_title.set("Docker 已就绪" if not self.runtime_ok else "运行环境已核验")
+            self.startup_detail.set("点击“一键准备”继续安装和连接检查。" if not self.runtime_ok else "点击“一键启动并检查”继续；出口仍由你核对后启用。")
+            self.startup_bar.stop()
+            self.startup_bar.configure(mode="determinate", value=70 if self.runtime_ok else 35)
+        self.run(lambda engine: prepare_workspace(engine, progress=self.preparation_progress, cancel=self.cancel, auto_start=auto_start, install=False, check=False), done, cancelable=True)
 
     def start_docker(self):
-        path = Docker.desktop_app()
+        docker = Docker(self.context.get().strip())
+        path = Docker.desktop_app(docker.executable)
         if not path:
             self.docker_text.set("未找到 Docker Desktop，请先点击“下载 Docker”。")
             return
         import subprocess
         subprocess.Popen([str(path)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.docker_text.set("Docker Desktop 正在启动，稍后可重新检测。")
-        self.root.after(5000, self.check_docker)
+        self.root.after(300, lambda: self.check_docker(auto_start_override=True))
 
     def open_data(self):
         if os.name == "nt":
@@ -725,18 +807,42 @@ class App:
 
     def next_step(self):
         state = status_snapshot(self.store)
-        if not self.runtime_ok:
-            self.show_page("downloads")
+        if not self.runtime_ok or not self.docker_ready:
+            self.prepare()
         elif not self.nodes:
             self.show_page("connection")
             self.proxy_dialog()
-        elif state["phase"] == "ready" and self.settings_match() and self.compatible:
+        elif state["phase"] == "ready" and self.settings_match() and self.compatible and state["guard_age"] <= 100:
             self.show_page("workspace")
         elif state["phase"] == "review" and self.settings_match():
             self.confirm()
         else:
-            self.show_page("connection")
-            self.check()
+            self.prepare()
+
+    def update_startup(self, value):
+        stage = value.get("stage")
+        messages = {"docker_check": "正在检查 Docker", "docker_start": "正在启动 Docker Desktop", "docker_wait": "等待 Linux 引擎就绪", "docker_ready": "Docker 已就绪", "runtime_check": "正在核验运行环境", "runtime_install": "准备运行环境", "configure": "环境已准备好", "connection_check": "正在检查线路与落地", "review": "请核对出口", "ready": "工作环境已就绪"}
+        self.startup_title.set(messages.get(stage, "正在安装运行环境"))
+        self.startup_detail.set(value.get("message", self.download_detail.get()))
+        self.operation.set(self.startup_title.get())
+        if stage in ("docker_check", "docker_start", "docker_wait"):
+            self.startup_steps["docker"].set("… Docker Desktop：" + self.startup_title.get())
+            self.startup_bar.configure(mode="indeterminate")
+            self.startup_bar.start(12)
+        elif stage == "docker_ready":
+            self.docker_ready = True
+            self.startup_steps["docker"].set("✓ Docker Desktop：Linux 引擎已就绪")
+        elif stage in ("runtime_check", "runtime_install", "manifest", "download", "retry", "verify", "import", "build"):
+            self.startup_steps["runtime"].set("… 运行环境：" + ("核验中" if stage == "runtime_check" else self.download_title.get()))
+        elif stage in ("done", "configure", "connection_check", "review", "ready"):
+            self.startup_steps["runtime"].set("✓ 运行环境：已核验")
+            if stage == "configure":
+                self.startup_steps["connection"].set("○ 线路与落地：请添加节点")
+            elif stage == "connection_check":
+                self.startup_steps["connection"].set("… 线路与落地：检查中")
+            elif stage in ("review", "ready"):
+                self.startup_steps["connection"].set("✓ 线路与落地：检查通过")
+                self.startup_steps["review"].set("✓ 核对出口：已确认" if stage == "ready" else "○ 核对出口：等待你的确认")
 
     def update_progress(self, value):
         stage = value.get("stage")
@@ -759,7 +865,7 @@ class App:
     def render(self):
         state = status_snapshot(self.store)
         matching = self.settings_match()
-        ready = state["phase"] == "ready" and matching and self.compatible and state["guard_age"] <= 100
+        ready = state["phase"] == "ready" and matching and self.compatible and self.docker_ready and state["guard_age"] <= 100
         title = {"stopped": "环境已停止", "checking": "正在检查落地出口", "review": "请核对落地出口", "ready": "连接已确认，开始工作"}.get(state["phase"], "等待配置")
         detail = state.get("reason") or ("后台持续监测连接，线路或出口变化后会停止本环境。" if ready else "检查落地出口后，再确认启用环境。")
         if not self.runtime_ok:
@@ -770,6 +876,10 @@ class App:
             title, detail = "代理设置已更改", "当前选择需要重新检查和确认。"
         elif state["phase"] == "ready" and not ready:
             title, detail = "已有连接需要重新核验", "请检查当前环境，再核对落地出口。"
+        if self.startup_active:
+            title, detail = self.startup_title.get(), self.startup_detail.get()
+        elif self.startup_error:
+            title, detail = "完成 Docker 准备后继续", self.startup_detail.get()
         self.phase.set(title)
         self.detail.set(detail)
         self.dot.configure(fg="#16866C" if ready else "#D49A33" if state["phase"] == "review" else MUTED)
@@ -777,6 +887,14 @@ class App:
         self.ip.set(evidence.get("ip", "—"))
         self.region.set(evidence.get("country", "—") + " / " + evidence.get("city", "—"))
         self.line_ip.set(evidence.get("line_ip", "—"))
+        if ready:
+            self.startup_steps["connection"].set("✓ 线路与落地：检查通过")
+            self.startup_steps["review"].set("✓ 核对出口：已确认")
+        elif state["phase"] == "review":
+            self.startup_steps["review"].set("○ 核对出口：等待你的确认")
+        elif state["phase"] == "stopped" and not self.busy:
+            self.startup_steps["connection"].set("○ 线路与落地：等待配置或检查")
+            self.startup_steps["review"].set("○ 核对出口：由你确认后启用")
         if not self.relay_enabled.get():
             self.line_status.set("前置线路未启用：本机会连接落地，仅核对落地出口；依赖 v2ray 时请启用并选择对应模式。")
         elif LINE_MODES[self.line_mode.get()] == "managed":
@@ -792,9 +910,11 @@ class App:
             self.route.set((("软件内固定线路 → " if LINE_MODES[self.line_mode.get()] == "managed" else "v2ray 本机线路 → ") if self.relay_enabled.get() else "") + f"{protocol(node)} 落地  {value['server']}:{value['server_port']}  →  目标服务")
         for button, needs_ready in self.buttons:
             button.configure(state="disabled" if self.busy or needs_ready and not ready else "normal")
-        self.confirm_button.configure(state="normal" if not self.busy and state["phase"] == "review" and matching else "disabled")
+        self.confirm_button.configure(state="normal" if not self.busy and self.docker_ready and state["phase"] == "review" and matching else "disabled")
         self.pause_button.configure(state="normal" if self.busy and self.cancelable and not self.cancel.is_set() else "disabled")
-        self.next_button.configure(text="准备运行环境" if not self.runtime_ok else "添加落地代理" if not self.nodes else "打开项目工作区" if ready else "核对并确认" if state["phase"] == "review" and matching else "检查当前连接")
+        self.startup_cancel.configure(state="normal" if self.busy and self.startup_active and self.cancelable and not self.cancel.is_set() else "disabled")
+        self.startup_help.configure(text="安装 Docker Desktop" if self.startup_error == "docker_missing" else "打开 Docker Desktop" if self.startup_error in ("docker_timeout", "docker_configuration", "launch_failed") else "快速入门与排障")
+        self.next_button.configure(text="一键准备环境" if not self.runtime_ok else "添加落地代理" if not self.nodes else "打开项目工作区" if ready else "核对并确认" if state["phase"] == "review" and matching else "一键启动并检查")
 
     def poll(self):
         try:
@@ -809,6 +929,8 @@ class App:
                     self.operation.set(value["message"])
                     if value.get("total"):
                         self.storage_bar.configure(value=min(95, value["bytes"] / value["total"] * 95))
+                elif kind == "startup":
+                    self.update_startup(value)
                 elif kind in ("docker", "docker_error"):
                     self.doctor_pending = False
                     if kind == "docker":
@@ -821,16 +943,33 @@ class App:
                 else:
                     self.busy = False
                     self.progressbar.stop()
+                    self.startup_bar.stop()
                     if kind == "done":
                         result, callback, self.compatible = value
                         self.operation.set("操作完成")
                         if callback:
                             callback(result)
                     elif kind == "paused":
+                        self.startup_active = False
+                        self.startup_title.set("准备已取消")
+                        self.startup_detail.set(value)
                         self.download_title.set("已暂停")
                         self.download_detail.set(value)
                         self.operation.set(value)
+                    elif kind == "startup_error":
+                        self.startup_active = False
+                        self.docker_ready = False
+                        self.startup_error = value["code"]
+                        self.startup_title.set("需要完成 Docker 准备")
+                        self.startup_detail.set(value["message"])
+                        self.docker_text.set(value["message"])
+                        self.operation.set(value["message"])
+                        self.add_log(value["message"])
                     else:
+                        if self.startup_active:
+                            self.startup_active = False
+                            self.startup_title.set("准备未完成，可以重试")
+                            self.startup_detail.set(str(value))
                         if self.migrating:
                             self.migrating = False
                             self.storage_status.set("迁移未完成，请查看错误信息；原数据已保留。")
@@ -854,7 +993,7 @@ class App:
 
     def close(self):
         if self.busy:
-            if self.cancelable and messagebox.askyesno("暂停并退出", "暂停当前操作并退出？已下载的内容会保留。", parent=self.root):
+            if self.cancelable and messagebox.askyesno("取消并退出", "取消当前准备并退出？已下载内容会保留，Docker Desktop 不会自动关闭。" if self.startup_active else "暂停当前操作并退出？已下载的内容会保留。", parent=self.root):
                 self.close_pending = True
                 self.pause()
             elif not self.cancelable:

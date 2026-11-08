@@ -2,8 +2,8 @@
 
 日期：2026-11-08。发布代码提交：`ced0258b753b842b6a1c4c363e78be02d072f174`。
 
-- [下载 0.4.0 Preview](https://github.com/engeeeee/-enge-spx/releases/tag/v0.4.0-windows)
-- [完整成功构建](https://github.com/engeeeee/-enge-spx/actions/runs/42463588476)
+- [下载 0.4.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.4.0-windows)
+- [完整成功构建](https://github.com/engeeeee/ENGE-SPX/actions/runs/42463588476)
 - [设置与恢复说明](storage-terminal.zh-CN.md)
 
 Windows 和 Linux 各执行 82 项检查，Windows 跳过 2 项、Linux 跳过 3 项平台专用检查，其余通过。Windows 实际执行了不同盘符之间的迁移测试：保留安装标识和断点文件，切换默认位置，清理原文件，并通过原路径重定向重新打开数据。目标目录的 Windows 访问权限设置也在这些实际迁移中执行。

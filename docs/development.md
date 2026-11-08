@@ -55,4 +55,17 @@ for Docker image-store compatibility. Published assets are not silently replaced
 The CI workflow builds and tests on Windows and Linux, runs actual Linux x64
 containers and tests both Docker image stores. On the independent maintained
 repository's main branch, successful Windows and container jobs enable a
-versioned prerelease. The publication script is scoped to engeeeee/-enge-spx.
+versioned prerelease. The publication script is scoped to engeeeee/ENGE-SPX.
+
+The default README is Chinese; keep the English README consistent when changing
+startup behavior or security claims. Repository About metadata lives in
+`.github/repository.json`; it is applied separately with
+`tools/Update-Repository.ps1` by an authorized maintainer. A file commit alone
+does not change GitHub settings.
+
+The startup unit suite covers readiness, legacy CLI fallback, bounded waiting,
+cancellation, context restrictions, existing-image reuse and explicit exit
+review. Windows CI compiles an isolated fake Desktop/CLI pair to exercise real
+process launching from a custom path with spaces; it never launches the runner's
+actual Docker Desktop. This is not a substitute for first-install WSL/permission
+dialogs or a physical Windows + Docker Desktop + v2ray + Pebrel acceptance run.

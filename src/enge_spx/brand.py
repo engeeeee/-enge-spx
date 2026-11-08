@@ -4,7 +4,7 @@ from pathlib import Path
 APP_NAME = "ENGE SPX"
 APP_ID = "ENGE.SPX"
 MAINTAINER = "engeeeee"
-REPOSITORY = "engeeeee/-enge-spx"
+REPOSITORY = "engeeeee/ENGE-SPX"
 PROJECT_URL = "https://github.com/" + REPOSITORY
 DATA_DIRECTORY = "ENGE-SPX"
 PACKAGE_RESOURCES = Path(__file__).resolve().parent / "resources"

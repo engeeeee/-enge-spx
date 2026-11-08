@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 快速入门与排障
+    url: https://github.com/engeeeee/ENGE-SPX/blob/main/docs/quickstart.zh-CN.md
+    about: Docker、一键准备、下载和首次配置说明
+  - name: 安全漏洞报告方式
+    url: https://github.com/engeeeee/ENGE-SPX/blob/main/SECURITY.md
+    about: 请先阅读私密报告流程，避免公开漏洞或凭据

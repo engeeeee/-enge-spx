@@ -1,0 +1,17 @@
+{
+  "repository": "engeeeee/ENGE-SPX",
+  "description": "面向 Windows 的 AI 编程隔离工作台。在 Docker 容器中运行 Claude Code、Codex 和独立浏览器，通过指定的加密线路＋落地代理访问服务；以项目范围挂载、双出口核验和异常停机，减少对本机日常环境的暴露并约束工作区网络路径。",
+  "homepage": "https://github.com/engeeeee/ENGE-SPX#readme",
+  "topics": [
+    "windows",
+    "claude-code",
+    "codex",
+    "docker",
+    "proxy",
+    "proxy-chain",
+    "socks5",
+    "chromium",
+    "python",
+    "workspace"
+  ]
+}

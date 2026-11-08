@@ -4,7 +4,7 @@ module.exports = async ({github, context, core}) => {
   const path = require('node:path');
   const crypto = require('node:crypto');
   const {owner, repo} = context.repo;
-  if (owner !== 'engeeeee' || repo !== '-enge-spx' || context.ref !== 'refs/heads/main') {
+  if (owner !== 'engeeeee' || repo !== 'ENGE-SPX' || context.ref !== 'refs/heads/main') {
     throw new Error('Publication is limited to the maintained ENGE SPX repository.');
   }
   const digest = async file => {
@@ -39,7 +39,7 @@ module.exports = async ({github, context, core}) => {
   const tag = `v${version}-windows`;
   const releaseName = `ENGE SPX ${version} Preview`;
   const body = [
-    '**ENGE SPX** — engeeeee 的个人 Windows 容器工作环境项目。',
+    '**ENGE SPX** — Windows 上的 AI 编程隔离工作台，让 Claude Code、Codex 和浏览器通过指定代理出口工作。',
     '',
     '### 下载',
     '',
@@ -48,23 +48,24 @@ module.exports = async ({github, context, core}) => {
     '',
     '无需另外安装 Python。需要 Docker Desktop / Linux containers，Engine 28 或更新版本。运行环境会在软件内下载、校验和导入，无需手工处理 runtime 文件。',
     '',
+    '### 核心用途',
+    '',
+    '在独立 Linux 容器中运行 Claude Code、Codex 和共享 Chromium，通过指定线路与落地代理访问服务。项目范围挂载、受控网关、双出口核验与异常停机共同减少对 Windows 日常环境的暴露。',
+    '',
     '### 这个版本',
     '',
-    '- 软件内双跳：导入 v2ray 中受支持的线路分享链接，由 ENGE SPX 固定串联加密线路与落地；不配置直连或自动回退出口。域名线路需填写服务器 IPv4，TLS 校验和 SNI 保留。',
-    '- 分别核对线路出口与落地出口；线路不符或失败时拒绝继续连接落地，已确认线路出口变化后停止环境。线路检查入口只监听网关回环，工作区不能用它绕过落地。',
-    '- 加固检测请求：忽略 Docker 注入的 NO_PROXY 等代理环境变量，防止检测绕过指定线路；旧的连接确认需要重新检查。',
-    '- 启用前置线路时，落地域名经线路解析，不再提前查询宿主机 DNS。兼容 v2ray 本机代理，并提供不含凭据的 v2rayN 目的地址规则导出。兼容模式的出口检查不能证明外部客户端所有目标的分流。',
-    '- 选择代理下载时，找不到代理就停止；主动取消该选项才直连。订阅下载使用同一代理设置，并拒绝降级至 HTTP。',
-    '- 下载代理独立于工作区线路开关，首次安装不必先导入完整线路。订阅使用当前输入的下载代理，读取系统代理不会改变工作区模式。',
-    '- 保留 Pebrel 和其他终端设置、应用数据跨盘迁移及 Docker 数据盘迁移助手。原有匹配镜像和账号、项目数据继续复用。',
-    '- 保留 SOCKS5 / HTTP / HTTPS 导入、本机线路 → 落地代理、出口核对、下载暂停与续传。',
-    '- 识别此前 Windows 版的数据目录及镜像，保留项目容器、账号与浏览器资料；首次连接检查完成后台交接。',
+    '- 一键准备：自动检测或启动已安装的 Docker Desktop，等待 Linux 引擎真正就绪，核验或安装运行环境，再继续连接检查。首次打开不会自动开始大型下载。',
+    '- 启动步骤可见、可取消，等待超时或缺少 Docker 时提供处理入口；支持官方启动 CLI 和旧版桌面程序，识别自定义安装盘。',
+    '- 已有匹配镜像复用；不切换全局上下文或容器引擎，不自动确认变更后的出口。新增启动偏好、脱敏诊断摘要及 spx start / diagnostics。',
+    '- 默认中文主页先说明软件用途、隔离工作区和固定双跳，再介绍 Pebrel、自定义终端、D 盘迁移与下载管理。补齐快速入门、安全模型、贡献和支持文档及问题模板。',
+    '- 适配新仓库 engeeeee/ENGE-SPX，更新下载地址、安装器链接与发布流程；中文 About 配置独立保存，需维护者在仓库设置中应用。',
+    '- 继续支持加密线路 → SOCKS5 / HTTP / HTTPS 落地的固定双跳、独立出口核验和异常停止，以及 v2ray 本机代理兼容、下载续传、账号与项目数据复用。',
     '',
-    '升级前请停止环境并退出旧窗口，安装后重新检查并确认落地出口。项目文件仍是读写共享，工具账号在项目间共享。Chromium 当前使用 --no-sandbox；此预览版尚未代码签名，也未经过独立安全审计或真实 Windows 桌面的全流程交互验收。',
+    '升级前请停止环境并退出旧窗口；安装后重新检查并确认出口。项目目录仍然读写共享，工具账号在项目间共享；Chromium 当前使用 --no-sandbox。此预览版未代码签名，未经过独立安全审计，也不提供匿名或完全宿主机隔离保证。',
     '',
-    '本次发布由同一 CI 流程的 Windows / Linux 检查、真实 GUI 迁移、打包与安装卸载检查、原生 x64 双跳线路故障阻断与数据迁移、两种 Docker 存储的完整导入检查完成后生成。未在用户的真实 v2ray、Docker Desktop 或 Pebrel 桌面环境中验收；线路服务商仍是信任边界。',
+    '本次发布要求同一 CI 的 Windows / Linux 单元检查、原生 Windows 假 Desktop 进程启动、GUI 异步准备与迁移、打包与安装卸载、实际 Linux 双跳故障阻断与两种镜像存储导入检查通过。尚未在用户的真实 Windows + Docker Desktop + v2ray + Pebrel 组合上完成交互验收。',
     '',
-    `[使用说明](https://github.com/${owner}/${repo}/blob/${tag}/README.zh-CN.md) · [v2ray 线路保护](https://github.com/${owner}/${repo}/blob/${tag}/docs/line-protection.zh-CN.md) · [来源与许可](https://github.com/${owner}/${repo}/blob/${tag}/NOTICE.md) · [本次构建](https://github.com/${owner}/${repo}/actions/runs/${context.runId})`,
+    `[使用说明](https://github.com/${owner}/${repo}/blob/${tag}/README.md) · [线路保护](https://github.com/${owner}/${repo}/blob/${tag}/docs/line-protection.zh-CN.md) · [来源与许可](https://github.com/${owner}/${repo}/blob/${tag}/NOTICE.md) · [本次构建](https://github.com/${owner}/${repo}/actions/runs/${context.runId})`,
   ].join('\n');
   let release = (await github.rest.repos.listReleases({owner, repo, per_page: 100})).data.find(r => r.tag_name === tag);
   if (!release) {

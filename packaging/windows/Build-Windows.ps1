@@ -12,9 +12,12 @@ $spxVersion = & $spxPython -c "import sys; sys.path.insert(0, 'src'); from enge_
 if ($LASTEXITCODE -ne 0) { throw 'Unable to determine ENGE SPX version.' }
 & $spxPython -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging/windows/SPX.spec
 if ($LASTEXITCODE -ne 0) { throw 'Executable build failed.' }
-foreach ($spxNotice in @('README.zh-CN.md','LICENSE','NOTICE.md','THIRD_PARTY_NOTICES.md','AUTHORS.md')) {
+foreach ($spxNotice in @('README.md','README.zh-CN.md','README.en.md','LICENSE','NOTICE.md','THIRD_PARTY_NOTICES.md','AUTHORS.md','CONTRIBUTING.md','SECURITY.md','SUPPORT.md','CHANGELOG.md')) {
     Copy-Item $spxNotice "dist\ENGE-SPX\$spxNotice" -Force
 }
+Copy-Item docs 'dist\ENGE-SPX\docs' -Recurse -Force
+New-Item -ItemType Directory -Path 'dist\ENGE-SPX\assets' -Force | Out-Null
+Copy-Item assets/logo.svg 'dist\ENGE-SPX\assets\logo.svg' -Force
 Compress-Archive -Path dist\ENGE-SPX\* -DestinationPath "dist\ENGE-SPX-Windows-x64-$spxVersion-Portable.zip" -Force
 $spxCompiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
 $spxIscc = if ($spxCompiler) { $spxCompiler.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }

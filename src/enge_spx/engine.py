@@ -23,6 +23,7 @@ from .brand import CONTAINERS, LEGACY_LABEL_ROOT
 from .compat import LEGACY_RECIPES, LEGACY_RUNTIME_DIRECTORY, LEGACY_BROWSER_TOKEN
 from .docker_env import environment as docker_environment
 from .line_security import LineSecurityError
+from .startup import DockerUnavailable, DockerContextUnavailable, DockerConfigurationError
 
 OWNER = "io.enge.spx.instance"
 ROLE = "io.enge.spx.role"
@@ -40,11 +41,9 @@ def image_recipe(image):
 
 class Docker:
     @staticmethod
-    def desktop_app():
-        if os.name != "nt":
-            return None
-        roots = [Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Docker/Docker", Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/DockerDesktop"]
-        return next((root / "Docker Desktop.exe" for root in roots if (root / "Docker Desktop.exe").is_file()), None)
+    def desktop_app(executable=None):
+        from .docker_env import desktop_application
+        return desktop_application(executable)
 
     def __init__(self, context: str):
         candidates = [shutil.which("docker")]
@@ -52,6 +51,11 @@ class Docker:
             candidates += [str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Docker/Docker/resources/bin/docker.exe")]
             candidates += [str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/DockerDesktop/resources/bin/docker.exe")]
         self.executable = next((x for x in candidates if x and Path(x).is_file()), None)
+        if not self.executable and os.name == "nt":
+            application = self.desktop_app()
+            candidate = application.parent / "resources/bin/docker.exe" if application else None
+            if candidate and candidate.is_file():
+                self.executable = str(candidate)
         self.context = context
 
     def command(self, *args) -> list[str]:
@@ -163,19 +167,42 @@ class Engine:
         obj = self.docker.inspect("container", name or self.prefix + "-" + role)
         return self.owned(obj, role) if obj else None
 
-    def doctor(self) -> dict:
-        context = json.loads(self.docker.run("context", "inspect", self.docker.context))[0]
-        endpoint = context.get("Endpoints", {}).get("docker", {}).get("Host", "")
+    def doctor(self, timeout=60) -> dict:
+        if not self.docker.executable:
+            raise DockerUnavailable("未找到 Docker Desktop 命令行工具。")
+        try:
+            raw = self.docker.run("context", "inspect", self.docker.context, timeout=timeout)
+        except SPXError as error:
+            raise DockerContextUnavailable("Docker 上下文尚不可用，请检查 Docker Desktop 是否已完成初始化。") from error
+        try:
+            contexts = json.loads(raw)
+            if not isinstance(contexts, list) or len(contexts) != 1 or not isinstance(contexts[0], dict):
+                raise ValueError()
+            context = contexts[0]
+            endpoint = context["Endpoints"]["docker"]["Host"]
+            if not isinstance(endpoint, str):
+                raise ValueError()
+        except (ValueError, KeyError, TypeError) as error:
+            raise DockerConfigurationError("Docker 上下文信息无效，请检查 Docker 安装和上下文设置。") from error
         if not endpoint.startswith(("npipe://", "unix://")):
-            raise SPXError("请选择本机 Docker Desktop 上下文；此版本不支持远程 Docker。")
-        info = json.loads(self.docker.run("info", "--format", "{{json .}}"))
+            raise DockerConfigurationError("请选择本机 Docker Desktop 上下文；此版本不支持远程 Docker。")
+        try:
+            info = json.loads(self.docker.run("info", "--format", "{{json .}}", timeout=timeout))
+            if not isinstance(info, dict) or not info.get("OSType"):
+                raise ValueError()
+        except (SPXError, ValueError, TypeError) as error:
+            raise DockerUnavailable("Docker 引擎尚未就绪或连接被拒绝，请检查 Docker Desktop 窗口中的状态。") from error
         if info.get("OSType") != "linux":
-            raise SPXError("Docker 当前未使用 Linux containers，请在 Docker Desktop 中切换。")
-        if int(info.get("ServerVersion", "0").split(".")[0]) < 28:
-            raise SPXError("需要 Docker Engine 28 或更新版本，请更新 Docker Desktop。")
+            raise DockerConfigurationError("Docker 当前未使用 Linux containers，请在 Docker Desktop 中切换后重试。")
+        try:
+            supported = int(info.get("ServerVersion", "0").split(".")[0]) >= 28
+        except (ValueError, TypeError, AttributeError):
+            supported = False
+        if not supported:
+            raise DockerConfigurationError("需要 Docker Engine 28 或更新版本，请更新 Docker Desktop。")
         arch = info.get("Architecture", "")
         if arch not in ("x86_64", "amd64", "aarch64", "arm64"):
-            raise SPXError("仅支持 x64 或 ARM64 的 Linux 容器引擎。")
+            raise DockerConfigurationError("仅支持 x64 或 ARM64 的 Linux 容器引擎。")
         return {"docker": info.get("ServerVersion"), "architecture": arch, "context": self.docker.context, "data": str(self.store.home)}
 
     def install(self, progress=None, cancel=None):

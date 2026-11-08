@@ -18,10 +18,13 @@ def main():
     parser.add_argument("--smoke-gui", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="action")
-    for action in ("gui", "doctor", "check", "confirm", "browser", "stop", "status", "guard", "relay", "forward", "shell"):
+    for action in ("gui", "doctor", "diagnostics", "check", "confirm", "browser", "stop", "status", "guard", "relay", "forward", "shell"):
         sub.add_parser(action)
     installer = sub.add_parser("install")
     installer.add_argument("--from-source", action="store_true", help="从源码构建，不下载预构建环境")
+    starter = sub.add_parser("start", help="自动准备 Docker、运行环境和连接检查，等待出口确认")
+    starter.add_argument("--no-install", action="store_true", help="不下载缺失的运行环境")
+    starter.add_argument("--no-start-docker", action="store_true", help="只使用已运行的 Docker，不自动唤起 Desktop")
     importer = sub.add_parser("import-node")
     importer.add_argument("file", type=Path, help="本地订阅/节点文件（不保存订阅地址）")
     selector = sub.add_parser("select")
@@ -57,6 +60,12 @@ def main():
             from .forward import main as forward_main
             forward_main(store)
             return 0
+        elif args.action == "diagnostics":
+            from .startup import diagnostics
+            result = diagnostics(store)
+        elif args.action == "start":
+            from .startup import prepare_workspace
+            result = prepare_workspace(engine, auto_start=not args.no_start_docker, install=not args.no_install, progress=lambda value: print(value.get("message", value["stage"]), file=sys.stderr, flush=True))
         elif args.action == "install":
             result = engine.install() if args.from_source else engine.install_prebuilt()
         elif args.action == "import-node":

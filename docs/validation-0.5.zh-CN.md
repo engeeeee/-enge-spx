@@ -2,8 +2,8 @@
 
 日期：2026-11-08。发布代码提交：`f98e541868140fa00294ab69df4c917fea8ce318`。
 
-- [最终发布包](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.2-windows)
-- [完整成功构建](https://github.com/engeeeee/-enge-spx/actions/runs/42496411804)
+- [最终发布包](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.5.2-windows)
+- [完整成功构建](https://github.com/engeeeee/ENGE-SPX/actions/runs/42496411804)
 - [v2ray 线路配置与边界](line-protection.zh-CN.md)
 
 Windows 和 Linux 各运行 96 项检查，Windows 跳过 2 项、Linux 跳过 3 项平台专用检查，其余通过。源 GUI 的实际数据迁移、Windows 原生跨盘迁移、进程参数传递与凭据助手路径检查继续通过。Windows x64 GUI / CLI 打包自检、安装、快捷方式及卸载数据保留检查通过。

@@ -127,7 +127,7 @@ class Store:
             raise SPXError("数据已迁移，请重新打开 ENGE SPX 后继续。")
 
     def settings(self) -> dict:
-        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {})}
+        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "auto_start_docker": True, "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {})}
 
     @contextmanager
     def lock(self, name="operation"):

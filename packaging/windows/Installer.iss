@@ -1,14 +1,14 @@
 #ifndef AppVersion
-  #define AppVersion "0.5.2"
+  #define AppVersion "0.6.0"
 #endif
 [Setup]
 AppId={{2F108CD4-CE59-45C5-9D7F-EFC602D08E86}
 AppName=ENGE SPX
 AppVersion={#AppVersion}
 AppPublisher=engeeeee
-AppPublisherURL=https://github.com/engeeeee/-enge-spx
-AppSupportURL=https://github.com/engeeeee/-enge-spx/issues
-AppUpdatesURL=https://github.com/engeeeee/-enge-spx/releases
+AppPublisherURL=https://github.com/engeeeee/ENGE-SPX
+AppSupportURL=https://github.com/engeeeee/ENGE-SPX/issues
+AppUpdatesURL=https://github.com/engeeeee/ENGE-SPX/releases
 DefaultDirName={localappdata}\Programs\ENGE-SPX
 DefaultGroupName=ENGE SPX
 PrivilegesRequired=lowest
