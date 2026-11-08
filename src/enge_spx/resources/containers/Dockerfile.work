@@ -1,0 +1,18 @@
+FROM node:24-bookworm-slim
+ARG CODEX_VERSION=0.167.0
+ARG CLAUDE_VERSION=2.1.319
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git curl ca-certificates locales tzdata tini ripgrep openssh-client procps \
+    && localedef -i en_US -f UTF-8 en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g --allow-scripts=@anthropic-ai/claude-code @openai/codex@${CODEX_VERSION} @anthropic-ai/claude-code@${CLAUDE_VERSION} \
+    && codex --version && claude --version && npm cache clean --force
+RUN usermod -l workspace -d /home/workspace -m node && groupmod -n workspace node \
+    && mkdir -p /workspace /home/workspace/Downloads /opt/spx \
+    && chown -R 1000:1000 /workspace /home/workspace
+COPY probe.py open_browser.py /opt/spx/
+RUN printf '#!/bin/sh\nexec python3 /opt/spx/open_browser.py "$@"\n' > /usr/local/bin/xdg-open && chmod 755 /usr/local/bin/xdg-open
+ENV HOME=/home/workspace SHELL=/bin/bash LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+USER 1000:1000
+WORKDIR /workspace
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["sleep", "infinity"]

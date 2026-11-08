@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enge-spx"
+dynamic = ["version", "dependencies"]
+description = "ENGE SPX — a personal Windows workspace with controlled proxy routing"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "NOTICE.md", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "engeeeee" }]
+
+[project.urls]
+Homepage = "https://github.com/engeeeee/-enge-spx"
+Issues = "https://github.com/engeeeee/-enge-spx/issues"
+Releases = "https://github.com/engeeeee/-enge-spx/releases"
+
+[project.scripts]
+spx = "enge_spx.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "enge_spx.__version__" }
+dependencies = { file = "requirements.txt" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+enge_spx = ["resources/containers/*", "resources/containers/.dockerignore", "resources/icons/*"]
+

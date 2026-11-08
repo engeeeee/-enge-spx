@@ -1,0 +1,165 @@
+name: ENGE SPX Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, enge-spx-build]
+    paths: ['src/**', 'tests/**', 'tools/**', 'packaging/**', 'requirements*.txt', 'pyproject.toml', '.github/workflows/ci.yml']
+  pull_request:
+    paths: ['src/**', 'tests/**', 'tools/**', 'packaging/**', 'requirements*.txt', 'pyproject.toml', '.github/workflows/ci.yml']
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: src
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+        env:
+          PYTHONPATH: src
+      - if: runner.os == 'Windows'
+        run: python tools/smoke_gui.py
+  package:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Build Windows executables
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+          ./packaging/windows/Build-Windows.ps1
+      - name: Verify packaged CLI
+        shell: pwsh
+        run: |
+          & ./dist/ENGE-SPX/spx.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged CLI check failed.' }
+          & ./dist/ENGE-SPX/spx.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged proxy transports/resources failed.' }
+          $smokeHome = Join-Path $env:RUNNER_TEMP 'spx-packaged-smoke'
+          & ./dist/ENGE-SPX/spx.exe --data $smokeHome relay
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged relay import check failed.' }
+          & ./dist/ENGE-SPX/spx.exe --data $smokeHome forward
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged forwarding imports failed.' }
+          $gui = Start-Process -FilePath ./dist/ENGE-SPX/ENGE-SPX.exe -ArgumentList '--data', $smokeHome, '--smoke-gui' -PassThru
+          if (-not $gui.WaitForExit(20000) -or $gui.ExitCode -ne 0) { throw 'Packaged GUI startup failed.' }
+          $timing = Get-Content (Join-Path $smokeHome 'ui-smoke.json') | ConvertFrom-Json
+          Write-Output "First GUI paint: $($timing.first_paint_ms) ms"
+          if (-not $timing.icons -or $timing.app -ne 'ENGE SPX') { throw 'Packaged application identity or icons missing.' }
+          $metadata = (Get-Item './dist/ENGE-SPX/ENGE-SPX.exe').VersionInfo
+          if ($metadata.ProductName -ne 'ENGE SPX' -or $metadata.CompanyName -ne 'engeeeee') { throw 'Executable branding differs.' }
+      - name: Verify per-user setup and uninstall
+        shell: pwsh
+        run: |
+          $appDir = Join-Path $env:RUNNER_TEMP 'spx-installed'
+          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.3.0-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
+          if ($setup.ExitCode -ne 0 -or -not (Test-Path "$appDir/ENGE-SPX.exe")) { throw 'Setup failed.' }
+          & "$appDir/spx.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed.' }
+          $startMenu = [Environment]::GetFolderPath('Programs')
+          if (-not (Test-Path (Join-Path $startMenu 'ENGE SPX.lnk'))) { throw 'Start-menu shortcut missing.' }
+          $privateData = Join-Path $env:LOCALAPPDATA 'ENGE-SPX'
+          New-Item -ItemType Directory -Path $privateData -Force | Out-Null
+          Set-Content (Join-Path $privateData 'uninstall-test.txt') 'preserved'
+          $uninstall = Start-Process -FilePath "$appDir/unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru -Wait
+          if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed.' }
+          if ((Get-Content (Join-Path $privateData 'uninstall-test.txt')) -ne 'preserved') { throw 'Uninstall removed private data.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ENGE-SPX-Windows-x64-0.3.0
+          path: |
+            dist/ENGE-SPX-Windows-x64-0.3.0-Portable.zip
+            dist/ENGE-SPX-Windows-x64-0.3.0-Setup.exe
+            dist/*.sha256
+          if-no-files-found: error
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Native x64 Docker integration
+        env:
+          PYTHONPATH: src
+        run: python -u tests/integration_runtime.py --context default --output "$RUNNER_TEMP/integration-results.json"
+      - name: Verify local line and landing chain
+        env:
+          PYTHONPATH: src
+        run: python -u tests/integration_chain.py --context default
+      - name: Export the verified native environment
+        if: github.event_name != 'pull_request'
+        env:
+          PYTHONPATH: src
+        run: python tools/export_runtime.py --context default --report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/runtime-package"
+      - name: Install and repeat the exported archive
+        if: github.event_name != 'pull_request'
+        env:
+          PYTHONPATH: src
+        run: python -u tests/integration_prebuilt.py --context default --directory "$RUNNER_TEMP/runtime-package"
+      - name: Verify archive with the classic Docker store
+        if: github.event_name != 'pull_request'
+        env:
+          PYTHONPATH: src
+        run: |
+          spxClassicRoot="$RUNNER_TEMP/spx-classic"
+          mkdir -p "$spxClassicRoot"
+          printf '%s' '{"features":{"containerd-snapshotter":false}}' > "$spxClassicRoot/daemon.json"
+          sudo dockerd --config-file "$spxClassicRoot/daemon.json" --data-root "$spxClassicRoot/data" --exec-root "$spxClassicRoot/exec" --pidfile "$spxClassicRoot/daemon.pid" --host "unix://$spxClassicRoot/docker.sock" --bridge=none --iptables=false --ip6tables=false --storage-driver=overlay2 > "$spxClassicRoot/daemon.log" 2>&1 &
+          spxDaemonJob=$!
+          trap 'sudo kill "$(cat "$spxClassicRoot/daemon.pid")" || true; wait "$spxDaemonJob" || true' EXIT
+          for attempt in $(seq 1 60); do
+            if docker --host "unix://$spxClassicRoot/docker.sock" info > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker context create spx-archive-classic --docker "host=unix://$spxClassicRoot/docker.sock"
+          python -u tests/integration_prebuilt.py --context spx-archive-classic --directory "$RUNNER_TEMP/runtime-package"
+      - name: Retain the verified runtime for publication
+        if: github.repository == 'engeeeee/-enge-spx' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ENGE-SPX-Runtime-0.3.0
+          path: ${{ runner.temp }}/runtime-package/*
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+  release:
+    needs: [package, containers]
+    if: github.repository == 'engeeeee/-enge-spx' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ENGE-SPX-Windows-x64-0.3.0
+          path: verified-package
+      - uses: actions/download-artifact@v4
+        with:
+          name: ENGE-SPX-Runtime-0.3.0
+          path: verified-runtime
+      - name: Publish the verified ENGE SPX preview
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await require('./tools/publish_release.cjs')({github, context, core});

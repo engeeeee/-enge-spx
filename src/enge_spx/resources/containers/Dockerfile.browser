@@ -1,0 +1,9 @@
+ARG WORK_IMAGE
+FROM ${WORK_IMAGE}
+USER 0
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium tigervnc-standalone-server openbox novnc websockify fonts-noto-cjk fonts-noto-color-emoji dbus-x11 \
+    && rm -rf /var/lib/apt/lists/*
+COPY browser.py vnc_stdio.py /opt/spx/
+COPY chromium-policy.json /etc/chromium/policies/managed/spx.json
+USER 1000:1000
+ENTRYPOINT ["/usr/bin/tini", "--", "python3", "-u", "/opt/spx/browser.py"]
