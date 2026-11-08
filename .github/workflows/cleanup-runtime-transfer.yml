@@ -1,4 +1,4 @@
-name: Remove published runtime transfer artifact
+name: Remove completed runtime transfer artifact
 
 on:
   workflow_run:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: github.repository == 'engeeeee/-enge-spx' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success'
+    if: github.repository == 'engeeeee/-enge-spx' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
@@ -24,6 +24,12 @@ jobs:
             for (const artifact of artifacts) {
               const match = /^ENGE-SPX-Runtime-(\d+\.\d+\.\d+)$/.exec(artifact.name);
               if (!match || artifact.expired) continue;
+              if (run.conclusion === 'failure') {
+                // A failed run cannot publish a release. Its large inter-job
+                // archive is disposable; keep the Windows artifact and logs.
+                await github.rest.actions.deleteArtifact({owner, repo, artifact_id: artifact.id});
+                continue;
+              }
               const tag = `v${match[1]}-windows`;
               let release;
               try { release = (await github.rest.repos.getReleaseByTag({owner, repo, tag})).data; }

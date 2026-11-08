@@ -39,8 +39,9 @@ class DockerEnvironmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / "bin/docker.exe"
             binary.parent.mkdir()
-            child = environment(binary, {"PATH": str(binary.parent).upper() + ";tools", "docker_host": "remote"}, windows=True)
-            self.assertEqual(child["PATH"].split(";").count(str(binary.parent)), 1)
+            canonical = str(binary.parent.resolve())
+            child = environment(binary, {"PATH": canonical.upper() + ";tools", "docker_host": "remote"}, windows=True)
+            self.assertEqual(child["PATH"].split(";").count(canonical), 1)
             self.assertEqual(len(child["PATH"].split(";")), 2)
             self.assertNotIn("docker_host", child)
 

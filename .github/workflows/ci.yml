@@ -90,6 +90,7 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
   containers:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
