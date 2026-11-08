@@ -17,7 +17,9 @@ class LineSecurityError(SPXError):
     pass
 
 
-LINE_CHECK_CODE = '''import ipaddress,json,urllib.request
+LINE_CHECK_CODE = '''import ipaddress,json,os,urllib.request
+for name in tuple(os.environ):
+ if name.lower() in ('http_proxy','https_proxy','all_proxy','no_proxy'): os.environ.pop(name,None)
 opener=urllib.request.build_opener(urllib.request.ProxyHandler({'http':'http://127.0.0.1:2082','https':'http://127.0.0.1:2082'}))
 addresses=[]
 for url in ('https://api.ipify.org?format=json','https://checkip.amazonaws.com'):

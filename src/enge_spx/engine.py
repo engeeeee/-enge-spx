@@ -322,7 +322,7 @@ class Engine:
         from .proxy import route_config
         relay = route_config(settings["relay"])
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
-        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 1})
+        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2})
 
     def networks(self):
         for name, internal in ((self.internal, True), (self.external, False)):
@@ -418,7 +418,7 @@ class Engine:
         raise SPXError("无法连接本机线路代理。请先启动线路客户端并核对监听地址、端口和认证信息。")
 
     def probe(self, state):
-        output = self.docker.run("run", "--rm", "--network", "container:" + state["session"], "--cap-drop", "ALL", "--security-opt", "no-new-privileges", self.image_ids()["work"], "python3", self.runtime_path("work", "probe.py"), state["proxy"], timeout=80)
+        output = self.docker.run("run", "--rm", "--network", "container:" + state["session"], "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--env", "NO_PROXY=", "--env", "no_proxy=", self.image_ids()["work"], "python3", self.runtime_path("work", "probe.py"), state["proxy"], timeout=80)
         try:
             result = json.loads(output)
             ipaddress.IPv4Address(result["ip"])

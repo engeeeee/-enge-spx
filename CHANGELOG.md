@@ -1,5 +1,16 @@
 # Changes
 
+## 0.5.2 Preview — 2026-11-08
+
+- Prevent Docker-injected `NO_PROXY` and other proxy environment variables from
+  bypassing the explicit first-hop diagnostic proxy. Clear both forms of
+  `NO_PROXY` for final-exit probes as well, retaining the existing runtime images.
+- Invalidate older connection evidence and test the diagnostic with poisoned
+  environment variables while the gateway has no direct Internet route; the
+  encrypted line remains the only path to the IP measurement providers.
+- Mark the intermediate 0.5.0 / 0.5.1 preview releases with an upgrade notice after
+  publishing the verified 0.5.2 packages. Existing assets and tags stay immutable.
+
 ## 0.5.1 Preview — 2026-11-08
 
 - Keep the download proxy independent of the workspace line switch, so first

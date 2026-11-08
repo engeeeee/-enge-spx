@@ -52,6 +52,7 @@ module.exports = async ({github, context, core}) => {
     '',
     '- 软件内双跳：导入 v2ray 中受支持的线路分享链接，由 ENGE SPX 固定串联加密线路与落地；不配置直连或自动回退出口。域名线路需填写服务器 IPv4，TLS 校验和 SNI 保留。',
     '- 分别核对线路出口与落地出口；线路不符或失败时拒绝继续连接落地，已确认线路出口变化后停止环境。线路检查入口只监听网关回环，工作区不能用它绕过落地。',
+    '- 加固检测请求：忽略 Docker 注入的 NO_PROXY 等代理环境变量，防止检测绕过指定线路；旧的连接确认需要重新检查。',
     '- 启用前置线路时，落地域名经线路解析，不再提前查询宿主机 DNS。兼容 v2ray 本机代理，并提供不含凭据的 v2rayN 目的地址规则导出。兼容模式的出口检查不能证明外部客户端所有目标的分流。',
     '- 选择代理下载时，找不到代理就停止；主动取消该选项才直连。订阅下载使用同一代理设置，并拒绝降级至 HTTP。',
     '- 下载代理独立于工作区线路开关，首次安装不必先导入完整线路。订阅使用当前输入的下载代理，读取系统代理不会改变工作区模式。',
@@ -87,4 +88,17 @@ module.exports = async ({github, context, core}) => {
     release = (await github.rest.repos.updateRelease({owner, repo, release_id: release.id, name: releaseName, body, draft: false, prerelease: true, make_latest: 'false'})).data;
   }
   core.notice('Published ' + release.html_url);
+  if (version === '0.5.2') {
+    const notice = `> **请升级到 [0.5.2](${release.html_url})。** 此中间预览版的线路诊断可能受 Docker 注入的 NO_PROXY 环境变量影响；0.5.2 已修复并补充实际容器验证。\n\n`;
+    for (const oldTag of ['v0.5.0-windows', 'v0.5.1-windows']) {
+      try {
+        const old = (await github.rest.repos.getReleaseByTag({owner, repo, tag: oldTag})).data;
+        if (!old.draft && !(old.body || '').includes('此中间预览版的线路诊断')) {
+          await github.rest.repos.updateRelease({owner, repo, release_id: old.id, body: notice + (old.body || '')});
+        }
+      } catch (error) {
+        core.warning('Could not annotate intermediate preview ' + oldTag + ': ' + error.message);
+      }
+    }
+  }
 };

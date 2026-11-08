@@ -13,10 +13,10 @@ The screenshot shows the actual empty-state source UI in the Linux graphical tes
 
 ## Download
 
-Current version: **0.5.1 Preview**. Get the [Windows x64 release](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.1-windows).
+Current version: **0.5.2 Preview**. Get the [Windows x64 release](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.2-windows).
 
-- `ENGE-SPX-Windows-x64-0.5.1-Setup.exe`: per-user installation with shortcuts.
-- `ENGE-SPX-Windows-x64-0.5.1-Portable.zip`: extract everything and run `ENGE-SPX.exe`; keep `_internal` beside it.
+- `ENGE-SPX-Windows-x64-0.5.2-Setup.exe`: per-user installation with shortcuts.
+- `ENGE-SPX-Windows-x64-0.5.2-Portable.zip`: extract everything and run `ENGE-SPX.exe`; keep `_internal` beside it.
 - `spx.exe`: the console entry point, included in both packages.
 
 No separate Python installation is needed for packaged builds. The executables are unsigned. Install and start [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) with Linux containers and the WSL 2 backend; Docker Engine 28+ is required.

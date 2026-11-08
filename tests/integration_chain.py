@@ -14,6 +14,7 @@ import time
 from enge_spx.engine import Engine, GATEWAY_IMAGE
 from enge_spx.nodes import uri_node
 from enge_spx.proxy import relay_config
+from enge_spx.line_security import LINE_CHECK_CODE
 from enge_spx.state import Store, SPXError, atomic_json
 
 
@@ -131,8 +132,9 @@ def run(context):
             ss_password = secrets.token_hex(16)
             line_config = {"log": {"level": "error"}, "dns": {"servers": [{"type": "local", "tag": "local"}]}, "inbounds": [{"type": "shadowsocks", "listen": "0.0.0.0", "listen_port": 8444, "method": "aes-128-gcm", "password": ss_password}], "outbounds": [{"type": "direct", "tag": "fixture-direct"}], "route": {"final": "fixture-direct", "default_domain_resolver": "local"}}
             atomic_json(line_dir / "config.json", line_config)
-            engine.docker.run("run", "-d", "--name", line_name, "--network", engine.external, "--add-host", "landing.spx.invalid:" + ip, "--mount", f"type=bind,source={line_dir},target=/config,readonly", GATEWAY_IMAGE, "run", "-c", "/config/config.json")
-            line_ip = engine.docker.inspect("container", line_name)["NetworkSettings"]["Networks"][engine.external]["IPAddress"]
+            engine.docker.run("run", "-d", "--name", line_name, "--network", "name=" + engine.external + ",gw-priority=1", "--add-host", "landing.spx.invalid:" + ip, "--mount", f"type=bind,source={line_dir},target=/config,readonly", GATEWAY_IMAGE, "run", "-c", "/config/config.json")
+            engine.docker.run("network", "connect", engine.internal, line_name)
+            line_ip = engine.docker.inspect("container", line_name)["NetworkSettings"]["Networks"][engine.internal]["IPAddress"]
             credentials = base64.urlsafe_b64encode(("aes-128-gcm:" + ss_password).encode()).decode().rstrip("=")
             line_node = uri_node(f"ss://{credentials}@{line_ip}:8444#Encrypted-first-hop")
             landing = uri_node(f"socks5://{username}:{password}@landing.spx.invalid:8443")
@@ -152,6 +154,18 @@ def run(context):
             result = engine.docker.run("run", "--rm", "--network", "container:" + state["session"], "--cap-drop", "ALL", engine.image_ids()["work"], "python3", "-c", code)
             assert result == "BLOCKED"
             print("PASS managed encrypted line -> remote-resolved SOCKS landing; diagnostic listener cannot bypass landing", flush=True)
+            # With no gateway Internet route, only the encrypted line peer on the
+            # internal bridge can reach the providers. Poisoned NO_PROXY must not
+            # bypass the explicit diagnostic proxy and break this test.
+            engine.docker.run("network", "disconnect", engine.external, state["gateway"])
+            try:
+                direct = "import socket\ns=socket.socket();s.settimeout(2)\ntry:\n s.connect(('1.1.1.1',443));print('LEAK')\nexcept OSError:\n print('BLOCKED')"
+                assert engine.docker.run("exec", state["gateway"], "python3", "-c", direct) == "BLOCKED"
+                poisoned = engine.docker.run("exec", "--env", "NO_PROXY=*", "--env", "no_proxy=*", "--env", "HTTPS_PROXY=http://127.0.0.1:9", state["gateway"], "python3", "-c", LINE_CHECK_CODE, timeout=30)
+                assert json.loads(poisoned)["ip"] == evidence["line_ip"]
+            finally:
+                engine.docker.run("network", "connect", "--gw-priority", "1", engine.external, state["gateway"])
+            print("PASS poisoned NO_PROXY cannot bypass diagnostics; line check succeeds with gateway direct Internet blocked", flush=True)
             # Landing remains alive and reachable from the external bridge.
             # Even the final probe itself must fail if the first hop disappears.
             engine.docker.run("stop", "--time", "2", line_name)

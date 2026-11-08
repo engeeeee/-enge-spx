@@ -1,4 +1,5 @@
 import ipaddress
+import io
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ from unittest.mock import Mock, patch
 import httpx
 
 from enge_spx.engine import Engine
-from enge_spx.line_security import chain_outbounds, managed_line, line_rules, v2ray_rules, LineSecurityError
+from enge_spx.line_security import chain_outbounds, managed_line, line_rules, v2ray_rules, LineSecurityError, LINE_CHECK_CODE
 from enge_spx.nodes import fetch_subscription, normalize, uri_node
 from enge_spx.proxy import relay_config, validate_relay, route_config, download_proxy, proxy_url
 from enge_spx.state import Store, SPXError
@@ -117,6 +118,20 @@ class LineSecurityTests(unittest.TestCase):
         with self.assertRaises(LineSecurityError) as caught:
             engine.probe_line({"gateway": "gateway"})
         self.assertNotIn("private", str(caught.exception))
+
+    def test_line_diagnostic_ignores_injected_proxy_bypass_environment(self):
+        from contextlib import redirect_stdout
+        fake = Mock()
+        fake.open.side_effect = [io.BytesIO(b'{"ip":"8.8.8.8"}'), io.BytesIO(b'8.8.8.8\n')]
+        def opener(handler):
+            self.assertEqual(handler.proxies, {"http": "http://127.0.0.1:2082", "https": "http://127.0.0.1:2082"})
+            self.assertFalse(any(key.lower() in ("http_proxy", "https_proxy", "all_proxy", "no_proxy") for key in os.environ))
+            return fake
+        out = io.StringIO()
+        poison = {"NO_PROXY": "*", "no_proxy": "api.ipify.org", "HTTPS_PROXY": "http://127.0.0.1:9", "all_proxy": "http://untrusted.example"}
+        with patch.dict(os.environ, poison), patch("urllib.request.build_opener", side_effect=opener), redirect_stdout(out):
+            exec(LINE_CHECK_CODE, {})
+        self.assertEqual(json.loads(out.getvalue())["ip"], "8.8.8.8")
 
     def test_v2ray_rules_use_destination_and_do_not_export_credentials(self):
         rules = v2ray_rules(self.landing)
