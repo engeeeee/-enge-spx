@@ -3,6 +3,7 @@ import argparse
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import ipaddress
 from pathlib import Path
 import secrets
 import select
@@ -133,7 +134,10 @@ def run(context):
             line_config = {"log": {"level": "error"}, "dns": {"servers": [{"type": "local", "tag": "local"}]}, "inbounds": [{"type": "shadowsocks", "listen": "0.0.0.0", "listen_port": 8444, "method": "aes-128-gcm", "password": ss_password}], "outbounds": [{"type": "direct", "tag": "fixture-direct"}], "route": {"final": "fixture-direct", "default_domain_resolver": "local"}}
             atomic_json(line_dir / "config.json", line_config)
             engine.docker.run("run", "-d", "--name", line_name, "--network", "name=" + engine.external + ",gw-priority=1", "--add-host", "landing.spx.invalid:" + ip, "--mount", f"type=bind,source={line_dir},target=/config,readonly", GATEWAY_IMAGE, "run", "-c", "/config/config.json")
-            engine.docker.run("network", "connect", engine.internal, line_name)
+            # Docker releases stopped endpoints' dynamic IPAM leases. Keep the
+            # fixture away from the gateway/session addresses reserved by SPX.
+            fixture_ip = str(ipaddress.ip_address(engine.networks()[0]) + 8)
+            engine.docker.run("network", "connect", "--ip", fixture_ip, engine.internal, line_name)
             line_ip = engine.docker.inspect("container", line_name)["NetworkSettings"]["Networks"][engine.internal]["IPAddress"]
             credentials = base64.urlsafe_b64encode(("aes-128-gcm:" + ss_password).encode()).decode().rstrip("=")
             line_node = uri_node(f"ss://{credentials}@{line_ip}:8444#Encrypted-first-hop")
