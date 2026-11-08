@@ -22,9 +22,22 @@ def loopback(host):
         return False
 
 
+def _local_outbound(url):
+    try:
+        value = uri_node(url.strip())["outbound"]
+        if value["type"] not in ("socks", "http") or not loopback(value["server"]):
+            raise ValueError()
+        return value
+    except (ValueError, TypeError) as error:
+        raise SPXError("本机代理请填写回环地址，例如 http://127.0.0.1:10809 或 socks5://127.0.0.1:10808。") from error
+
+
 def relay_config(enabled=False, url="", downloads=True, mode="local", line_id="", server_ip="", expected_ip=""):
     if not enabled:
-        return {"enabled": False, "downloads": bool(downloads)}
+        result = {"enabled": False, "downloads": bool(downloads)}
+        if url.strip():
+            result["download_outbound"] = _local_outbound(url)
+        return result
     if mode not in ("local", "managed"):
         raise SPXError("请选择本机代理兼容模式或软件内双跳。")
     try:
@@ -41,13 +54,7 @@ def relay_config(enabled=False, url="", downloads=True, mode="local", line_id=""
         result.update(line_id=line_id, server_ip=server_ip)
         if not url.strip():
             return result
-    try:
-        node = uri_node(url.strip())
-        value = node["outbound"]
-        if value["type"] not in ("socks", "http") or not loopback(value["server"]):
-            raise ValueError()
-    except (ValueError, TypeError) as error:
-        raise SPXError("本机线路请填写回环代理地址，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080。") from error
+    value = _local_outbound(url)
     result["outbound" if mode == "local" else "download_outbound"] = value
     return result
 
@@ -61,9 +68,7 @@ def route_config(config):
 
 
 def proxy_url(config):
-    if not config.get("enabled"):
-        return None
-    value = config.get("download_outbound") if config.get("mode") == "managed" else config.get("outbound")
+    value = config.get("outbound") if config.get("enabled") and config.get("mode", "local") == "local" else config.get("download_outbound")
     if not value:
         return None
     value = normalize(value)["outbound"]
@@ -80,7 +85,7 @@ def proxy_url(config):
 def download_proxy(config):
     if not config.get("downloads", True):
         return None, "直接连接"
-    if config.get("enabled") and proxy_url(config):
+    if proxy_url(config):
         url, origin = proxy_url(config), "已配置的本机代理"
     else:
         try:

@@ -5,7 +5,7 @@
 
 ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为 Windows 上的 Claude Code、Codex 和共享 Chromium 提供 Linux 容器工作环境。支持软件内固定“加密线路 → 落地代理 → 目标服务”，也可兼容本机 v2ray 代理。线路出口和落地出口分别核对。
 
-当前版本：**0.5.0 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
+当前版本：**0.5.1 Preview**。支持 Windows x64，需要 Docker Desktop 的 Linux containers / WSL 2 后端，Docker Engine 28 或更新版本。软件不接管系统代理。
 
 ![ENGE SPX 工作台](docs/images/spx-overview.png)
 
@@ -13,10 +13,10 @@ ENGE SPX 是 [engeeeee](https://github.com/engeeeee) 维护的个人项目，为
 
 ## 下载安装
 
-打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.0-windows)：
+打开 [Releases](https://github.com/engeeeee/-enge-spx/releases/tag/v0.5.1-windows)：
 
-- **安装版**：`ENGE-SPX-Windows-x64-0.5.0-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
-- **免安装版**：`ENGE-SPX-Windows-x64-0.5.0-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
+- **安装版**：`ENGE-SPX-Windows-x64-0.5.1-Setup.exe`。当前用户安装，提供开始菜单和桌面快捷方式。
+- **免安装版**：`ENGE-SPX-Windows-x64-0.5.1-Portable.zip`。完整解压，运行根目录 `ENGE-SPX.exe`；保留 `_internal` 文件夹。
 
 两个版本都不需要另外安装 Python。命令行入口为 `spx.exe`。程序尚未代码签名。
 

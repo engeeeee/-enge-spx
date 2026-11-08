@@ -1,5 +1,15 @@
 # Changes
 
+## 0.5.1 Preview — 2026-11-08
+
+- Keep the download proxy independent of the workspace line switch, so first
+  installation and subscription imports can use an explicit v2ray loopback proxy
+  before importing any line or landing. Reading the system proxy does not enable
+  or switch workspace routing. Empty download-proxy fields use system detection;
+  unavailable proxy downloads still fail closed.
+- Use the current download controls for subscriptions, including unsaved proxy
+  choices, and clearly label single-landing mode and pending routing changes.
+
 ## 0.5.0 Preview — 2026-11-08
 
 - Add managed encrypted first-hop routing with a fixed line-to-landing chain and

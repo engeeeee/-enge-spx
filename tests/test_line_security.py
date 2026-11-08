@@ -144,6 +144,17 @@ class LineSecurityTests(unittest.TestCase):
                 download_proxy(self.relay)
         self.assertEqual(download_proxy({**self.relay, "downloads": False}), (None, "直接连接"))
 
+    def test_download_proxy_can_be_set_before_importing_a_line_or_landing(self):
+        config = relay_config(False, "socks5://127.0.0.1:10808", True)
+        self.assertEqual(route_config(config), {"enabled": False})
+        self.assertEqual(validate_relay(config), config)
+        with patch("enge_spx.proxy.detect_system_proxy", side_effect=AssertionError("Unexpected lookup")):
+            self.assertEqual(download_proxy(config)[0], "socks5://127.0.0.1:10808")
+        engine = Engine(self.store)
+        engine._stop = Mock()
+        engine.save_settings(self.landing["id"], self.store.settings()["timezone"], self.store.settings()["context"], config)
+        self.assertEqual(proxy_url(self.store.settings()["relay"]), "socks5://127.0.0.1:10808")
+
     def test_subscription_uses_explicit_proxy_and_rejects_http_redirect(self):
         seen = []
         def handler(request):

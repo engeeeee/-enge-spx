@@ -61,7 +61,7 @@ class App:
         root.configure(bg=BG)
         install_icons(root)
         settings = store.settings()
-        for key, value in {"selected": "", "timezone": settings["timezone"], "context": settings["context"], "project": (settings["projects"] or [""])[-1], "relay_url": proxy_url(settings["relay"]) or "http://127.0.0.1:7890", "phase": "准备你的工作环境", "detail": "配置本机线路与落地代理，然后核对出口。", "operation": "就绪", "docker_text": "等待检测 Docker Desktop", "runtime_text": "已有环境，等待核验" if self.runtime_ok else "尚未安装运行环境", "route": "本机线路（可选） → 落地代理 → 目标服务", "ip": "—", "region": "—", "download_title": "下载预构建运行环境", "download_detail": "支持断点续传，完成后自动校验并导入 Docker。"}.items():
+        for key, value in {"selected": "", "timezone": settings["timezone"], "context": settings["context"], "project": (settings["projects"] or [""])[-1], "relay_url": proxy_url(settings["relay"]) or "", "phase": "准备你的工作环境", "detail": "配置本机线路与落地代理，然后核对出口。", "operation": "就绪", "docker_text": "等待检测 Docker Desktop", "runtime_text": "已有环境，等待核验" if self.runtime_ok else "尚未安装运行环境", "route": "本机线路（可选） → 落地代理 → 目标服务", "ip": "—", "region": "—", "download_title": "下载预构建运行环境", "download_detail": "支持断点续传，完成后自动校验并导入 Docker。"}.items():
             setattr(self, key, tk.StringVar(value=value))
         self.relay_enabled = tk.BooleanVar(value=settings["relay"].get("enabled", False))
         self.relay_downloads = tk.BooleanVar(value=settings["relay"].get("downloads", True))
@@ -567,8 +567,7 @@ class App:
     def read_system_proxy(self):
         try:
             self.relay_url.set(detect_system_proxy())
-            self.relay_enabled.set(True)
-            self.operation.set("已读取本机代理。仅使用现有 v2ray 时，请选择“本机代理（v2ray 兼容）”再保存。")
+            self.operation.set("已读取下载代理；工作区模式未改变。使用 v2ray 兼容模式时，请在上方明确启用并选择该模式。")
         except SPXError as error:
             messagebox.showinfo("手动填写本机代理", str(error), parent=self.root)
 
@@ -645,9 +644,14 @@ class App:
                     messagebox.showinfo("读取失败", "请选择小于 2 MiB 的 UTF-8 配置文件。", parent=dialog)
         def accept():
             text, subscription = entry.get("1.0", "end").strip(), mode.get() == "订阅地址（HTTPS）"
+            try:
+                download_settings = relay_config(False, self.relay_url.get(), self.relay_downloads.get()) if subscription else None
+            except SPXError as error:
+                messagebox.showinfo("检查下载代理", str(error), parent=dialog)
+                return
             dialog.destroy()
             def action(engine):
-                nodes, warnings = parse_nodes(fetch_subscription(text, download_proxy(engine.store.settings()["relay"])[0]) if subscription else text)
+                nodes, warnings = parse_nodes(fetch_subscription(text, download_proxy(download_settings)[0]) if subscription else text)
                 engine.save_nodes(nodes, append=True)
                 return len(nodes), warnings
             def done(result):
@@ -774,7 +778,7 @@ class App:
         self.region.set(evidence.get("country", "—") + " / " + evidence.get("city", "—"))
         self.line_ip.set(evidence.get("line_ip", "—"))
         if not self.relay_enabled.get():
-            self.line_status.set("前置线路未启用；仅核对落地出口。")
+            self.line_status.set("前置线路未启用：本机会连接落地，仅核对落地出口；依赖 v2ray 时请启用并选择对应模式。")
         elif LINE_MODES[self.line_mode.get()] == "managed":
             self.line_status.set("软件内双跳：固定加密线路，无直连备用出口；首次连接请核对线路出口。")
         else:
