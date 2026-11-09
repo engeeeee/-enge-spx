@@ -60,7 +60,7 @@ The first runtime download is about 1 GB and starts after you click; existing im
 
 ![ENGE SPX preparation interface](docs/images/spx-startup.png)
 
-This is the actual source UI in a Linux graphical test environment, not physical Windows acceptance evidence.
+This is the actual source UI captured in native Windows CI. It does not replace interactive acceptance on each user's display and DPI configuration.
 
 </details>
 
@@ -112,7 +112,7 @@ Most detailed guides are in Chinese:
 
 ## Development and status
 
-Maintained by [engeeeee](https://github.com/engeeeee). Source use requires Python 3.12+ with Tk. Install with `python -m pip install -e .` and launch `spx`, or use `Start-Windows.cmd` on Windows. Windows packaging uses PyInstaller and Inno Setup. See [development instructions](docs/development.md), [0.6.0 core validation](docs/validation-0.6.zh-CN.md) and [CHANGELOG](CHANGELOG.md).
+Maintained by [engeeeee](https://github.com/engeeeee). Source use requires Python 3.12+ with Tk. Install with `python -m pip install -e .` and launch `spx`, or use `Start-Windows.cmd` on Windows. Windows packaging uses PyInstaller and Inno Setup. See [development instructions](docs/development.md), [0.7.0 validation](docs/validation-0.7.zh-CN.md) and [CHANGELOG](CHANGELOG.md).
 
 The current focus is Windows x64, controlled proxy paths and existing-data compatibility. There is no Windows ARM64 package or automatic updater. Unsupported WS / gRPC / Reality / XTLS / uTLS parameters cannot be imported as managed lines.
 

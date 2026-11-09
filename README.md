@@ -62,7 +62,7 @@ flowchart LR
 
 ![ENGE SPX 一键准备界面](docs/images/spx-startup.png)
 
-截图来自真实源码界面的 Linux 图形测试环境，不代表 Windows 实机验收。
+截图来自原生 Windows CI 中运行的真实源码界面；不同显示器、DPI 与用户实机组合仍需交互验收。
 
 </details>
 
@@ -153,7 +153,7 @@ python -m venv .venv
 .\.venv\Scripts\spx.exe
 ```
 
-Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[0.6.0 核心功能验证记录](docs/validation-0.6.zh-CN.md)列出了结果、资产摘要和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
+Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[0.7.0 验证记录](docs/validation-0.7.zh-CN.md)列出了结果、资产摘要和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 许可与来源
 
