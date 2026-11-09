@@ -5,7 +5,7 @@ import unittest
 from enge_spx.window_frame import (
     HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTBOTTOM,
     HTTOPLEFT, HTTOPRIGHT, HTBOTTOMLEFT, HTBOTTOMRIGHT,
-    MinMaxInfo, MonitorInfo, Rect, edge_hit, resized,
+    MinMaxInfo, MonitorInfo, Point, Rect, edge_hit, resized,
 )
 
 
@@ -81,10 +81,15 @@ class NativeFrameTests(unittest.TestCase):
         self.assertTrue(self.frame.maximized())
         area = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
         self.native.user.GetMonitorInfoW(self.native.user.MonitorFromWindow(self.native.hwnd, 2), ctypes.byref(area))
-        rect = Rect()
-        self.native.user.GetWindowRect(self.native.hwnd, ctypes.byref(rect))
-        self.assertGreaterEqual(rect.top, area.work.top - 2)
-        self.assertLessEqual(rect.bottom, area.work.bottom + 2)
+        client, origin = Rect(), Point()
+        self.native.user.GetClientRect(self.native.hwnd, ctypes.byref(client))
+        self.native.user.ClientToScreen(self.native.hwnd, ctypes.byref(origin))
+        # Native invisible resize margins may sit outside the monitor. The
+        # visible client area and its custom title bar must stay inside it.
+        self.assertGreaterEqual(origin.y, area.work.top - 2)
+        self.assertGreaterEqual(origin.x, area.work.left - 2)
+        self.assertLessEqual(origin.y + client.bottom, area.work.bottom + 2)
+        self.assertLessEqual(origin.x + client.right, area.work.right + 2)
         self.frame.restore()
         self.root.update()
         self.assertFalse(self.frame.maximized())

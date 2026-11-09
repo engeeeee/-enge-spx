@@ -74,6 +74,7 @@ class NativeFrame:
         self.user.CallWindowProcW.restype = ctypes.c_ssize_t
         self.user.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rect)]
         self.user.GetClientRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rect)]
+        self.user.ClientToScreen.argtypes = [ctypes.c_void_p, ctypes.POINTER(Point)]
         self.user.IsZoomed.argtypes = [ctypes.c_void_p]
         self.user.IsIconic.argtypes = [ctypes.c_void_p]
         self.user.IsWindow.argtypes = [ctypes.c_void_p]
@@ -83,6 +84,8 @@ class NativeFrame:
         self.user.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
         self.user.MonitorFromWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
         self.user.MonitorFromWindow.restype = ctypes.c_void_p
+        self.user.MonitorFromRect.argtypes = [ctypes.POINTER(Rect), ctypes.c_uint]
+        self.user.MonitorFromRect.restype = ctypes.c_void_p
         self.user.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MonitorInfo)]
         self.user.GetDpiForWindow.argtypes = [ctypes.c_void_p]
         self.user.GetDpiForWindow.restype = ctypes.c_uint
@@ -125,6 +128,19 @@ class NativeFrame:
     def _message(self, hwnd, message, wparam, lparam):
         try:
             if message == 0x0083:  # WM_NCCALCSIZE: use the full window as client.
+                if self.maximized():
+                    # Maximized overlapped windows retain invisible sizing
+                    # margins outside the monitor. Keep custom chrome visible
+                    # by clipping the client to the proposed monitor work area.
+                    proposed = ctypes.cast(lparam, ctypes.POINTER(Rect))
+                    info = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
+                    monitor = self.user.MonitorFromRect(proposed, 2)
+                    if self.user.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                        rect = proposed.contents
+                        rect.left = max(rect.left, info.work.left)
+                        rect.top = max(rect.top, info.work.top)
+                        rect.right = min(rect.right, info.work.right)
+                        rect.bottom = min(rect.bottom, info.work.bottom)
                 return 0
             if message == 0x0084:  # WM_NCHITTEST; signed coordinates support left monitors.
                 x, y = ctypes.c_int16(lparam & 0xFFFF).value, ctypes.c_int16((lparam >> 16) & 0xFFFF).value
