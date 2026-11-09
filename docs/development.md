@@ -38,6 +38,8 @@ python -m enge_spx --self-test
 ```
 
 On Linux, use `PYTHONPATH=src`; GUI checks use Qt's offscreen platform when needed.
+Minimal Debian/Ubuntu hosts also need `libegl1`, `libgl1` and `libxkbcommon0`
+for Qt GUI modules, including offscreen checks. CI installs these system libraries.
 Recreate the artwork with `python tools/render_brand.py` after installing Pillow
 and CairoSVG. Artwork dependencies are not included in the distributed app.
 
