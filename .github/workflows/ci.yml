@@ -79,7 +79,7 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
-          ./packaging/windows/Build-Windows.ps1
+          ./packaging/windows/Build-Windows.ps1 -Python (Join-Path $env:pythonLocation 'python.exe')
       - name: Verify packaged CLI
         shell: pwsh
         run: |

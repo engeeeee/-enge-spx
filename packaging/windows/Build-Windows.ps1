@@ -2,7 +2,7 @@ param([string]$Python = 'python')
 $ErrorActionPreference = 'Stop'
 $spxRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 Set-Location $spxRoot
-$spxBasePython = (Get-Command $Python -CommandType Application -ErrorAction Stop).Source
+$spxBasePython = (Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $spxBaseVersion = & $spxBasePython -c "import sys; print('.'.join(map(str, sys.version_info[:2])))"
 if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the selected build Python.' }
 $spxPython = Join-Path $spxRoot '.venv-build\Scripts\python.exe'
