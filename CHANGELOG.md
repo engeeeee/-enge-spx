@@ -1,5 +1,21 @@
 # Changes
 
+## 0.7.0 Preview — 2026-11-09
+
+- Rework the desktop UI with warm-black surfaces, amber actions, rounded cards,
+  grouped navigation, dark input fields, readable logs and matching application
+  and navigation icons. Compact preparation into four horizontal steps and show
+  line and landing exits separately on the overview.
+- Replace the system title bar in the main window and in-app dialogs with
+  custom chrome. On Windows, keep native shell styles and process non-client
+  sizing/hit tests to retain taskbar, minimize, maximize, restore and edge resize;
+  maximize within the monitor work area. Leave system file pickers native.
+- Theme notices and confirmation dialogs, preserve modal grabs and focus, and
+  make the initial confirmation focus the cancel action. Keep route confirmation,
+  startup cancellation, terminal choices and persistent Docker resources intact.
+- Add geometry tests, native Windows frame/state checks, integrated GUI control
+  checks, and source screenshots plus a packaged native-frame gate in CI.
+
 ## 0.6.0 Preview — 2026-11-08
 
 - Prepare a workspace in one flow: detect or start Docker Desktop, wait for the

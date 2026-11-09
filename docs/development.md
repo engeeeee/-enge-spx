@@ -11,6 +11,19 @@ tests/                       Unit, migration and explicit Docker integration tes
 tools/                       GUI smoke test, artwork, runtime export and release
 ```
 
+`theme.py` holds the shared colors and reusable UI surfaces. `window_frame.py`
+provides custom title bars and the native Windows non-client message adapter;
+`dialogs.py` keeps the controller's modal API while using the shared appearance.
+Window callbacks remain alive until the HWND is destroyed and restore the
+previous procedure during teardown. Container recipes are unchanged by the UI.
+
+Windows tests exercise client/window bounds, resize hit tests, monitor work-area
+maximization, taskbar styles and minimize/restore behavior. GUI smoke checks
+cover visible card content, modal confirmation/cancellation and restored grabs.
+The `ENGE-SPX-UI-<version>` artifact contains actual Windows source screenshots
+and a small result JSON. This still does not replace interactive acceptance on
+each user's display, DPI, terminal and Docker Desktop combination.
+
 Use Python 3.12 or newer with Tcl/Tk. Install `requirements.txt` to run from the
 source tree, or `python -m pip install -e .` for an editable installation. The
 installed command is `spx`; `python -m enge_spx` exposes the same interface.

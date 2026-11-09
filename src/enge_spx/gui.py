@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, ttk
 import webbrowser
 
 from . import __version__
@@ -23,8 +23,9 @@ from .line_security import LINE_MODES, v2ray_rules
 from . import terminal
 from .storage import DOCKER_STORAGE_DOC, desktop_storage, plan_migration, prepare_docker_move, verify_docker_move
 from .startup import StartupIssue, DOCKER_INSTALL_URL, diagnostics, prepare_workspace
-
-BG, WHITE, INK, MUTED, BLUE, BORDER = "#F3F5F9", "#FFFFFF", "#17243D", "#78849A", "#3355D6", "#E6EAF2"
+from . import theme, dialogs as messagebox
+from .theme import BG, SURFACE, INK, MUTED, ACCENT, BORDER
+from .window_frame import WindowFrame
 
 
 def size_text(value):
@@ -39,7 +40,7 @@ class Page(ttk.Frame):
         self.canvas.configure(yscrollcommand=bar.set)
         bar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.content = ttk.Frame(self.canvas, style="App.TFrame", padding=(28, 8, 28, 24))
+        self.content = ttk.Frame(self.canvas, style="App.TFrame", padding=(24, 6, 24, 22))
         window = self.canvas.create_window((0, 0), anchor="nw", window=self.content)
         self.content.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(window, width=e.width))
@@ -62,10 +63,11 @@ class App:
         self.last_docker_info = None
         self.style()
         root.title(APP_NAME)
-        root.geometry("1180x840")
+        root.geometry(f"{max(980, min(1200, root.winfo_screenwidth() - 48))}x{max(700, min(860, root.winfo_screenheight() - 48))}")
         root.minsize(980, 700)
         root.configure(bg=BG)
         install_icons(root)
+        self.chrome = WindowFrame(root, close=self.close)
         settings = store.settings()
         for key, value in {"selected": "", "timezone": settings["timezone"], "context": settings["context"], "project": (settings["projects"] or [""])[-1], "relay_url": proxy_url(settings["relay"]) or "", "phase": "准备你的工作环境", "detail": "配置本机线路与落地代理，然后核对出口。", "operation": "就绪", "docker_text": "等待检测 Docker Desktop", "runtime_text": "已有环境，等待核验" if self.runtime_ok else "尚未安装运行环境", "route": "本机线路（可选） → 落地代理 → 目标服务", "ip": "—", "region": "—", "download_title": "下载预构建运行环境", "download_detail": "支持断点续传，完成后自动校验并导入 Docker。"}.items():
             setattr(self, key, tk.StringVar(value=value))
@@ -97,32 +99,43 @@ class App:
         self.storage_status = tk.StringVar(value="可将配置、日志和运行环境下载缓存迁移到其他磁盘。")
         self.docker_location = tk.StringVar(value="点击“检测存储位置”查看 Docker 数据目录。")
         self.docker_move_status = tk.StringVar(value="已保存迁移计划，完成 Docker 设置后点击核验。" if move.get("phase") == "prepared" else "Docker 数据盘包含镜像、容器、工具账号和浏览器资料。")
-        side = tk.Frame(root, bg=WHITE, width=216, highlightbackground=BORDER, highlightthickness=1)
+        body = self.chrome.content
+        side = tk.Frame(body, bg=theme.SIDEBAR, width=222)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
-        brand = tk.Frame(side, bg=WHITE)
-        brand.pack(fill="x", padx=20, pady=(28, 30))
+        tk.Frame(body, bg=BORDER, width=1).pack(side="left", fill="y")
+        brand = tk.Frame(side, bg=theme.SIDEBAR)
+        brand.pack(fill="x", padx=20, pady=(24, 24))
         self.pictures = {"logo": tk.PhotoImage(file=str(ASSETS / "logo-64.png")).subsample(2)}
-        tk.Label(brand, image=self.pictures["logo"], bg=WHITE).pack(side="left", padx=(0, 10))
-        titles = tk.Frame(brand, bg=WHITE)
+        tk.Label(brand, image=self.pictures["logo"], bg=theme.SIDEBAR).pack(side="left", padx=(0, 10))
+        titles = tk.Frame(brand, bg=theme.SIDEBAR)
         titles.pack(side="left")
-        tk.Label(titles, text="ENGE SPX", fg=INK, bg=WHITE, font=("Segoe UI", 15, "bold")).pack(anchor="w")
-        tk.Label(titles, text="PERSONAL WORKSPACE", fg=MUTED, bg=WHITE, font=("Segoe UI", 7)).pack(anchor="w")
+        tk.Label(titles, text="ENGE SPX", fg=INK, bg=theme.SIDEBAR, font=(theme.FONT, 15, "bold")).pack(anchor="w")
+        tk.Label(titles, text="AI 编程隔离工作台", fg=MUTED, bg=theme.SIDEBAR, font=(theme.FONT, 8)).pack(anchor="w", pady=(3, 0))
         self.nav, self.pages = {}, {}
         names = [("overview", "工作台"), ("connection", "连接与代理"), ("workspace", "项目工作区"), ("downloads", "下载与安装"), ("logs", "运行日志"), ("settings", "偏好设置")]
         for name, label in names:
+            if name in ("overview", "downloads"):
+                tk.Label(side, text="工作空间" if name == "overview" else "管理", fg=theme.FAINT, bg=theme.SIDEBAR, font=(theme.FONT, 9)).pack(anchor="w", padx=24, pady=(6 if name == "overview" else 24, 7))
             self.pictures[name] = tk.PhotoImage(file=str(ASSETS / (name + ".png")))
-            button = tk.Button(side, text="   " + label, image=self.pictures[name], compound="left", anchor="w", borderwidth=0, bg=WHITE, fg=MUTED, activebackground="#EEF2FF", activeforeground=BLUE, font=("Segoe UI", 11), padx=14, pady=11, cursor="hand2", command=lambda n=name: self.show_page(n))
-            button.pack(fill="x", padx=12, pady=3)
+            button = theme.NavButton(side, "   " + label, lambda n=name: self.show_page(n), image=self.pictures[name])
+            button.pack(fill="x", padx=12, pady=2)
             self.nav[name] = button
-        tk.Label(side, text="Windows Preview\nv" + __version__, fg=MUTED, bg=WHITE, justify="left", font=("Segoe UI", 9)).pack(side="bottom", anchor="w", padx=24, pady=26)
-        main = ttk.Frame(root, style="App.TFrame")
+        footer = tk.Frame(side, bg=theme.SIDEBAR)
+        footer.pack(side="bottom", fill="x", padx=22, pady=24)
+        tk.Label(footer, text="●  本地工作台", fg=ACCENT, bg=theme.SIDEBAR, font=(theme.FONT, 9)).pack(anchor="w")
+        tk.Label(footer, text="Windows Preview  /  " + __version__, fg=theme.FAINT, bg=theme.SIDEBAR, font=(theme.FONT, 8)).pack(anchor="w", pady=(8, 0))
+        main = ttk.Frame(body, style="App.TFrame")
         main.pack(side="left", fill="both", expand=True)
-        top = ttk.Frame(main, style="App.TFrame", padding=(28, 26, 28, 18))
+        top = ttk.Frame(main, style="App.TFrame", padding=(24, 22, 24, 16))
         top.pack(fill="x")
+        ttk.Button(top, text="使用文档  ↗", command=lambda: webbrowser.open(PROJECT_URL + "/blob/main/docs/quickstart.zh-CN.md")).pack(side="right")
+        heading = ttk.Frame(top, style="App.TFrame")
+        heading.pack(side="left", fill="x", expand=True)
         self.heading = tk.StringVar(value="工作台")
-        ttk.Label(top, textvariable=self.heading, style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(top, text="一次配置，继续手边的项目。", style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        self.subheading = tk.StringVar(value="准备环境，核对出口，继续手边的项目。")
+        ttk.Label(heading, textvariable=self.heading, style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(heading, textvariable=self.subheading, style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
         holder = ttk.Frame(main, style="App.TFrame")
         holder.pack(fill="both", expand=True)
         for name, label in names:
@@ -133,9 +146,10 @@ class App:
         self.build_downloads(self.pages["downloads"].content)
         self.build_logs(self.pages["logs"].content)
         self.build_settings(self.pages["settings"].content)
-        footer = ttk.Frame(main, style="App.TFrame", padding=(28, 10, 28, 14))
+        footer = ttk.Frame(main, style="App.TFrame", padding=(24, 9, 24, 12))
         footer.pack(fill="x")
         ttk.Label(footer, textvariable=self.operation, style="Muted.TLabel", wraplength=840).pack(anchor="w")
+        theme.responsive_labels(main)
         self.refresh_nodes()
         self.show_page("overview")
         root.bind("<MouseWheel>", self.scroll_page, add="+")
@@ -147,26 +161,12 @@ class App:
             root.after(500, self.check_docker)
 
     def style(self):
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure("App.TFrame", background=BG)
-        style.configure("Panel.TFrame", background=WHITE)
-        for name, background, color, size, weight in [("TLabel", WHITE, INK, 10, "normal"), ("Muted.TLabel", BG, MUTED, 10, "normal"), ("PanelMuted.TLabel", WHITE, MUTED, 10, "normal"), ("Heading.TLabel", BG, INK, 23, "bold"), ("Section.TLabel", WHITE, INK, 12, "bold")]:
-            style.configure(name, background=background, foreground=color, font=("Segoe UI", size, weight))
-        style.configure("TButton", padding=(15, 9), background="#F0F3F8", foreground=INK, borderwidth=0, font=("Segoe UI", 10))
-        style.map("TButton", background=[("active", "#E4EAF5")], foreground=[("disabled", "#A4ADBD")])
-        style.configure("Accent.TButton", background=BLUE, foreground=WHITE)
-        style.map("Accent.TButton", background=[("active", "#2948BD"), ("disabled", "#CBD4ED")], foreground=[("disabled", "#F6F8FF")])
-        style.configure("TEntry", padding=8, bordercolor=BORDER)
-        style.configure("TCombobox", padding=7, bordercolor=BORDER)
-        style.configure("TCheckbutton", background=WHITE, font=("Segoe UI", 10))
-        style.configure("Horizontal.TProgressbar", background=BLUE, troughcolor="#E9EDF6", borderwidth=0, thickness=7)
+        theme.apply(self.root)
 
-    def card(self, parent, title=None, caption=None):
-        border = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
-        border.pack(fill="x", pady=(0, 16))
-        frame = ttk.Frame(border, style="Panel.TFrame", padding=20)
-        frame.pack(fill="both", expand=True)
+    def card(self, parent, title=None, caption=None, accent=False):
+        panel = theme.Card(parent, accent=accent)
+        panel.pack(fill="x", pady=(0, 14))
+        frame = panel.content
         if title:
             ttk.Label(frame, text=title, style="Section.TLabel").pack(anchor="w")
         if caption:
@@ -184,44 +184,64 @@ class App:
         return button
 
     def build_overview(self, parent):
-        card = self.card(parent)
-        self.dot = tk.Label(card, text="●", fg=MUTED, bg=WHITE, font=("Segoe UI", 13))
-        self.dot.pack(anchor="w")
-        ttk.Label(card, textvariable=self.phase, font=("Segoe UI", 19, "bold")).pack(anchor="w", pady=(6, 8))
-        ttk.Label(card, textvariable=self.detail, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w")
-        actions = self.row(card)
-        self.next_button = self.button(actions, "准备运行环境", self.next_step, True)
-        self.next_button.pack(side="left", pady=(18, 0), padx=(0, 10))
+        card = self.card(parent, accent=True)
+        row = self.row(card)
+        information = ttk.Frame(row, style="Panel.TFrame")
+        information.pack(side="left", fill="both", expand=True, padx=(0, 18))
+        ttk.Label(information, text="环境状态", style="Eyebrow.TLabel").pack(anchor="w", pady=(0, 8))
+        status = self.row(information)
+        self.dot = tk.Label(status, text="●", fg=MUTED, bg=SURFACE, font=(theme.FONT, 10))
+        self.dot.pack(side="left", padx=(0, 8))
+        ttk.Label(status, textvariable=self.phase, font=(theme.FONT, 18, "bold")).pack(side="left")
+        ttk.Label(information, textvariable=self.detail, style="PanelMuted.TLabel", wraplength=510).pack(anchor="w", pady=(10, 0))
+        actions = ttk.Frame(row, style="Panel.TFrame")
+        actions.pack(side="right", anchor="center")
+        self.next_button = self.button(actions, "一键准备环境", self.next_step, True)
+        self.next_button.pack(fill="x")
         self.startup_cancel = ttk.Button(actions, text="取消准备", command=self.pause, state="disabled")
-        self.startup_cancel.pack(side="left", pady=(18, 0))
-        card = self.card(parent, "一键准备")
-        ttk.Label(card, textvariable=self.startup_title, font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 7))
-        ttk.Label(card, textvariable=self.startup_detail, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(0, 12))
-        for value in self.startup_steps.values():
-            ttk.Label(card, textvariable=value, style="PanelMuted.TLabel").pack(anchor="w", pady=3)
+        self.startup_cancel.pack(fill="x", pady=(8, 0))
+
+        card = self.card(parent, "环境准备")
+        ttk.Label(card, textvariable=self.startup_detail, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(8, 14))
+        steps = self.row(card)
+        titles = {"docker": "Docker", "runtime": "运行环境", "connection": "连接检查", "review": "出口确认"}
+        for index, (key, value) in enumerate(self.startup_steps.items()):
+            steps.columnconfigure(index, weight=1, uniform="startup")
+            step = ttk.Frame(steps, style="Inset.TFrame", padding=(10, 10))
+            step.grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 4, 0 if index == 3 else 4))
+            tk.Label(step, text=f"0{index + 1}  {titles[key]}", bg=theme.FIELD, fg=ACCENT, font=(theme.FONT, 9, "bold")).pack(anchor="w", pady=(0, 6))
+            label = ttk.Label(step, style="Inset.TLabel", wraplength=170, justify="left")
+            label.pack(anchor="w", fill="x")
+            def changed(*ignored, source=value, target=label):
+                text = source.get()
+                target.configure(text=text.partition("：")[2] or text, foreground=theme.SUCCESS if text.startswith("✓") else ACCENT if text.startswith("…") else MUTED)
+            value.trace_add("write", changed)
+            changed()
         self.startup_bar = ttk.Progressbar(card, maximum=100)
-        self.startup_bar.pack(fill="x", pady=(12, 12))
-        ttk.Label(card, text="下载代理（留空读取系统代理，首次安装无需先导入节点）").pack(anchor="w", pady=(0, 6))
+        self.startup_bar.pack(fill="x", pady=(16, 16))
+        ttk.Label(card, text="本机下载代理", style="PanelMuted.TLabel").pack(anchor="w", pady=(0, 6))
         row = self.row(card)
         ttk.Entry(row, textvariable=self.relay_url).pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.button(row, "读取系统代理", self.read_system_proxy).pack(side="left")
-        ttk.Checkbutton(card, text="通过本机代理下载；不可用时停止，主动取消才直连", variable=self.relay_downloads).pack(anchor="w", pady=(10, 8))
-        ttk.Label(card, text="首次运行环境约 1 GB，支持续传；已有匹配环境会直接复用。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(0, 10))
+        ttk.Checkbutton(card, text="通过本机代理下载；不可用时停止，取消勾选后才直连", variable=self.relay_downloads).pack(anchor="w", pady=(10, 8))
+        ttk.Label(card, text="首次环境约 1 GB，支持续传；已有匹配环境会复用。代理留空时读取系统代理。", style="PanelMuted.TLabel", wraplength=780).pack(anchor="w", pady=(0, 12))
         actions = self.row(card)
-        self.startup_help = self.button(actions, "快速入门与排障", self.startup_help_action)
-        self.startup_help.pack(side="left", padx=(0, 10))
+        self.startup_help = self.button(actions, "快速入门与排障  ↗", self.startup_help_action)
+        self.startup_help.pack(side="left", padx=(0, 8))
         self.button(actions, "复制诊断信息", self.copy_diagnostics).pack(side="left")
-        row = ttk.Frame(parent, style="App.TFrame")
-        row.pack(fill="x", pady=(0, 16))
-        for column, (label, variable) in enumerate([("落地出口 IP", self.ip), ("预计地区", self.region), ("环境时区", self.timezone)]):
-            row.columnconfigure(column, weight=1, uniform="stats")
-            pane = ttk.Frame(row, style="Panel.TFrame", padding=16)
-            pane.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 6, 0 if column == 2 else 6))
-            ttk.Label(pane, text=label, style="PanelMuted.TLabel").pack(anchor="w")
-            ttk.Label(pane, textvariable=variable, font=("Segoe UI", 11, "bold"), wraplength=225).pack(anchor="w", pady=(9, 0))
-        card = self.card(parent, "你的连接路径")
-        ttk.Label(card, textvariable=self.route, wraplength=780).pack(anchor="w", pady=(12, 8))
-        ttk.Label(card, text="最终出口由落地代理提供，本机线路只负责前置中转。", style="PanelMuted.TLabel").pack(anchor="w")
+
+        metrics = ttk.Frame(parent, style="App.TFrame")
+        metrics.pack(fill="x", pady=(0, 14))
+        for column, (label, variable) in enumerate([("线路出口", self.line_ip), ("落地出口", self.ip), ("预计地区", self.region), ("环境时区", self.timezone)]):
+            metrics.columnconfigure(column, weight=1, uniform="metrics")
+            panel = theme.Card(metrics, padding=15)
+            panel.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 5, 0 if column == 3 else 5))
+            ttk.Label(panel.content, text=label, style="PanelMuted.TLabel").pack(anchor="w")
+            ttk.Label(panel.content, textvariable=variable, style="Metric.TLabel", font=(theme.FONT, 11 if column >= 2 else 13, "bold"), wraplength=170).pack(anchor="w", pady=(10, 2))
+        card = self.card(parent, "工作区代理路径")
+        ttk.Label(card, textvariable=self.route, wraplength=780).pack(anchor="w", pady=(10, 8))
+        ttk.Label(card, textvariable=self.line_status, style="PanelMuted.TLabel", wraplength=780).pack(anchor="w")
+        self.button(card, "配置线路与落地  →", lambda: self.show_page("connection")).pack(anchor="w", pady=(14, 0))
         card = self.card(parent, "继续工作", "选择已有项目，账号与会话会保留。")
         self.button(card, "打开项目工作区  →", lambda: self.show_page("workspace")).pack(anchor="w")
 
@@ -305,7 +325,7 @@ class App:
 
     def build_logs(self, parent):
         card = self.card(parent, "运行日志", "详细安装输出也保存在数据目录中的 build.log。")
-        self.log_view = scrolledtext.ScrolledText(card, height=22, font=("Consolas", 10), bg="#162238", fg="#DCE5F5", relief="flat", state="disabled", padx=14, pady=14)
+        self.log_view = theme.TextArea(card, height=22, font=("Consolas", 10), state="disabled")
         self.log_view.pack(fill="both", expand=True)
         self.button(card, "打开数据目录", self.open_data).pack(anchor="w", pady=(12, 0))
 
@@ -373,9 +393,10 @@ class App:
     def show_page(self, name):
         for key, page in self.pages.items():
             page.pack_forget()
-            self.nav[key].configure(bg="#EEF2FF" if key == name else WHITE, fg=BLUE if key == name else MUTED)
+            self.nav[key].select(key == name)
         self.pages[name].pack(fill="both", expand=True)
-        self.heading.set(self.nav[name].cget("text").strip())
+        self.heading.set(self.nav[name].label.strip())
+        self.subheading.set({"overview": "准备环境，核对出口，继续手边的项目。", "connection": "选择线路与落地，明确工作区的网络路径。", "workspace": "项目留在本机，工具在容器中运行。", "downloads": "准备 Docker 与运行环境，查看下载进度。", "logs": "查看当前任务与环境的运行记录。", "settings": "设置自己的终端、存储位置和启动行为。"}[name])
         self.page_name = name
 
     def scroll_page(self, event):
@@ -479,6 +500,7 @@ class App:
 
     def copy_diagnostics(self):
         value = diagnostics(self.store, self.last_docker_info, self.startup_error)
+        value.update({"theme": "black-amber", "window_frame": "native" if self.chrome.native and self.chrome.native.active else "portable"})
         self.root.clipboard_clear()
         self.root.clipboard_append(json.dumps(value, ensure_ascii=False, indent=2))
         self.operation.set("已复制诊断信息，不包含节点、密码、出口 IP 或项目路径。")
@@ -683,9 +705,12 @@ class App:
             return
         dialog = tk.Toplevel(self.root)
         dialog.title("添加落地代理")
-        dialog.geometry("520x490")
+        dialog.geometry("560x560")
         dialog.transient(self.root)
-        frame = ttk.Frame(dialog, style="Panel.TFrame", padding=24)
+        dialog.resizable(False, False)
+        chrome = WindowFrame(dialog, title="添加落地代理", resizable=False)
+        chrome.center(self.root, 560, 560)
+        frame = ttk.Frame(chrome.content, style="Panel.TFrame", padding=24)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="添加落地代理", style="Section.TLabel").pack(anchor="w", pady=(0, 16))
         variables = {k: tk.StringVar(value=v) for k, v in {"type": "SOCKS5", "server": "", "port": "1080", "username": "", "password": "", "name": ""}.items()}
@@ -716,14 +741,17 @@ class App:
             return
         dialog = tk.Toplevel(self.root)
         dialog.title("导入落地代理")
-        dialog.geometry("680x470")
+        dialog.geometry("740x540")
         dialog.transient(self.root)
-        frame = ttk.Frame(dialog, style="Panel.TFrame", padding=22)
+        dialog.resizable(False, False)
+        chrome = WindowFrame(dialog, title="导入代理与订阅", resizable=False)
+        chrome.center(self.root, 740, 540)
+        frame = ttk.Frame(chrome.content, style="Panel.TFrame", padding=22)
         frame.pack(fill="both", expand=True)
         mode = tk.StringVar(value="代理链接 / JSON / Clash")
         ttk.Combobox(frame, textvariable=mode, values=["代理链接 / JSON / Clash", "订阅地址（HTTPS）"], state="readonly").pack(fill="x", pady=(0, 12))
         ttk.Label(frame, text="HTTPS 代理使用第一项；下载订阅需明确选择第二项。", style="PanelMuted.TLabel").pack(anchor="w", pady=(0, 10))
-        entry = scrolledtext.ScrolledText(frame, height=11, font=("Consolas", 10))
+        entry = theme.TextArea(frame, height=11, font=("Consolas", 10))
         entry.pack(fill="both", expand=True)
         def file():
             path = filedialog.askopenfilename(parent=dialog)
@@ -882,7 +910,8 @@ class App:
             title, detail = "完成 Docker 准备后继续", self.startup_detail.get()
         self.phase.set(title)
         self.detail.set(detail)
-        self.dot.configure(fg="#16866C" if ready else "#D49A33" if state["phase"] == "review" else MUTED)
+        self.dot.configure(fg=theme.SUCCESS if ready else ACCENT if state["phase"] == "review" else MUTED)
+        self.chrome.set_status("正在准备环境" if self.busy else "●  工作区已就绪" if ready else "●  等待核对出口" if state["phase"] == "review" else "●  工作区未启用", theme.SUCCESS if ready else ACCENT if self.busy or state["phase"] == "review" else MUTED)
         evidence = state.get("evidence") or {}
         self.ip.set(evidence.get("ip", "—"))
         self.region.set(evidence.get("country", "—") + " / " + evidence.get("city", "—"))
@@ -1026,7 +1055,7 @@ def launch(store, smoke=False):
         if smoke:
             def painted():
                 root.update_idletasks()
-                store.write("ui-smoke.json", {"app": root.title(), "first_paint_ms": round((time.perf_counter() - started) * 1000), "version": __version__, "icons": True})
+                store.write("ui-smoke.json", {"app": root.title(), "first_paint_ms": round((time.perf_counter() - started) * 1000), "version": __version__, "icons": True, "custom_frame": hasattr(root, "_spx_frame"), "native_frame": bool(root._spx_frame.native and root._spx_frame.native.active)})
                 root.after(400, root.destroy)
             root.after(100, painted)
         root.mainloop()

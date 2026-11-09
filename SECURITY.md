@@ -1,6 +1,6 @@
 # 安全报告
 
-目前维护的版本为 **0.6.x Preview**，旧版问题原则上在当前版本修复；暂不承诺旧版本回补或响应时限。发布状态以 [Releases](https://github.com/engeeeee/ENGE-SPX/releases) 为准。
+目前维护的版本为 **0.7.x Preview**，旧版问题原则上在当前版本修复；暂不承诺旧版本回补或响应时限。发布状态以 [Releases](https://github.com/engeeeee/ENGE-SPX/releases) 为准。
 
 ## 报告漏洞
 

@@ -29,7 +29,7 @@ def main():
         if not match or ast.literal_eval(match[1]) != (*map(int, __version__.split(".")), 0):
             errors.append(name + ": numeric version mismatch")
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    for prefix in ("ENGE-SPX-Windows-x64-", "ENGE-SPX-Runtime-"):
+    for prefix in ("ENGE-SPX-Windows-x64-", "ENGE-SPX-Runtime-", "ENGE-SPX-UI-"):
         for version in re.findall(re.escape(prefix) + r"(\d+\.\d+\.\d+)", workflow):
             if version != __version__:
                 errors.append("CI artifact version mismatch: " + version)

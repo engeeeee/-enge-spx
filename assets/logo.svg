@@ -1,19 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">ENGE SPX</title>
-  <desc id="desc">An S-shaped connection between two endpoints on a dark blue square.</desc>
+  <desc id="desc">An amber S-shaped connection between two endpoints on a warm black square.</desc>
   <defs>
     <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#17243d"/>
-      <stop offset="1" stop-color="#0a1021"/>
+      <stop offset="0" stop-color="#282d24"/>
+      <stop offset="1" stop-color="#101211"/>
     </linearGradient>
     <linearGradient id="signal" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#74ddff"/>
-      <stop offset="1" stop-color="#8c9dff"/>
+      <stop offset="0" stop-color="#d8a841"/>
+      <stop offset="1" stop-color="#f6dc89"/>
     </linearGradient>
   </defs>
   <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#surface)"/>
   <path d="M88 36H53C29 36 29 63 53 63H75C99 63 99 92 75 92H40" fill="none" stroke="url(#signal)" stroke-width="13" stroke-linecap="round"/>
-  <circle cx="88" cy="36" r="8" fill="#fff"/>
-  <circle cx="40" cy="92" r="8" fill="#fff"/>
+  <circle cx="88" cy="36" r="8" fill="#eeeDE5"/>
+  <circle cx="40" cy="92" r="8" fill="#eeeDE5"/>
 </svg>
 
