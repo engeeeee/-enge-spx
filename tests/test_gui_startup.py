@@ -4,13 +4,12 @@ import gc
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
-import tempfile
 import threading
-import time
 import unittest
+
+from desktop_harness import environment, exercise_entry_point, fake_desktop
 
 
 def run_child():
@@ -57,77 +56,19 @@ def run_child():
 
 @unittest.skipUnless(os.name == "nt", "Windows GUI and Desktop cold-start subprocess")
 class GUIColdStartTests(unittest.TestCase):
-    def test_real_gui_survives_desktop_focus_and_worker_completion(self):
-        system = Path(os.environ["SystemRoot"])
-        compiler = next((p for p in (system / "Microsoft.NET/Framework64/v4.0.30319/csc.exe", system / "Microsoft.NET/Framework/v4.0.30319/csc.exe") if p.is_file()), None)
-        self.assertIsNotNone(compiler)
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            source = base / "Desktop.cs"
-            source.write_text(r'''
-using System;
-using System.IO;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
-class Desktop {
-    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
-    [STAThread] static int Main(string[] args) {
-        string root = Environment.GetEnvironmentVariable("SPX_TEST_FAKE_ROOT");
-        string marker = Path.Combine(root, "ready");
-        string self = Environment.GetCommandLineArgs()[0];
-        if (Path.GetFileName(self) == "Docker Desktop.exe") {
-            var form = new Form();
-            form.Text = "ENGE SPX isolated fake Desktop";
-            form.Width = 420; form.Height = 220;
-            var timer = new Timer(); timer.Interval = 1800;
-            timer.Tick += delegate { form.Close(); };
-            form.Shown += delegate {
-                File.AppendAllText(Path.Combine(root, "launches"), "launch\n");
-                File.WriteAllText(marker, "ready");
-                form.Activate();
-                IntPtr hwnd = new IntPtr(Int64.Parse(Environment.GetEnvironmentVariable("SPX_TEST_MAIN_HWND")));
-                SendMessage(hwnd, 0x031A, IntPtr.Zero, IntPtr.Zero);
-                SendMessage(hwnd, 0x031E, IntPtr.Zero, IntPtr.Zero);
-                timer.Start();
-            };
-            Application.Run(form);
-            return 0;
-        }
-        string command = String.Join(" ", args);
-        if (command.StartsWith("desktop start ")) {
-            if (Environment.GetEnvironmentVariable("SPX_TEST_START_MODE") == "legacy") return 2;
-            var start = new ProcessStartInfo(Path.Combine(root, "Docker App", "Docker Desktop.exe"));
-            start.UseShellExecute = false; start.CreateNoWindow = true;
-            Process.Start(start);
-            return 0;
-        }
-        if (!command.StartsWith("--context desktop-linux ")) return 3;
-        if (command.Contains(" context inspect ")) {
-            Console.WriteLine("[{\"Endpoints\":{\"docker\":{\"Host\":\"npipe:////./pipe/dockerDesktopLinuxEngine\"}}}]");
-            return 0;
-        }
-        if (command.Contains(" info ")) {
-            if (!File.Exists(marker)) return 1;
-            Console.WriteLine("{\"OSType\":\"linux\",\"ServerVersion\":\"29.0.0\",\"Architecture\":\"x86_64\"}");
-            return 0;
-        }
-        return 4;
-    }
-}''', encoding="utf-8")
-            cli = base / "Docker App/resources/bin/docker.exe"
-            cli.parent.mkdir(parents=True)
-            compiled = subprocess.run([str(compiler), "/nologo", "/target:exe", "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/out:" + str(cli), str(source)], capture_output=True, text=True)
-            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            shutil.copyfile(cli, base / "Docker App/Docker Desktop.exe")
+    def test_real_entry_point_survives_desktop_launch(self):
+        command = [os.environ["SPX_TEST_PACKAGED_GUI"]] if "SPX_TEST_PACKAGED_GUI" in os.environ else [sys.executable, "-X", "faulthandler", "-m", "enge_spx"]
+        with fake_desktop() as (base, cli):
             for mode in ("legacy", "cli"):
                 with self.subTest(mode=mode):
-                    for name in ("ready", "launches"):
-                        (base / name).unlink(missing_ok=True)
-                    env = {**os.environ, "SPX_TEST_FAKE_ROOT": str(base), "SPX_TEST_START_MODE": mode, "PATH": str(cli.parent) + os.pathsep + os.environ.get("PATH", "")}
+                    exercise_entry_point(command, base, cli, mode)
+
+    def test_real_gui_survives_desktop_focus_and_worker_completion(self):
+        with fake_desktop() as (base, cli):
+            for mode in ("legacy", "cli"):
+                with self.subTest(mode=mode):
+                    env = environment(base, cli, mode)
                     result = subprocess.run([sys.executable, "-X", "faulthandler", str(Path(__file__).resolve()), "--child"], env=env, capture_output=True, text=True, timeout=25)
-                    if result.returncode:
-                        time.sleep(2)  # Let the owned fake Desktop close before removing its exe.
                     self.assertEqual(result.returncode, 0, f"{mode}: exit={result.returncode}\n{result.stdout}\n{result.stderr}")
                     self.assertEqual((base / "launches").read_text().splitlines(), ["launch"])
 
@@ -135,5 +76,8 @@ class Desktop {
 if __name__ == "__main__":
     if "--child" in sys.argv:
         run_child()
+    elif "--packaged" in sys.argv:
+        os.environ["SPX_TEST_PACKAGED_GUI"] = str(Path(sys.argv[sys.argv.index("--packaged") + 1]).resolve(strict=True))
+        unittest.main(argv=[sys.argv[0], "GUIColdStartTests.test_real_entry_point_survives_desktop_launch", "-v"])
     else:
         unittest.main()

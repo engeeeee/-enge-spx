@@ -166,6 +166,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
         assert dialog is not None, "Themed modal did not open"
         assert dialog._spx_frame.controls["close"].winfo_viewable()
         if enter:
+            assert dialog.focus_get().cget("text") == "暂不继续", "Default confirmation focus must be Cancel"
             dialog.event_generate("<Return>")
         elif accept:
             def click(widget):
