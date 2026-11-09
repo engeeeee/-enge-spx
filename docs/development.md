@@ -46,6 +46,12 @@ Build on x64 Windows with Inno Setup 6 installed:
 .\packaging\windows\Build-Windows.ps1
 ```
 
+The build uses `python` on the current PATH, or an explicit executable passed
+with `-Python`. CI selects Python 3.12 and checks the frozen runtime reports
+the same version. The script recreates its generated `.venv-build` when the
+selected Python major/minor differs; it does not ask the Windows launcher to
+choose the newest installed interpreter.
+
 Outputs are `dist/ENGE-SPX-Windows-x64-<version>-Setup.exe`, a matching portable
 ZIP and SHA-256 files. GUI and CLI share one runtime folder. The version is read
 from `enge_spx.__version__`; Windows metadata and CI artifact names must be

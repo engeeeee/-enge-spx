@@ -85,8 +85,11 @@ jobs:
         run: |
           & ./dist/ENGE-SPX/spx.exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Packaged CLI check failed.' }
-          & ./dist/ENGE-SPX/spx.exe --self-test
+          $selfTest = & ./dist/ENGE-SPX/spx.exe --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Packaged proxy transports/resources failed.' }
+          $selfTest | Write-Output
+          $runtime = $selfTest | ConvertFrom-Json
+          if ($runtime.python -notlike '3.12.*') { throw 'Packaged Python differs from the source test interpreter.' }
           $smokeHome = Join-Path $env:RUNNER_TEMP 'spx-packaged-smoke'
           & ./dist/ENGE-SPX/spx.exe --data $smokeHome relay
           if ($LASTEXITCODE -ne 0) { throw 'Packaged relay import check failed.' }

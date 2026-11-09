@@ -1,11 +1,17 @@
+param([string]$Python = 'python')
 $ErrorActionPreference = 'Stop'
 $spxRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 Set-Location $spxRoot
-if (-not (Test-Path '.venv-build\Scripts\python.exe')) {
-    py -3 -m venv .venv-build
+$spxBasePython = (Get-Command $Python -CommandType Application -ErrorAction Stop).Source
+$spxBaseVersion = & $spxBasePython -c "import sys; print('.'.join(map(str, sys.version_info[:2])))"
+if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the selected build Python.' }
+$spxPython = Join-Path $spxRoot '.venv-build\Scripts\python.exe'
+$spxExistingVersion = if (Test-Path $spxPython) { & $spxPython -c "import sys; print('.'.join(map(str, sys.version_info[:2])))" } else { '' }
+if ($spxExistingVersion -ne $spxBaseVersion) {
+    & $spxBasePython -m venv --clear .venv-build
     if ($LASTEXITCODE -ne 0) { throw 'Python environment creation failed.' }
 }
-$spxPython = Join-Path $spxRoot '.venv-build\Scripts\python.exe'
+Write-Output "Building with the selected Python $spxBaseVersion"
 & $spxPython -m pip install -r requirements-build.txt
 if ($LASTEXITCODE -ne 0) { throw 'Build dependencies failed to install.' }
 $spxVersion = & $spxPython -c "import sys; sys.path.insert(0, 'src'); from enge_spx import __version__; print(__version__)"

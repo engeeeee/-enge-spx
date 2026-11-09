@@ -44,7 +44,7 @@ def main():
                 with client(proxy):
                     pass
             assert tunnel_type() and (ASSETS / "app.ico").is_file()
-            print(json.dumps({"app": "ENGE SPX", "version": __version__, "resources": True, "proxy_transports": True}))
+            print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True}))
             return 0
         store = Store(args.data)
         if args.action in (None, "gui"):

@@ -10,6 +10,9 @@
   available, so this does not identify every possible startup failure.
 - Explicitly focus themed modal dialogs so the initial Cancel button receives
   keyboard input with the callback-free frame.
+- Build with the selected Python instead of letting `py -3` pick a different
+  installed interpreter. Recreate a mismatched build venv and check that the
+  distributed runtime matches the Python 3.12 used by CI source tests.
 - Record bounded local GUI lifecycle, exception locations and fatal stacks in
   the data directory's `logs` folder, including windowed executables without
   stderr. Omit exception messages and frame locals; suspend the files during
