@@ -207,10 +207,10 @@ class BrowserAndLeaseTests(unittest.TestCase):
     def test_gateway_lease_expires_without_host(self):
         gateway = load_container("gateway")
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "lease.json"
+            path = Path(directory) / "lease.jsonl"
             with patch.object(gateway, "Path", return_value=path):
                 for offset, valid in ((100, True), (-1, False), (400, False)):
-                    path.write_text(json.dumps({"expires": time.time() + offset}))
+                    path.write_text(json.dumps({"expires": time.time() + offset}) + "\n")
                     self.assertEqual(gateway.lease_valid(), valid)
                 path.write_text("broken")
                 self.assertFalse(gateway.lease_valid())

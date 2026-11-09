@@ -85,7 +85,22 @@ def atomic_json(path: Path, value) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(temporary, 0o600)
-        os.replace(temporary, path)
+        # Windows readers (including Docker Desktop's bind-mount bridge) may
+        # briefly hold the old file without FILE_SHARE_DELETE. Keep replacement
+        # atomic and retry that sharing conflict rather than truncating a lease.
+        deadline = time.monotonic() + 3
+        delay = .02
+        while True:
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError as error:
+                windows_sharing = getattr(error, "winerror", None) in (5, 32, 33) or os.name == "nt" and error.errno == errno.EACCES
+                remaining = deadline - time.monotonic()
+                if not windows_sharing or remaining <= 0:
+                    raise
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, .2)
     finally:
         Path(temporary).unlink(missing_ok=True)
 

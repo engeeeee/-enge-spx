@@ -73,12 +73,12 @@ def run(context, output):
             passed("two exit sources agree; direct TCP egress blocked")
             engine.confirm()
             passed("review and fresh connection confirmation")
-            # A fixture has no background guard: test lease failure deterministically.
-            # Production start_guard is exercised by the UI/CLI; no credentials needed.
+            # The real detached guard runs throughout; expiry is exercised later
+            # by explicitly stopping its loop before revoking the lease.
             project = base / "项目 with spaces"
             project.mkdir()
             project.chmod(0o777)
-            with store.lock():
+            with store.lock(timeout=100):
                 state = engine.ready()
                 viewer = engine._browser(state)
                 worker, key = engine._project(str(project), state)
@@ -99,9 +99,10 @@ def run(context, output):
             async def display_protocol():
                 origin = urllib.parse.urlsplit(viewer)
                 url = "ws://" + origin.netloc + "/websockify?token=" + state["browser_token"]
-                async with connect(url, origin="http://" + origin.netloc, subprotocols=["binary"], proxy=None) as display:
-                    banner = await asyncio.wait_for(display.recv(), 8)
-                    assert isinstance(banner, bytes) and banner.startswith(b"RFB "), banner
+                for _ in range(2):
+                    async with connect(url, origin="http://" + origin.netloc, subprotocols=["binary"], proxy=None) as display:
+                        banner = await asyncio.wait_for(display.recv(), 8)
+                        assert isinstance(banner, bytes) and banner.startswith(b"RFB "), banner
                 for url_suffix, requested_origin in (("invalid", "http://" + origin.netloc), (state["browser_token"], "https://untrusted.example")):
                     try:
                         async with connect("ws://" + origin.netloc + "/websockify?token=" + url_suffix, origin=requested_origin, subprotocols=["binary"], proxy=None):
@@ -109,7 +110,7 @@ def run(context, output):
                     except InvalidStatus as error:
                         assert error.response.status_code == 403
             asyncio.run(display_protocol())
-            passed("actual VNC banner received; bad token and foreign Origin rejected")
+            passed("VNC display reconnects without restarting the browser; bad token and foreign Origin rejected")
             for command, expected in (("codex", "codex-cli"), ("claude", "Claude Code")):
                 version = engine.docker.run("exec", worker["Id"], command, "--version")
                 assert expected in version, version
@@ -123,10 +124,52 @@ def run(context, output):
             value = execute(engine, browser["Id"], "import urllib.request; print(urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:1455',timeout=5).status)")
             assert value == "200", value
             passed("browser can reach the tool's localhost OAuth callback")
+            fonts = engine.docker.run("exec", browser["Id"], "fc-list", ":lang=zh", "family")
+            assert not fonts.strip(), "Browser image still advertises Chinese system fonts: " + fonts
+            passed("browser image has no Chinese system-font families")
+            unicode_code = """import os,pty,subprocess,select,time
+master,slave=pty.openpty()
+text='中文输入与显示 — Claude Code / Codex'
+p=subprocess.Popen(['python3','-c','value=input(); print(\"ROUNDTRIP:\"+value,flush=True)'],stdin=slave,stdout=slave,stderr=slave)
+os.close(slave)
+os.write(master,(text+'\\n').encode('utf-8'))
+output=b''
+deadline=time.monotonic()+5
+try:
+ while time.monotonic()<deadline:
+  if select.select([master],[],[],.1)[0]:
+   try: output+=os.read(master,65536)
+   except OSError: break
+  if ('ROUNDTRIP:'+text).encode('utf-8') in output: break
+ assert ('ROUNDTRIP:'+text).encode('utf-8') in output,repr(output)
+ assert p.wait(timeout=2)==0
+ print('UTF8_PTY_OK')
+finally:
+ os.close(master)
+ if p.poll() is None: p.kill(); p.wait()
+"""
+            assert execute(engine, worker["Id"], unicode_code) == "UTF8_PTY_OK"
+            passed("Chinese input and output round-trip through the project container's real PTY")
+            # Do not execute ready(), tool commands or shell input for longer
+            # than one complete 180-second lease. Only the detached guard can
+            # keep this already-open browser environment alive.
+            first_heartbeat = store.read("runtime.json")["heartbeat"]
+            deadline = time.monotonic() + 190
+            while time.monotonic() < deadline:
+                current = store.read("runtime.json")
+                assert current.get("phase") == "ready", current.get("reason")
+                time.sleep(2)
+            current = store.read("runtime.json")
+            assert current["heartbeat"] > first_heartbeat + 120, "Guard did not renew independently of shell activity"
+            assert time.time() - current["heartbeat"] < 100
+            assert all(engine.inspect(role)["State"]["Running"] for role in ("gateway", "session", "browser"))
+            with opener.open(viewer, timeout=5) as response:
+                assert response.status == 200
+            passed("browser-only session survives 190 seconds without shell input; detached guard renews the lease")
             lock = wait_lock(store)
             try:
+                engine.set_lease(time.time() - 1, store.read("runtime.json"))
                 store.write("runtime.json", {"phase": "stopped"})
-                store.write("gateway/lease.json", {"expires": time.time() - 1})
             finally:
                 lock.__exit__(None, None, None)
             for _ in range(15):

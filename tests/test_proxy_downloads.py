@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 import tempfile
 import threading
+import struct
 import unittest
 from unittest.mock import patch
 
@@ -165,6 +166,29 @@ class DownloadRouteTests(unittest.TestCase):
 
 
 class TunnelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_slow_stream_and_its_eof_do_not_block_another_stream(self):
+        from enge_spx.forward import tunnel_type
+        reader = asyncio.StreamReader()
+        writer = type("Writer", (), {"write": lambda self, data: None, "drain": lambda self: asyncio.sleep(0)})()
+        tunnel = tunnel_type()(reader, writer)
+        slow, fast = tunnel.new_stream(), tunnel.new_stream()
+        sleepers = [asyncio.create_task(asyncio.sleep(60)) for _ in range(2)]
+        slow["task"], fast["task"] = sleepers
+        tunnel.streams.update({1: slow, 2: fast})
+        frame = struct.Struct("!BII")
+        # A stalled sink consumes its entire advertised eight-frame window.
+        for _ in range(8):
+            reader.feed_data(frame.pack(1, 1, 65536) + bytes(65536))
+        reader.feed_data(frame.pack(3, 1, 0))
+        reader.feed_data(frame.pack(1, 2, 4) + b"fast")
+        task = asyncio.create_task(tunnel.run())
+        try:
+            self.assertEqual(await asyncio.wait_for(fast["queue"].get(), 1), b"fast")
+            self.assertEqual(slow["queue"].qsize(), 9)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, *sleepers, return_exceptions=True)
+
     async def test_concurrent_large_streams_and_half_close(self):
         from enge_spx.forward import tunnel_type
         tunnel = tunnel_type()

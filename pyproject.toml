@@ -28,5 +28,5 @@ dependencies = { file = "requirements.txt" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-enge_spx = ["resources/containers/*", "resources/containers/.dockerignore", "resources/icons/*"]
+enge_spx = ["resources/containers/*", "resources/containers/.dockerignore", "resources/checks/*", "resources/icons/*"]
 

@@ -97,7 +97,7 @@ async def run(store: Store):
             clients.discard(websocket)
             await websocket.close()
 
-    async with serve(handler, "127.0.0.1", 0, process_request=request, compression=None, max_size=2 * 1024 * 1024, subprotocols=["binary"], select_subprotocol=lambda conn, protocols: "binary" if "binary" in protocols else None) as server:
+    async with serve(handler, "127.0.0.1", 0, process_request=request, compression=None, ping_timeout=60, max_size=2 * 1024 * 1024, subprotocols=["binary"], select_subprotocol=lambda conn, protocols: "binary" if "binary" in protocols else None) as server:
         port = server.sockets[0].getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
         store.write("relay.json", {"origin": origin, "control": control, "browser": browser_id, "token": token})

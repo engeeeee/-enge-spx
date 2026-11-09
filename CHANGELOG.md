@@ -1,5 +1,30 @@
 # Changes
 
+## 0.8.2 Preview — 2026-11-09
+
+- Fix the reported Windows lease-renewal failure: new gateways read a bounded
+  tail of append-only lease records instead of requiring replacement of a file
+  held by Docker Desktop. Ignore incomplete records, honor explicit revocation
+  and retain expiry when the host stops renewing. Reset the journal while stopped.
+- Retry short Windows sharing conflicts on other atomic JSON writes. Keep the
+  detached guard alive after an I/O error without extending the last valid lease;
+  continue stopping Docker resources even if writing the revocation file fails.
+- Reuse the existing isolated session for exit checks instead of creating a
+  disposable container every tick. Check the two exit sources and direct-egress
+  block in parallel; fetch supplementary geography only during setup/review.
+- Add per-stream bounded receive credits to the local proxy tunnel so a slow
+  connection cannot block every stream. Preserve the earlier 0.2 tunnel protocol
+  when using its exact legacy gateway. Enable display reconnect, allow more time
+  for WebSocket pongs and disable small-packet buffering on the local VNC socket.
+- Remove the browser image's preinstalled CJK font package. Keep Latin/emoji
+  fonts, the project image and UTF-8 locale unchanged. Terminal Chinese uses the
+  Windows terminal's fonts; Chinese web pages may need their own web fonts.
+  This reduces one font signal and does not provide an undetectable browser.
+- Add Windows file-sharing regressions, partial/revoked journal checks, slow
+  stream isolation, browser font inventory and real PTY Chinese round-trip tests.
+  Exercise a browser-only environment for 190 seconds without any shell command
+  or foreground renewal, longer than a complete production lease.
+
 ## 0.8.1 Preview — 2026-11-09
 
 - Make Docker startup explicit. Opening the app and rechecking status never

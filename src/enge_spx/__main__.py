@@ -40,10 +40,11 @@ def main():
             from .downloads import client
             from .forward import tunnel_type
             from .platform_ui import ASSETS
+            from .brand import PACKAGE_RESOURCES
             for proxy in ("http://127.0.0.1:9", "socks5://127.0.0.1:9"):
                 with client(proxy):
                     pass
-            assert tunnel_type() and (ASSETS / "app.ico").is_file()
+            assert tunnel_type() and (ASSETS / "app.ico").is_file() and (PACKAGE_RESOURCES / "checks/exit_probe.py").is_file()
             print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True}))
             return 0
         store = Store(args.data)

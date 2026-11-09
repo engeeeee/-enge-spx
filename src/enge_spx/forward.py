@@ -32,7 +32,7 @@ async def run(store):
     await writer.wait_closed()
     guest_log = (store.home / "forward-guest.log").open("ab")
     process = await asyncio.create_subprocess_exec(*engine.docker.command("exec", "-i", gateway["Id"], "python3", engine.runtime_path("gateway", "tunnel.py")), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=guest_log, env=engine.docker.environment(), creationflags=HIDDEN)
-    tunnel = tunnel_type()(process.stdout, process.stdin, (target["host"], target["port"]))
+    tunnel = tunnel_type()(process.stdout, process.stdin, (target["host"], target["port"]), flow_control=engine._image_abis["gateway"] != "legacy")
     transfer = asyncio.create_task(tunnel.run())
     try:
         while not transfer.done():

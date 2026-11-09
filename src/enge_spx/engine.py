@@ -19,7 +19,7 @@ import threading
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .state import Store, SPXError, fingerprint, status_snapshot
-from .brand import CONTAINERS, LEGACY_LABEL_ROOT
+from .brand import CONTAINERS, LEGACY_LABEL_ROOT, PACKAGE_RESOURCES
 from .compat import LEGACY_RECIPES, LEGACY_RUNTIME_DIRECTORY, LEGACY_BROWSER_TOKEN
 from .docker_env import environment as docker_environment
 from .line_security import LineSecurityError
@@ -418,13 +418,14 @@ class Engine:
             config["route"]["rules"] = line_rules(outbounds)
         from .state import atomic_json
         atomic_json(directory / "config.json", config)
-        atomic_json(directory / "lease.json", {"expires": time.time() + 300})
+        journal = self._image_abis.get("gateway") != "legacy"
+        self.set_lease(time.time() + 300, {"lease_journal": journal}, reset=True)
         gateway = self.ensure_container("gateway", ids["gateway"], ["--user", str(getattr(os, "getuid", lambda: 0)()), "--network", self.internal, "--ip", gateway_ip, "--read-only", "--tmpfs", "/tmp", "--mount", f"type=bind,source={directory},target=/config,readonly"], ["run", "-c", "/config/config.json"])
         if self.external not in gateway["NetworkSettings"]["Networks"]:
             self.docker.run("network", "connect", "--gw-priority", "1", self.external, gateway["Id"])
         session = self.ensure_container("session", ids["work"], ["--network", self.internal, "--ip", session_ip, "--dns", "127.0.0.1", "--read-only", "--tmpfs", "/tmp", "--memory", "128m"], ["sleep", "infinity"])
         self.store.write("environment.json", {"timezone": self.store.settings()["timezone"]})
-        return {"gateway": gateway["Id"], "session": session["Id"], "proxy": f"http://{gateway_ip}:2080", "config_hash": fingerprint(config), "forward_target": forward_target, "line_proxy": LINE_PROXY if relay["enabled"] else None, "line_mode": relay.get("mode")}
+        return {"gateway": gateway["Id"], "session": session["Id"], "proxy": f"http://{gateway_ip}:2080", "config_hash": fingerprint(config), "forward_target": forward_target, "line_proxy": LINE_PROXY if relay["enabled"] else None, "line_mode": relay.get("mode"), "lease_journal": journal}
 
     def ensure_forward(self, state):
         if not state.get("forward_target"):
@@ -444,8 +445,11 @@ class Engine:
             time.sleep(.25)
         raise SPXError("无法连接本机线路代理。请先启动线路客户端并核对监听地址、端口和认证信息。")
 
-    def probe(self, state):
-        output = self.docker.run("run", "--rm", "--network", "container:" + state["session"], "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--env", "NO_PROXY=", "--env", "no_proxy=", self.image_ids()["work"], "python3", self.runtime_path("work", "probe.py"), state["proxy"], timeout=80)
+    def probe(self, state, detailed=True):
+        code = (PACKAGE_RESOURCES / "checks/exit_probe.py").read_text(encoding="utf-8")
+        # Reuse the read-only session and its isolated network. Avoid creating a
+        # disposable container and querying geography for every monitor tick.
+        output = self.docker.run("exec", "--env", "NO_PROXY=", "--env", "no_proxy=", state["session"], "python3", "-c", code, state["proxy"], *(["--details"] if detailed else []), timeout=45)
         try:
             result = json.loads(output)
             ipaddress.IPv4Address(result["ip"])
@@ -477,14 +481,14 @@ class Engine:
                 time.sleep(.1)
         raise LineSecurityError("前置线路检查入口未能启动，请检查网关日志和节点配置。")
 
-    def probe_chain(self, state):
+    def probe_chain(self, state, detailed=True):
         line = None
         if state.get("line_proxy"):
             line = self.probe_line(state)
             expected = self.store.settings()["relay"].get("expected_ip") or (state.get("evidence") or {}).get("line_ip")
             if expected and line["ip"] != expected:
                 raise LineSecurityError("前置线路出口 IP 已改变，已停止环境。请检查 v2ray 分流、线路选择或直连回退，再重新核对。")
-        evidence = dict(self.probe(state))
+        evidence = dict(self.probe(state, detailed=detailed))
         if line:
             evidence.update(line_ip=line["ip"], line_mode=state["line_mode"])
         return evidence
@@ -560,7 +564,7 @@ class Engine:
                 if evidence["ip"] != state["evidence"]["ip"]:
                     raise SPXError("复核时出口 IP 已改变，请重新检查和核对。")
                 state.update({"phase": "ready", "evidence": evidence, "heartbeat": time.time(), "confirmed": time.time(), "browser_token": secrets.token_hex(32)})
-                self.store.write("gateway/lease.json", {"expires": time.time() + 180})
+                self.set_lease(time.time() + 180, state)
                 self.store.write("runtime.json", state)
                 self.start_guard()
                 return evidence
@@ -585,13 +589,17 @@ class Engine:
             self.audit_topology(state)
             if time.time() - state.get("heartbeat", 0) > 100:
                 raise SPXError("连接监测进程已失联，请重新检查连接。")
-            result = self.probe_chain(state)
+            result = self.probe_chain(state, detailed=False)
             if result["ip"] != state["evidence"]["ip"]:
                 raise SPXError("检测到出口 IP 改变，环境已停止。")
             state["heartbeat"] = time.time()
-            self.store.write("gateway/lease.json", {"expires": time.time() + 180})
+            self.set_lease(time.time() + 180, state)
             self.store.write("runtime.json", state)
             return state
+        except OSError:
+            # Preserve the last successful lease on an I/O failure. The guard
+            # retries without extending it; a persistent failure still expires.
+            raise
         except Exception as error:
             self._stop(str(error) if isinstance(error, LineSecurityError) else "连接监测未通过，请重新检查节点。")
             raise
@@ -603,6 +611,13 @@ class Engine:
                     try:
                         with self.store.lock():
                             self.ready()
+                    except OSError as error:
+                        # A transient Windows sharing conflict must not kill the
+                        # only lease-renewal process. No successful write means
+                        # no renewal: the gateway still expires if it persists.
+                        self.log(f"监测状态写入暂时失败，将自动重试（{type(error).__name__}，系统代码 {getattr(error, 'winerror', None) or error.errno}）。")
+                        time.sleep(3)
+                        continue
                     except SPXError:
                         if self.store.read("runtime.json", {}).get("phase") != "ready":
                             break
@@ -613,10 +628,27 @@ class Engine:
     def managed(self):
         return self.docker.run("ps", "-aq", "--filter", "label=" + self.owner + "=" + self.store.instance).splitlines()
 
+    def set_lease(self, expires, state, reset=False):
+        if state.get("lease_journal"):
+            from .lease import write_lease
+            write_lease(self.store, expires, reset)
+        else:
+            self.store.write("gateway/lease.json", {"expires": expires})
+
     def _stop(self, reason="环境已停止，账号和项目数据已保留。"):
-        self.store.write("runtime.json", {"phase": "stopped", "reason": reason})
-        self.store.write("gateway/lease.json", {"expires": 0})
+        state = self.store.read("runtime.json", {})
+        write_error = None
+        try:
+            self.store.write("runtime.json", {"phase": "stopped", "reason": reason})
+        except OSError as error:
+            write_error = error
+        try:
+            self.set_lease(0, state)
+        except OSError as error:
+            write_error = error
         if not self.docker.executable or not self.store.read("images.json"):
+            if write_error:
+                raise write_error
             return
         # Stop the gateway first: an unconfirmed state must not leave an outbound route.
         objects = [self.owned(self.docker.inspect("container", name)) for name in self.managed()]
@@ -632,6 +664,8 @@ class Engine:
             # A failed graceful stop still has to close this installation's network.
             for identifier in failures:
                 self.docker.run("kill", identifier, timeout=15)
+        if write_error:
+            raise write_error
 
     def stop(self):
         with self.store.lock():
@@ -680,7 +714,7 @@ class Engine:
         self.viewer_assets(obj)
         descriptor = self.display_relay(obj, state)
         token = urllib.parse.quote("websockify?token=" + state["browser_token"], safe="")
-        return descriptor["origin"] + f"/vnc.html?autoconnect=true&resize=scale&path={token}"
+        return descriptor["origin"] + f"/vnc.html?autoconnect=true&reconnect=true&reconnect_delay=2000&resize=scale&path={token}"
 
     def viewer_assets(self, browser):
         if self.store.read("viewer-assets.json", {}).get("image") == browser["Image"] and (self.store.home / "viewer-assets/vnc.html").is_file():

@@ -8,8 +8,21 @@ import time
 
 def lease_valid():
     try:
-        lease = json.loads(Path("/config/lease.json").read_text())
-        return 0 < float(lease["expires"]) - time.time() <= 310
+        journal = Path("/config/lease.jsonl")
+        with journal.open("rb") as stream:
+            stream.seek(0, 2)
+            stream.seek(max(0, stream.tell() - 4096))
+            lines = stream.read().split(b"\n")
+        # Ignore an unfinished last line, never a complete revocation record.
+        for line in reversed(lines[:-1]):
+            if not line.strip():
+                continue
+            try:
+                lease = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            return 0 < float(lease["expires"]) - time.time() <= 310
+        return False
     except (OSError, ValueError, KeyError, TypeError):
         return False
 

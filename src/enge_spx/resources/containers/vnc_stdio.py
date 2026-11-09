@@ -7,6 +7,7 @@ import threading
 def main():
     with socket.create_connection(("127.0.0.1", 5900), timeout=10) as connection:
         connection.settimeout(None)
+        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         def upload():
             try:
                 while data := os.read(0, 65536):
