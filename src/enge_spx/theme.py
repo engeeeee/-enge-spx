@@ -1,5 +1,6 @@
 """Shared warm-black and amber styling for the desktop interface."""
 import tkinter as tk
+import os
 from tkinter import scrolledtext, ttk
 
 BG = "#101211"
@@ -17,7 +18,7 @@ ACCENT_SURFACE = "#302D1E"
 BORDER = "#32372E"
 SUCCESS = "#9CC78D"
 DANGER = "#E9917F"
-FONT = "Segoe UI"
+FONT = "Microsoft YaHei UI" if os.name == "nt" else "Segoe UI"
 
 
 def apply(root):
@@ -42,7 +43,7 @@ def apply(root):
     style.map("Accent.TButton", background=[("disabled", "#3A3929"), ("pressed", "#D3AA43"), ("active", ACCENT_HOVER)], foreground=[("disabled", FAINT), ("!disabled", ACCENT_INK)])
     style.configure("Danger.TButton", foreground=DANGER)
     for name in ("TEntry", "TCombobox"):
-        style.configure(name, padding=9, fieldbackground=FIELD, background=FIELD, foreground=INK, insertcolor=ACCENT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, arrowcolor=MUTED, selectbackground=ACCENT, selectforeground=ACCENT_INK)
+        style.configure(name, padding=9, font=(FONT, 10), fieldbackground=FIELD, background=FIELD, foreground=INK, insertcolor=ACCENT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, arrowcolor=MUTED, selectbackground=ACCENT, selectforeground=ACCENT_INK)
         style.map(name, fieldbackground=[("disabled", SURFACE), ("readonly", FIELD)], foreground=[("disabled", FAINT), ("readonly", INK)], bordercolor=[("focus", ACCENT), ("active", "#586148")], lightcolor=[("focus", ACCENT)], darkcolor=[("focus", ACCENT)], selectbackground=[("!focus", FIELD)], selectforeground=[("!focus", INK)])
     style.configure("TCheckbutton", background=SURFACE, foreground=INK, font=(FONT, 10), indicatorsize=15, indicatorbackground=FIELD, indicatorforeground=ACCENT_INK, upperbordercolor=BORDER, lowerbordercolor=BORDER, focuscolor=ACCENT)
     style.map("TCheckbutton", background=[("active", SURFACE)], foreground=[("disabled", FAINT)], indicatorbackground=[("selected", ACCENT), ("active", HOVER)])

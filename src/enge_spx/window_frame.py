@@ -181,6 +181,25 @@ class NativeFrame:
     def maximized(self):
         return bool(self.user.IsZoomed(self.hwnd))
 
+    def fit_work_area(self):
+        if not self.resizable or self.maximized():
+            return
+        # Tk can finish its initial wrapper geometry after installing the
+        # custom frame. Normalize the final HWND after layout/mapping as well.
+        self.root.update_idletasks()
+        area = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
+        if not self.user.GetMonitorInfoW(self.user.MonitorFromWindow(self.hwnd, 2), ctypes.byref(area)):
+            return
+        for _ in range(2):
+            rect = Rect()
+            self.user.GetWindowRect(self.hwnd, ctypes.byref(rect))
+            width = min(rect.right - rect.left, area.work.right - area.work.left - 20)
+            height = min(rect.bottom - rect.top, area.work.bottom - area.work.top - 20)
+            x = min(max(rect.left, area.work.left + 10), area.work.right - width - 10)
+            y = min(max(rect.top, area.work.top + 10), area.work.bottom - height - 10)
+            self.user.SetWindowPos(self.hwnd, None, x, y, width, height, 0x0014)
+            self.root.update_idletasks()
+
     def minimize(self):
         self.user.ShowWindow(self.hwnd, 6)
 
@@ -209,6 +228,7 @@ class WindowFrame:
         self._normal_geometry = None
         self._maximized = False
         self._fallback_minimized = False
+        self._initial_layout_pending = True
         root.configure(background=theme.BORDER)
         self.shell = tk.Frame(root, background=theme.BG)
         self.shell.pack(fill="both", expand=True, padx=1, pady=1)
@@ -259,6 +279,10 @@ class WindowFrame:
 
     def set_status(self, text, color=theme.MUTED):
         self.status.configure(text=text, foreground=color)
+
+    def fit(self):
+        if self.native:
+            self.native.fit_work_area()
 
     def center(self, parent, width, height):
         self.root.geometry(f"{width}x{height}")
@@ -357,6 +381,9 @@ class WindowFrame:
             self._update_controls()
 
     def _mapped(self, event):
+        if event.widget == self.root and self.native and self._initial_layout_pending:
+            self._initial_layout_pending = False
+            self.root.after_idle(self.fit)
         if event.widget == self.root and self._fallback_minimized:
             self._fallback_minimized = False
             self.root.after_idle(lambda: self.root.overrideredirect(True))

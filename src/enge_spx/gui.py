@@ -159,6 +159,7 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self.close)
         if auto_check:
             root.after(500, self.check_docker)
+        self.chrome.fit()
 
     def style(self):
         theme.apply(self.root)

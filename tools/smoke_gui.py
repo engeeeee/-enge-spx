@@ -51,6 +51,13 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
     assert app.chrome.controls["close"].winfo_viewable()
     if os.name == "nt":
         assert app.chrome.native and app.chrome.native.active
+        import ctypes
+        from enge_spx.window_frame import MonitorInfo, Rect
+        native = app.chrome.native
+        area, bounds = MonitorInfo(size=ctypes.sizeof(MonitorInfo)), Rect()
+        native.user.GetMonitorInfoW(native.user.MonitorFromWindow(native.hwnd, 2), ctypes.byref(area))
+        native.user.GetWindowRect(native.hwnd, ctypes.byref(bounds))
+        assert bounds.top >= area.work.top and bounds.bottom <= area.work.bottom, "Initial window overlaps the taskbar or leaves the work area"
     capture(root, "overview")
     assert len(app.buttons) >= 12
     assert app.phase.get()
