@@ -26,7 +26,6 @@ from .startup import StartupIssue, DOCKER_INSTALL_URL, diagnostics, prepare_work
 from . import theme, dialogs as messagebox
 from .theme import BG, SURFACE, INK, MUTED, ACCENT, BORDER
 from .window_frame import WindowFrame
-from .gui_diagnostics import GuiDiagnostics, log as diagnostic_log
 
 
 def size_text(value):
@@ -435,7 +434,6 @@ class App:
             except StartupIssue as error:
                 self.events.put(("startup_error", {"code": error.code, "message": str(error)}))
             except Exception as error:
-                diagnostic_log.error("gui-worker-error type=%s", type(error).__name__)
                 self.events.put(("error", str(error)))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -625,15 +623,7 @@ class App:
                     messagebox.showinfo("数据已迁移", "原目录有少量文件未能清理，新目录已生效。详情见新目录中的 storage-migration.json。", parent=self.root)
                 self.check_docker()
             self.migrating = True
-            def migrate(engine):
-                def move():
-                    return engine.migrate_storage(target, lambda value: self.events.put(("storage", value)))
-                report = getattr(self.root, "_spx_diagnostics", None)
-                if report:
-                    with report.suspended_for_migration():
-                        return move()
-                return move()
-            self.run(migrate, done)
+            self.run(lambda engine: engine.migrate_storage(target, lambda value: self.events.put(("storage", value))), done)
         self.run(lambda engine: plan_migration(engine.store, target), reviewed)
 
     def detect_storage(self):
@@ -813,9 +803,7 @@ class App:
         self.startup_active = True
         self.startup_error = None
         auto_start = self.auto_start_docker.get() if auto_start_override is None else auto_start_override
-        diagnostic_log.info("docker-check-start auto-start=%s", bool(auto_start))
         def done(result):
-            diagnostic_log.info("docker-check-ready runtime=%s", bool(result["runtime"]))
             self.startup_active = False
             self.docker_ready = True
             self.last_docker_info = result["docker"]
@@ -1045,15 +1033,6 @@ class App:
 
 
 def launch(store, smoke=False):
-    with GuiDiagnostics(store.home) as report:
-        try:
-            _launch(store, report, smoke)
-        except Exception as error:
-            report.capture("gui-launch-error", type(error), error, error.__traceback__)
-            raise SPXError(f"ENGE SPX 启动异常。请保留诊断日志：{report.directory}") from error
-
-
-def _launch(store, report, smoke=False):
     started = time.perf_counter()
     prepare_windows()
     instance = WindowInstance(store.home, legacy=store.legacy)
@@ -1061,7 +1040,6 @@ def _launch(store, report, smoke=False):
         return
     root = tk.Tk()
     root.withdraw()
-    report.attach(root)
     try:
         def relocated(new_store):
             nonlocal instance
@@ -1074,10 +1052,7 @@ def _launch(store, report, smoke=False):
             return True
         App(root, store, auto_check=not smoke, on_relocated=relocated)
         instance.register(root)
-        def show():
-            root.deiconify()
-            diagnostic_log.info("gui-window-visible")
-        root.after_idle(show)
+        root.after_idle(root.deiconify)
         if smoke:
             def painted():
                 root.update_idletasks()
@@ -1086,8 +1061,4 @@ def _launch(store, report, smoke=False):
             root.after(100, painted)
         root.mainloop()
     finally:
-        try:
-            root.destroy()
-        except tk.TclError:
-            pass
         instance.close()

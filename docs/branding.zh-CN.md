@@ -26,15 +26,12 @@ Git 提交起点，没有连接原仓库的 fork 网络。
 文件与文件夹选择继续使用系统对话框。颜色来自本项目的主题定义，产品名称
 和图形标识仍为 ENGE SPX，不代表与 Claude / Anthropic 有官方关系。
 
-以下截图来自 0.7.0 最终构建的原生 Windows CI，是真实源码界面的初始状态，
-没有填入演示出口、代理凭据或用户项目。对应的源码、截图 Artifact 和窗口
-控制验证范围见 [0.7.0 验证记录](validation-0.7.zh-CN.md)。
+以下截图是源码界面在 Linux 图形测试环境中的实际初始状态，没有填入演示
+出口、代理凭据或用户项目。Windows 程序另由原生 Windows CI 构建和启动验证。
 
 ![ENGE SPX 工作台](images/spx-overview.png)
 
 ![ENGE SPX 连接与代理](images/spx-connection.png)
-
-![ENGE SPX 项目工作区](images/spx-workspace.png)
 
 旧名称仅在 [来源说明](../NOTICE.md)、第三方记录及明确的升级兼容代码中保留，
 用于识别此前已经发布的资源。独立品牌与独立托管不改变第三方作者的版权和

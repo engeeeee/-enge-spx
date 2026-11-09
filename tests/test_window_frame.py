@@ -1,6 +1,5 @@
 import ctypes
 import os
-from types import SimpleNamespace
 import unittest
 
 from enge_spx.window_frame import (
@@ -50,13 +49,6 @@ class NativeFrameTests(unittest.TestCase):
         self.root.geometry("720x500+40+40")
         self.root.minsize(420, 300)
         theme.apply(self.root)
-        self.root.update_idletasks()
-        user = ctypes.WinDLL("user32")
-        user.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
-        user.GetAncestor.restype = ctypes.c_void_p
-        user.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        user.GetWindowLongPtrW.restype = ctypes.c_ssize_t
-        self.window_proc = user.GetWindowLongPtrW(user.GetAncestor(self.root.winfo_id(), 2), -4)
         self.frame = WindowFrame(self.root)
         tk.Label(self.frame.content, text="ENGE SPX native frame", bg=theme.BG, fg=theme.ACCENT).pack(pady=30)
         self.root.deiconify()
@@ -72,8 +64,7 @@ class NativeFrameTests(unittest.TestCase):
         self.assertLessEqual(abs((outer.right - outer.left) - client.right), 2)
         self.assertLessEqual(abs((outer.bottom - outer.top) - client.bottom), 2)
         style = self.native.user.GetWindowLongPtrW(self.native.hwnd, -16)
-        self.assertEqual(style & 0x00C40000, 0)  # no caption or system sizing frame
-        self.assertEqual(style & 0x00030000, 0x00030000)  # native minimize/maximize state
+        self.assertEqual(style & 0x00070000, 0x00070000)  # resize, minimize, maximize
         extended = self.native.user.GetWindowLongPtrW(self.native.hwnd, -20)
         self.assertTrue(extended & 0x00040000)
         self.assertFalse(extended & 0x00000080)
@@ -107,21 +98,12 @@ class NativeFrameTests(unittest.TestCase):
         self.root.update()
         self.assertFalse(self.frame.maximized())
 
-    def test_tk_window_procedure_remains_installed(self):
-        self.assertEqual(self.native.user.GetWindowLongPtrW(self.native.hwnd, -4), self.window_proc)
-
-    def test_custom_handles_resize_without_a_native_callback(self):
-        self.assertEqual(len(self.frame.handles), 8)
-        width, height = self.root.winfo_width(), self.root.winfo_height()
-        self.frame._resize_start(SimpleNamespace(x_root=200, y_root=200), HTBOTTOMRIGHT)
-        self.frame._resize_move(SimpleNamespace(x_root=270, y_root=240))
-        self.root.update()
-        self.assertEqual(self.root.winfo_width(), width + 70)
-        self.assertEqual(self.root.winfo_height(), height + 40)
-        self.frame._resize_start(SimpleNamespace(x_root=200, y_root=200), HTTOPLEFT)
-        self.frame._resize_move(SimpleNamespace(x_root=2200, y_root=2200))
-        self.root.update()
-        self.assertEqual((self.root.winfo_width(), self.root.winfo_height()), self.root.minsize())
+    def test_native_hit_test_returns_resize_edges(self):
+        rect = Rect()
+        self.native.user.GetWindowRect(self.native.hwnd, ctypes.byref(rect))
+        for x, y, expected in [(rect.left + 1, rect.top + 1, HTTOPLEFT), (rect.right - 2, rect.bottom - 2, HTBOTTOMRIGHT)]:
+            packed = (x & 0xFFFF) | ((y & 0xFFFF) << 16)
+            self.assertEqual(self.native.user.SendMessageW(self.native.hwnd, 0x0084, 0, packed), expected)
 
 
 if __name__ == "__main__":
