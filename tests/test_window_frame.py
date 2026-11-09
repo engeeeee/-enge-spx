@@ -68,6 +68,10 @@ class NativeFrameTests(unittest.TestCase):
         extended = self.native.user.GetWindowLongPtrW(self.native.hwnd, -20)
         self.assertTrue(extended & 0x00040000)
         self.assertFalse(extended & 0x00000080)
+        area = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
+        self.native.user.GetMonitorInfoW(self.native.user.MonitorFromWindow(self.native.hwnd, 2), ctypes.byref(area))
+        self.assertGreaterEqual(outer.top, area.work.top)
+        self.assertLessEqual(outer.bottom, area.work.bottom)
 
     def test_minimize_maximize_and_restore_use_native_window_state(self):
         self.frame.minimize()

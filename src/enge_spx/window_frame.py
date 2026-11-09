@@ -90,6 +90,7 @@ class NativeFrame:
         self.user.GetDpiForWindow.argtypes = [ctypes.c_void_p]
         self.user.GetDpiForWindow.restype = ctypes.c_uint
         root.update_idletasks()
+        requested_width, requested_height = root.winfo_width(), root.winfo_height()
         self.hwnd = self.user.GetAncestor(root.winfo_id(), 2)
         if not self.hwnd:
             raise OSError("Window handle is unavailable")
@@ -109,7 +110,19 @@ class NativeFrame:
         self.old_proc, self.active = previous, True
         try:
             self._dwm()
-            self.user.SetWindowPos(self.hwnd, None, 0, 0, 0, 0, 0x0037)
+            if resizable:
+                area = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
+                self.user.GetMonitorInfoW(self.user.MonitorFromWindow(self.hwnd, 2), ctypes.byref(area))
+                width = min(requested_width, max(320, area.work.right - area.work.left - 20))
+                height = min(requested_height, max(240, area.work.bottom - area.work.top - 20))
+                minimum = root.minsize()
+                root.minsize(min(minimum[0], width), min(minimum[1], height))
+                x = area.work.left + (area.work.right - area.work.left - width) // 2
+                y = area.work.top + (area.work.bottom - area.work.top - height) // 2
+                self.user.SetWindowPos(self.hwnd, None, x, y, width, height, 0x0034)
+            else:
+                # Removing a caption must not add its old height to a dialog.
+                self.user.SetWindowPos(self.hwnd, None, 0, 0, requested_width, requested_height, 0x0036)
         except Exception:
             self.close()
             raise
