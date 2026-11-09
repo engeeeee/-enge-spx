@@ -2,6 +2,11 @@
 
 验证日期：2026-11-09。版本为 **0.7.0 Preview**。
 
+> 发布后收到自动启动 Docker 后无提示退出的报告。建议更新至
+> [0.7.1](validation-0.7.1.zh-CN.md)，该版移除 Python 窗口消息钩子、
+> 统一受测构建解释器，并补充打包 GUI 的完整自动启动检查和本地故障日志。
+> 下文保留 0.7.0 当时的检查记录，不代表已覆盖用户实机的组合故障。
+
 - [安装版、便携版和校验文件](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.7.0-windows)
 - [最终成功构建](https://github.com/engeeeee/ENGE-SPX/actions/runs/42582686728)
 - 受测源码及发布标签：`6e4ce2380ace5d17e24f66cd2421fd539748b7ab`。
