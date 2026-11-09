@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import subprocess
 import threading
 import time
 import webbrowser
@@ -464,7 +465,19 @@ class Controller(QObject):
         target = self.docker_target.get().strip()
         if not self.ask("准备 Docker 数据盘迁移", f"目标位置：{target or '尚未选择'}\n\n会停止本工作区并记录镜像、容器和账号卷。随后需在 Docker Desktop 中选择同一路径确认迁移。请先保存其他 Docker 软件中的工作。继续？"):
             return
-        self.run(lambda engine: prepare_docker_move(engine, target), lambda result: self.docker_move_status.set("迁移计划已保存。请在 Docker Desktop 的 Disk image location 选择 " + result["target"] + "，完成后回来核验。"))
+        def done(result):
+            self.docker_move_status.set("迁移计划已保存。请在 Docker Desktop 的 Disk image location 选择 " + result["target"] + "，完成后回来核验。")
+            self.open_docker()
+        self.run(lambda engine: prepare_docker_move(engine, target), done)
+
+    def open_docker(self):
+        def action(engine):
+            path = engine.docker.desktop_app(engine.docker.executable)
+            if path is None:
+                raise SPXError("未找到 Docker Desktop，请先安装或修复。")
+            process = subprocess.Popen([str(path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=engine.docker.environment(), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            threading.Thread(target=process.wait, daemon=True).start()
+        self.run(action, lambda result: self.operation.set("已打开 Docker Desktop，完成设置后回到工作台核验。"))
 
     def verify_docker_move(self):
         def done(result):

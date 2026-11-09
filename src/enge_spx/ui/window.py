@@ -355,7 +355,7 @@ class Window(QMainWindow):
         panel = page.panel("打开你的工具", "连接确认后可启动；工具账号与授权会话会保留。")
         row = panel.row()
         for title, tool in (("Claude Code", "claude"), ("Codex", "codex"), ("Linux 终端", "shell")):
-            row.addWidget(self.action(title + "  ↗", lambda command=tool: self.c.open_terminal(command), tool == "claude", ready=True))
+            row.addWidget(self.action(title + "  ↗", lambda command=tool: self.open_tool(command), tool == "claude", ready=True))
         row.addStretch()
         self.terminal_hint = label("", "Muted", True)
         panel.layout.addWidget(self.terminal_hint)
@@ -364,8 +364,8 @@ class Window(QMainWindow):
         panel.layout.addWidget(self.action("更换工作区终端", lambda: self.show_page("settings"), ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("账号与工作区浏览器", "登录页面在共享 Chromium 中打开，与本机日常浏览器资料分开。")
         row = panel.row()
-        row.addWidget(self.action("登录 Claude Code", lambda: self.c.open_terminal("login-claude"), ready=True))
-        row.addWidget(self.action("登录 Codex", lambda: self.c.open_terminal("login-codex"), ready=True))
+        row.addWidget(self.action("登录 Claude Code", lambda: self.open_tool("login-claude"), ready=True))
+        row.addWidget(self.action("登录 Codex", lambda: self.open_tool("login-codex"), ready=True))
         row.addStretch()
         row.addWidget(self.action("打开 Chromium ↗", lambda: self.c.run(lambda engine: engine.browser()), ready=True))
         page.finish()
@@ -466,6 +466,7 @@ class Window(QMainWindow):
         row.addWidget(self.action("核验结果", self.c.verify_docker_move, True))
         row.addStretch()
         panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.docker_move_status))
+        panel.layout.addWidget(self.action("打开 Docker Desktop ↗", self.c.open_docker, ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
         panel.layout.addWidget(self.action("Docker 官方迁移说明 ↗", lambda: webbrowser.open(DOCKER_STORAGE_DOC), ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("环境设置", "已有环境固定时区；不同资料或时区请使用独立数据目录。")
         panel.field("IANA 时区", entry(self.c.timezone))
@@ -533,6 +534,12 @@ class Window(QMainWindow):
         value = QFileDialog.getExistingDirectory(self, "选择具体项目文件夹", self.c.project.get())
         if value:
             self.c.project.set(value)
+
+    def open_tool(self, tool):
+        if not self.c.project.get().strip():
+            self.choose_project()
+        if self.c.project.get().strip():
+            self.c.open_terminal(tool)
 
     def choose_storage(self, value):
         path = QFileDialog.getExistingDirectory(self, "选择专用的空目标目录", value.get())
