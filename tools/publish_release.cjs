@@ -54,15 +54,15 @@ module.exports = async ({github, context, core}) => {
     '',
     '### 这个版本',
     '',
-    '- 黑黄界面：暖黑背景、琥珀黄主操作、圆角卡片和分组导航；输入框、下拉列表、日志区、进度条和应用图标统一配色。',
-    '- 自定义标题栏：主窗口和软件内弹窗不再显示默认系统标题栏；Windows 保留本机任务栏、最小化、最大化、还原与边缘缩放，最大化按当前显示器工作区处理。',
-    '- 工作台重新排版：准备流程改为横向四步，集中显示下载代理与操作入口；线路出口、落地出口、地区与时区分开展示。',
-    '- 深色确认与提示弹窗，保留模态焦点和输入控制；连接启用仍需要你核对出口并明确确认。文件、文件夹选择继续使用系统对话框。',
+    '- 启动兼容性修复：针对 0.7.0 启动后无提示退出的反馈，移除 Python 层的 Windows 窗口消息钩子，让 Tk 持续管理原有窗口回调。尚未取得用户故障堆栈，不能确认所有闪退均来自同一原因。',
+    '- 保留黑黄界面、自定义标题栏、任务栏、最小化、最大化、还原与八方向自定义缩放；最大化限制在显示器工作区。修正无系统标题栏弹窗的键盘焦点，默认回车仍为取消。',
+    '- 新增本地启动与崩溃日志：应用数据目录的 `logs/gui.log` 和 `logs/gui-fault.log`，自动限制大小，在无控制台的 exe 中也可记录可捕获的底层故障。省略异常消息和帧内变量，不自动上传；迁移应用数据时同步处理日志文件。',
+    '- 新增真实入口与打包 GUI 的冷启动组合检查：使用隔离的假 Desktop/CLI，验证自动唤起、焦点与主题通知、引擎就绪、窗口响应和正常退出，覆盖新旧两条启动路径。',
     '- 延续 Docker 一键准备、固定线路＋落地双跳、本机 v2ray 兼容、Pebrel / 自定义终端和 D 盘迁移；容器配方未改动，已有匹配镜像、账号和项目资料继续复用。',
     '',
     '升级前请停止环境并退出旧窗口；安装后重新检查并确认出口。项目目录仍然读写共享，工具账号在项目间共享；Chromium 当前使用 --no-sandbox。此预览版未代码签名，未经过独立安全审计，也不提供匿名或完全宿主机隔离保证。',
     '',
-    '本次发布要求同一 CI 的 Windows / Linux 测试、Windows 原生窗口边框与状态检查、真实 GUI 与弹窗操作、打包后的原生自定义边框、安装卸载、实际 Linux 双跳故障阻断和两种镜像存储导入检查通过。Windows 源码界面截图和结果保存在该次 CI 的 UI Artifact。尚未在用户自己的显示器、DPI、v2ray、Pebrel 和 Docker Desktop 组合上完成全流程交互验收。',
+    '本次发布要求同一 CI 的 Windows / Linux 测试、窗口边框与状态检查、真实 GUI 与弹窗操作、打包 GUI 的自动启动组合、安装卸载、实际 Linux 双跳故障阻断和两种镜像存储导入检查通过。Windows 源码界面截图和结果保存在该次 CI 的 UI Artifact。假 Desktop 测试不代表真实 Docker Desktop / WSL 初始化验收；尚未在用户自己的显示器、DPI、v2ray、Pebrel 和 Docker Desktop 组合上完成全流程交互验收。',
     '',
     `[使用说明](https://github.com/${owner}/${repo}/blob/${tag}/README.md) · [线路保护](https://github.com/${owner}/${repo}/blob/${tag}/docs/line-protection.zh-CN.md) · [来源与许可](https://github.com/${owner}/${repo}/blob/${tag}/NOTICE.md) · [本次构建](https://github.com/${owner}/${repo}/actions/runs/${context.runId})`,
   ].join('\n');
@@ -88,6 +88,17 @@ module.exports = async ({github, context, core}) => {
     release = (await github.rest.repos.updateRelease({owner, repo, release_id: release.id, name: releaseName, body, draft: false, prerelease: true, make_latest: 'false'})).data;
   }
   core.notice('Published ' + release.html_url);
+  if (version === '0.7.1') {
+    try {
+      const old = (await github.rest.repos.getReleaseByTag({owner, repo, tag: 'v0.7.0-windows'})).data;
+      if (!old.draft && !(old.body || '').includes('此版本收到启动后无提示退出的报告')) {
+        const notice = `> **建议升级到 [0.7.1](${release.html_url})。** 此版本收到启动后无提示退出的报告；0.7.1 移除了 Python 窗口消息钩子并增加本地崩溃日志与打包冷启动检查。用户故障堆栈尚未取得，仍需实机确认。\n\n`;
+        await github.rest.repos.updateRelease({owner, repo, release_id: old.id, body: notice + (old.body || '')});
+      }
+    } catch (error) {
+      core.warning('Could not annotate 0.7.0 preview: ' + error.message);
+    }
+  }
   if (version === '0.5.2') {
     const notice = `> **请升级到 [0.5.2](${release.html_url})。** 此中间预览版的线路诊断可能受 Docker 注入的 NO_PROXY 环境变量影响；0.5.2 已修复并补充实际容器验证。\n\n`;
     for (const oldTag of ['v0.5.0-windows', 'v0.5.1-windows']) {

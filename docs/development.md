@@ -12,12 +12,13 @@ tools/                       GUI smoke test, artwork, runtime export and release
 ```
 
 `theme.py` holds the shared colors and reusable UI surfaces. `window_frame.py`
-provides custom title bars and the native Windows non-client message adapter;
+provides custom title bars and Windows shell integration;
 `dialogs.py` keeps the controller's modal API while using the shared appearance.
-Window callbacks remain alive until the HWND is destroyed and restore the
-previous procedure during teardown. Container recipes are unchanged by the UI.
+Tk owns the original window procedure: no Python WNDPROC callback is installed.
+Borderless windows keep native minimize/maximize state and use custom resize
+handles. Container recipes are unchanged by the UI.
 
-Windows tests exercise client/window bounds, resize hit tests, monitor work-area
+Windows tests exercise client/window bounds, custom resize handles, monitor work-area
 maximization, taskbar styles and minimize/restore behavior. GUI smoke checks
 cover visible card content, modal confirmation/cancellation and restored grabs.
 The `ENGE-SPX-UI-<version>` artifact contains actual Windows source screenshots
@@ -85,3 +86,14 @@ review. Windows CI compiles an isolated fake Desktop/CLI pair to exercise real
 process launching from a custom path with spaces; it never launches the runner's
 actual Docker Desktop. This is not a substitute for first-install WSL/permission
 dialogs or a physical Windows + Docker Desktop + v2ray + Pebrel acceptance run.
+
+`tests/test_gui_startup.py` also exercises the real application entry point,
+and CI repeats it against `dist/ENGE-SPX/ENGE-SPX.exe` with `--packaged` after
+freezing. Both automatic launch paths must reach engine readiness, survive a
+separate foreground GUI's theme notifications, respond to Windows and close
+normally. Fake-Desktop tests do not claim real Desktop/WSL acceptance.
+
+`gui_diagnostics.py` keeps bounded local `logs/gui.log` and `logs/gui-fault.log`
+records, including fatal stacks without stderr. It omits exception messages
+and frame locals and closes its handles during data migration. Source GUI
+checks have a bounded fatal-stack timer so a broken modal cannot hang CI.

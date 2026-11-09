@@ -61,6 +61,7 @@ def _show(title, message, parent=None, question=False, error=False):
     chrome.center(parent, 510, min(max(240, dialog.winfo_reqheight()), max(240, parent.winfo_screenheight() - 80)))
     dialog.deiconify()
     dialog.grab_set()
+    dialog.focus_force()
     focus.focus_set()
     parent.wait_window(dialog)
     try:

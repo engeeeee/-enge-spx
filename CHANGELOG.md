@@ -1,5 +1,24 @@
 # Changes
 
+## 0.7.1 Preview — 2026-11-09
+
+- Harden startup after reports of a silent 0.7.0 exit: keep Tk's original
+  Windows window procedure instead of installing a ctypes WNDPROC callback.
+  Preserve the black/amber interface, custom title bars, taskbar presence,
+  minimize/maximize/restore and eight custom resize handles. Keep maximization
+  inside the monitor work area. The reported user's crash stack is not yet
+  available, so this does not identify every possible startup failure.
+- Explicitly focus themed modal dialogs so the initial Cancel button receives
+  keyboard input with the callback-free frame.
+- Record bounded local GUI lifecycle, exception locations and fatal stacks in
+  the data directory's `logs` folder, including windowed executables without
+  stderr. Omit exception messages and frame locals; suspend the files during
+  verified data migration and reopen them at the committed location.
+- Exercise the actual source entry point and frozen Windows GUI with automatic
+  fake-Desktop startup, focus/theme notifications, engine readiness, continued
+  responsiveness and orderly close. Cover both management CLI and legacy
+  Desktop fallback; retain the existing GUI controls and container checks.
+
 ## 0.7.0 Preview — 2026-11-09
 
 - Rework the desktop UI with warm-black surfaces, amber actions, rounded cards,
