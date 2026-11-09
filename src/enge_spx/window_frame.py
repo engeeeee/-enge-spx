@@ -1,4 +1,4 @@
-"""Custom window chrome with native Windows move/resize and taskbar behavior."""
+"""Tk-owned custom chrome, without a Python callback in the Windows message loop."""
 from __future__ import annotations
 
 import ctypes
@@ -62,7 +62,6 @@ class NativeFrame:
     def __init__(self, root, resizable=True):
         self.root, self.resizable = root, resizable
         self.active = False
-        self.old_proc = None
         self.user = ctypes.WinDLL("user32", use_last_error=True)
         self.user.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
         self.user.GetAncestor.restype = ctypes.c_void_p
@@ -70,8 +69,6 @@ class NativeFrame:
         self.user.SetWindowLongPtrW.restype = ctypes.c_ssize_t
         self.user.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
         self.user.GetWindowLongPtrW.restype = ctypes.c_ssize_t
-        self.user.CallWindowProcW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
-        self.user.CallWindowProcW.restype = ctypes.c_ssize_t
         self.user.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rect)]
         self.user.GetClientRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rect)]
         self.user.ClientToScreen.argtypes = [ctypes.c_void_p, ctypes.POINTER(Point)]
@@ -84,30 +81,24 @@ class NativeFrame:
         self.user.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
         self.user.MonitorFromWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
         self.user.MonitorFromWindow.restype = ctypes.c_void_p
-        self.user.MonitorFromRect.argtypes = [ctypes.POINTER(Rect), ctypes.c_uint]
-        self.user.MonitorFromRect.restype = ctypes.c_void_p
         self.user.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MonitorInfo)]
-        self.user.GetDpiForWindow.argtypes = [ctypes.c_void_p]
-        self.user.GetDpiForWindow.restype = ctypes.c_uint
+        # Let Tk own its wrapper procedure for the complete HWND lifetime.
+        # Desktop startup, theme changes and focus notifications must not enter
+        # the interpreter through a ctypes WNDPROC callback.
+        root.overrideredirect(True)
         root.update_idletasks()
         requested_width, requested_height = root.winfo_width(), root.winfo_height()
         self.hwnd = self.user.GetAncestor(root.winfo_id(), 2)
         if not self.hwnd:
             raise OSError("Window handle is unavailable")
-        # Keep native shell styles: minimizing, keyboard moves, taskbar and
-        # resizing still belong to Windows; only the non-client paint is removed.
+        style = self.user.GetWindowLongPtrW(self.hwnd, -16)
+        style &= ~0x00C70000  # caption, sizing border, minimize/maximize boxes
         if resizable:
-            style = self.user.GetWindowLongPtrW(self.hwnd, -16)
-            self.user.SetWindowLongPtrW(self.hwnd, -16, style | 0x00CF0000)
+            style |= 0x000B0000  # system menu and native minimize/maximize state
             extended = self.user.GetWindowLongPtrW(self.hwnd, -20)
             self.user.SetWindowLongPtrW(self.hwnd, -20, (extended | 0x00040000) & ~0x00000080)
-        callback_type = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
-        self.callback = callback_type(self._message)
-        ctypes.set_last_error(0)
-        previous = self.user.SetWindowLongPtrW(self.hwnd, -4, ctypes.cast(self.callback, ctypes.c_void_p).value)
-        if not previous:
-            raise ctypes.WinError(ctypes.get_last_error())
-        self.old_proc, self.active = previous, True
+        self.user.SetWindowLongPtrW(self.hwnd, -16, style)
+        self.active = True
         try:
             self._dwm()
             if resizable:
@@ -138,46 +129,6 @@ class NativeFrame:
         except (OSError, AttributeError):
             pass
 
-    def _message(self, hwnd, message, wparam, lparam):
-        try:
-            if message == 0x0083:  # WM_NCCALCSIZE: use the full window as client.
-                if self.maximized():
-                    # Maximized overlapped windows retain invisible sizing
-                    # margins outside the monitor. Keep custom chrome visible
-                    # by clipping the client to the proposed monitor work area.
-                    proposed = ctypes.cast(lparam, ctypes.POINTER(Rect))
-                    info = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
-                    monitor = self.user.MonitorFromRect(proposed, 2)
-                    if self.user.GetMonitorInfoW(monitor, ctypes.byref(info)):
-                        rect = proposed.contents
-                        rect.left = max(rect.left, info.work.left)
-                        rect.top = max(rect.top, info.work.top)
-                        rect.right = min(rect.right, info.work.right)
-                        rect.bottom = min(rect.bottom, info.work.bottom)
-                return 0
-            if message == 0x0084:  # WM_NCHITTEST; signed coordinates support left monitors.
-                x, y = ctypes.c_int16(lparam & 0xFFFF).value, ctypes.c_int16((lparam >> 16) & 0xFFFF).value
-                rect = Rect()
-                self.user.GetWindowRect(hwnd, ctypes.byref(rect))
-                border = max(6, round(7 * (self.user.GetDpiForWindow(hwnd) or 96) / 96))
-                hit = edge_hit(x - rect.left, y - rect.top, rect.right - rect.left, rect.bottom - rect.top, border, self.maximized(), self.resizable)
-                if hit != HTCLIENT:
-                    return hit
-            if message == 0x0024:  # WM_GETMINMAXINFO: maximize into this monitor's work area.
-                result = self.user.CallWindowProcW(self.old_proc, hwnd, message, wparam, lparam)
-                info = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
-                if self.user.GetMonitorInfoW(self.user.MonitorFromWindow(hwnd, 2), ctypes.byref(info)):
-                    target = ctypes.cast(lparam, ctypes.POINTER(MinMaxInfo)).contents
-                    target.max_position.x = info.work.left - info.monitor.left
-                    target.max_position.y = info.work.top - info.monitor.top
-                    target.max_size.x = info.work.right - info.work.left
-                    target.max_size.y = info.work.bottom - info.work.top
-                return result
-        except Exception:
-            # An exception must never unwind through the native window callback.
-            pass
-        return self.user.CallWindowProcW(self.old_proc, hwnd, message, wparam, lparam)
-
     def maximized(self):
         return bool(self.user.IsZoomed(self.hwnd))
 
@@ -207,7 +158,17 @@ class NativeFrame:
         self.user.ShowWindow(self.hwnd, 9)
 
     def toggle_maximize(self):
-        self.user.ShowWindow(self.hwnd, 9 if self.maximized() else 3)
+        if self.maximized():
+            self.restore()
+            return
+        area = MonitorInfo(size=ctypes.sizeof(MonitorInfo))
+        monitor = self.user.MonitorFromWindow(self.hwnd, 2)
+        self.user.ShowWindow(self.hwnd, 3)
+        if self.user.GetMonitorInfoW(monitor, ctypes.byref(area)):
+            # A captionless popup can otherwise maximize over the taskbar.
+            self.user.SetWindowPos(self.hwnd, None, area.work.left, area.work.top,
+                                   area.work.right - area.work.left,
+                                   area.work.bottom - area.work.top, 0x0014)
 
     def drag(self, hit, x, y):
         self.user.ReleaseCapture()
@@ -215,8 +176,6 @@ class NativeFrame:
         self.user.SendMessageW(self.hwnd, 0x00A1, hit, packed)
 
     def close(self):
-        if self.active and self.user.IsWindow(self.hwnd):
-            self.user.SetWindowLongPtrW(self.hwnd, -4, self.old_proc)
         self.active = False
 
 
@@ -275,7 +234,7 @@ class WindowFrame:
             (close or root.destroy)()
             return "break"
         root.bind("<Alt-F4>", close_key, add="+")
-        root._spx_frame = self  # Keep the native callback alive for the HWND lifetime.
+        root._spx_frame = self
 
     def set_status(self, text, color=theme.MUTED):
         self.status.configure(text=text, foreground=color)
@@ -364,13 +323,10 @@ class WindowFrame:
     def _resize_start(self, event, edge):
         if self.maximized():
             return
-        if self.native:
-            self.native.drag(edge, event.x_root, event.y_root)
-        else:
-            self._sizing = (edge, event.x_root, event.y_root, (self.root.winfo_x(), self.root.winfo_y(), self.root.winfo_width(), self.root.winfo_height()))
+        self._sizing = (edge, event.x_root, event.y_root, (self.root.winfo_x(), self.root.winfo_y(), self.root.winfo_width(), self.root.winfo_height()))
 
     def _resize_move(self, event):
-        if self.native or not getattr(self, "_sizing", None) or self.maximized():
+        if not getattr(self, "_sizing", None) or self.maximized():
             return
         edge, px, py, start = self._sizing
         x, y, width, height = resized(start, edge, event.x_root - px, event.y_root - py, self.root.minsize())
