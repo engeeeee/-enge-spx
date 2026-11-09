@@ -1,5 +1,28 @@
 # Changes
 
+## 0.8.0 Preview — 2026-11-09
+
+- Replace the Tk/Canvas interface with native Qt widgets, warm charcoal surfaces
+  and muted clay actions. Unify cards, fields, menus, progress, logs and dialogs;
+  retain the ENGE SPX mark with the matching clay palette.
+- Use logical-pixel layouts and measured brand text. At narrow widths, compact
+  the sidebar and move the complete product name into the title bar. Adapt the
+  overview's actions, steps and metrics to the available width. Bound windows
+  and scrolling dialogs to the monitor work area.
+- Construct secondary pages on first use. Deliver worker output in bounded
+  batches, merge progress updates and update state only when values change.
+  The worker-delivery timer sleeps while idle; page switches retain their widgets.
+- Keep custom title bars, native move/resize/minimize/maximize and modal dialogs
+  with Cancel as the default confirmation. Return to the workbench after automatic
+  Docker startup unless the user explicitly minimized it. Record process/thread
+  identity and window state so focus changes and duplicate launches are clearer.
+- Preserve proxy imports, explicit exit confirmation, runtime downloads, terminal
+  presets, data relocation and Docker disk migration. CLI and container control
+  remain independent of the GUI; container recipes are unchanged.
+- Add native Qt layout/idle checks, 125% / 150% / 200% Windows scale checks,
+  actual-entry cold starts and frozen Qt GUI checks. Include Qt/PySide/Shiboken
+  license texts, upstream notices and corresponding-source links in the packages.
+
 ## 0.7.1 Preview — 2026-11-09
 
 - Harden startup after reports of a silent 0.7.0 exit: keep Tk's original

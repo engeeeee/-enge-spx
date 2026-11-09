@@ -48,7 +48,10 @@ def main():
             return 0
         store = Store(args.data)
         if args.action in (None, "gui"):
-            from .gui import launch
+            try:
+                from .gui import launch
+            except ImportError as error:
+                raise SPXError("桌面界面依赖不完整，请安装 requirements.txt 后重试。") from error
             launch(store, smoke=args.smoke_gui)
             return 0
         engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True))
@@ -98,13 +101,13 @@ def main():
         if sys.stderr:
             print(str(error), file=sys.stderr)
         elif args.action in (None, "gui"):
-            import tkinter as tk
-            from tkinter import messagebox
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("无法打开 ENGE SPX", str(error), parent=root)
-            root.destroy()
+            import ctypes
+            user = ctypes.WinDLL("user32")
+            user.MessageBoxW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+            user.MessageBoxW(None, str(error), "无法打开 ENGE SPX", 0x10)
         return 1
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

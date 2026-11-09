@@ -8,13 +8,15 @@ import time
 from .brand import APP_ID, ICONS as ASSETS, LEGACY_APP_ID
 
 
-def prepare_windows():
+def prepare_windows(dpi=True):
     if os.name != "nt":
         return
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except (AttributeError, OSError):
         pass
+    if not dpi:
+        return  # Qt manages per-monitor DPI for the native desktop interface.
     try:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     except (AttributeError, OSError):
@@ -64,14 +66,11 @@ class WindowInstance:
         self.close()
         return False
 
-    def register(self, root):
+    def register_hwnd(self, hwnd):
         if os.name == "nt":
-            root.update_idletasks()
             user = ctypes.windll.user32
-            user.GetParent.argtypes = [ctypes.c_void_p]
-            user.GetParent.restype = ctypes.c_void_p
             user.SetPropW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_void_p]
-            user.SetPropW(user.GetParent(root.winfo_id()), self.key, ctypes.c_void_p(1))
+            user.SetPropW(hwnd, self.key, ctypes.c_void_p(1))
 
     def close(self):
         if self.handle:
@@ -79,12 +78,3 @@ class WindowInstance:
             kernel.CloseHandle.argtypes = [ctypes.c_void_p]
             kernel.CloseHandle(self.handle)
             self.handle = None
-
-
-def install_icons(root):
-    import tkinter as tk
-    images = [tk.PhotoImage(file=str(ASSETS / f"logo-{size}.png")) for size in (32, 64, 128)]
-    root.iconphoto(True, *images)
-    root._spx_icons = images
-    if os.name == "nt":
-        root.iconbitmap(str(ASSETS / "app.ico"))

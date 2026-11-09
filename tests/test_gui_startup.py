@@ -13,24 +13,31 @@ from desktop_harness import environment, exercise_entry_point, fake_desktop
 
 
 def run_child():
-    import tkinter as tk
-    from enge_spx.gui import App
-    from enge_spx.platform_ui import prepare_windows
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    from enge_spx.ui import style
+    from enge_spx.ui.controller import Controller
+    from enge_spx.ui.window import Window
     from enge_spx.state import Store
-    prepare_windows()
     faulthandler.enable()
     base = Path(os.environ["SPX_TEST_FAKE_ROOT"])
-    root = tk.Tk()
+    root = QApplication([])
+    style.apply(root)
     errors, ticks = [], []
-    root.report_callback_exception = lambda *args: errors.append(str(args[1]))
-    app = App(root, Store(base / "data"), auto_check=True)
-    os.environ["SPX_TEST_MAIN_HWND"] = str(app.chrome.native.hwnd)
+    controller = Controller(Store(base / "data"))
+    controller.notice.connect(lambda title, text, error: errors.append(text))
+    app = Window(controller)
+    app.show()
+    os.environ["SPX_TEST_MAIN_HWND"] = str(int(app.winId()))
+    QTimer.singleShot(500, controller.check_docker)
     def pulse():
         ticks.append(1)
         if len(ticks) % 10 == 0:
-            app.add_log("Isolated cold-start UI heartbeat")
-        root.after(20, pulse)
-    root.after(20, pulse)
+            controller.events.put(("log", "Isolated cold-start UI heartbeat"))
+    timer = QTimer()
+    timer.setInterval(20)
+    timer.timeout.connect(pulse)
+    timer.start()
     stopped = threading.Event()
     def collect():
         while not stopped.wait(.03):
@@ -39,11 +46,11 @@ def run_child():
     worker.start()
     outcome = {}
     def finish():
-        outcome.update({"ready": app.docker_ready, "busy": app.busy, "errors": errors, "ticks": len(ticks)})
-        root.destroy()
-    root.after(5500, finish)
+        outcome.update({"ready": controller.docker_ready, "busy": controller.busy, "errors": errors, "ticks": len(ticks)})
+        app.finish_close()
+    QTimer.singleShot(5500, finish)
     try:
-        root.mainloop()
+        root.exec()
     finally:
         stopped.set()
         worker.join(2)

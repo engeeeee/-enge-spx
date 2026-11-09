@@ -3,15 +3,15 @@
 <p align="center"><strong>Windows 上的 AI 编程隔离工作台</strong></p>
 <p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
 <p align="center">
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.7.1-windows">下载 Windows 版</a> ·
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows">下载 Windows 版</a> ·
   <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
   <a href="docs/security-model.zh-CN.md">隔离与安全</a> ·
   <a href="README.en.md">English</a>
 </p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml"><img src="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml/badge.svg" alt="Windows / Linux CI"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.7.1-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.7.1-windows"><img src="https://img.shields.io/badge/0.7.1-Preview-D49A33" alt="0.7.1 Preview"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows"><img src="https://img.shields.io/badge/0.8.0-Preview-D49A33" alt="0.8.0 Preview"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-6D5BD0" alt="PolyForm Noncommercial"></a>
 </p>
 
@@ -68,13 +68,13 @@ flowchart LR
 
 ## 下载并开始使用
 
-当前版本为 **[0.7.1 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.7.1-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
+当前版本为 **[0.8.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
 | 下载方式 | 适合谁 |
 | --- | --- |
-| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.7.1-windows/ENGE-SPX-Windows-x64-0.7.1-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
-| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.7.1-windows/ENGE-SPX-Windows-x64-0.7.1-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
-| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.7.1-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
+| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.0-windows/ENGE-SPX-Windows-x64-0.8.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
+| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.0-windows/ENGE-SPX-Windows-x64-0.8.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
+| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
 
 1. **安装一次 Docker Desktop**：按 [官方安装说明](https://docs.docker.com/desktop/setup/install/windows-install/)完成许可、WSL 和 Linux 引擎初始化。
 2. **点击“一键准备环境”**：软件自动启动已安装的 Docker，等待引擎就绪，再复用已有运行环境，或下载、校验并导入。
@@ -117,7 +117,7 @@ flowchart LR
 
 | 功能 | 日常使用中的作用 |
 | --- | --- |
-| **黑黄界面与自定义标题栏** | 暖黑背景、琥珀黄操作按钮；主窗口与软件内弹窗统一样式，Windows 窗口保留最小化、最大化、还原和边缘缩放 |
+| **原生桌面界面与自定义标题栏** | 暖深灰与陶土橙；页面、控件和弹窗统一样式，按缩放与窗口宽度布局，保留最小化、最大化、还原和边缘缩放 |
 | **自己的终端** | 支持 Pebrel、Windows Terminal、PowerShell，以及自定义 exe 和启动参数；窗口由你的终端承载，工具继续在容器内运行 |
 | **下载与校验** | 显示速度和进度，支持暂停、断点续传，导入前检查 SHA-256、文件大小与镜像配方 |
 | **应用数据跨盘迁移** | 将配置、日志和下载缓存迁到 D 盘等自选目录，复制后校验，保留安装标识与部分下载 |
@@ -145,7 +145,7 @@ Windows 负责桌面控制，工作区实际是 Linux 容器。项目按目录�
 
 由 [engeeeee](https://github.com/engeeeee) 个人维护，当前重点是 Windows x64、受控代理路径和已有数据兼容。当前未提供 Windows ARM64 安装包或自动更新器；WS / gRPC / Reality / XTLS / uTLS 等不能作为软件内线路导入，具体范围以协议说明为准。
 
-源码需要 Python 3.12+ 和 Tcl/Tk：
+源码需要 Python 3.12+，界面依赖 PySide6 / Qt：
 
 ```powershell
 python -m venv .venv
@@ -153,7 +153,7 @@ python -m venv .venv
 .\.venv\Scripts\spx.exe
 ```
 
-Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[0.7.1 启动修复验证记录](docs/validation-0.7.1.zh-CN.md)列出了结果、资产摘要和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
+Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[既有启动验证记录](docs/validation-0.7.1.zh-CN.md)列出了结果、资产摘要和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 许可与来源
 

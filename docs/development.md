@@ -11,21 +11,22 @@ tests/                       Unit, migration and explicit Docker integration tes
 tools/                       GUI smoke test, artwork, runtime export and release
 ```
 
-`theme.py` holds the shared colors and reusable UI surfaces. `window_frame.py`
-provides custom title bars and Windows shell integration;
-`dialogs.py` keeps the controller's modal API while using the shared appearance.
-Tk owns the original window procedure: no Python WNDPROC callback is installed.
-Borderless windows keep native minimize/maximize state and use custom resize
-handles. Container recipes are unchanged by the UI.
+`ui/controller.py` owns desktop state, bounded worker delivery and UI actions;
+`ui/window.py` constructs native Qt pages on first use. `ui/style.py` and
+`ui/widgets.py` share the warm-charcoal/clay palette, controls and dialogs.
+Qt owns the native window procedure, scaling, movement and resize operations;
+no Python WNDPROC callback is installed. Container recipes are unchanged.
 
-Windows tests exercise client/window bounds, custom resize handles, monitor work-area
-maximization, taskbar styles and minimize/restore behavior. GUI smoke checks
-cover visible card content, modal confirmation/cancellation and restored grabs.
+Windows tests exercise complete branding, idle state, window reveal, monitor
+work-area maximization, minimize/restore and compact navigation. GUI smoke
+checks cover visible content, real model bindings, asynchronous preparation,
+data migration and default-Cancel modal confirmation. Additional processes
+check 125%, 150% and 200% Qt scaling with the main action still visible.
 The `ENGE-SPX-UI-<version>` artifact contains actual Windows source screenshots
 and a small result JSON. This still does not replace interactive acceptance on
 each user's display, DPI, terminal and Docker Desktop combination.
 
-Use Python 3.12 or newer with Tcl/Tk. Install `requirements.txt` to run from the
+Use Python 3.12 or newer. Install `requirements.txt` to run from the
 source tree, or `python -m pip install -e .` for an editable installation. The
 installed command is `spx`; `python -m enge_spx` exposes the same interface.
 
@@ -36,7 +37,7 @@ python tools/smoke_gui.py
 python -m enge_spx --self-test
 ```
 
-On Linux, use `PYTHONPATH=src`; the Tk smoke test requires a display or Xvfb.
+On Linux, use `PYTHONPATH=src`; GUI checks use Qt's offscreen platform when needed.
 Recreate the artwork with `python tools/render_brand.py` after installing Pillow
 and CairoSVG. Artwork dependencies are not included in the distributed app.
 
@@ -76,6 +77,11 @@ The CI workflow builds and tests on Windows and Linux, runs actual Linux x64
 containers and tests both Docker image stores. On the independent maintained
 repository's main branch, successful Windows and container jobs enable a
 versioned prerelease. The publication script is scoped to engeeeee/ENGE-SPX.
+
+The UI uses PySide6 Essentials rather than Qt WebEngine. CLI/background entry
+points do not import the GUI. The package keeps Qt's shared libraries as
+replaceable files and includes license texts, upstream notices and exact source
+links from `licenses/Qt-SOURCES.md`. The Windows build expands the notices ZIP.
 
 The default README is Chinese; keep the English README consistent when changing
 startup behavior or security claims. Repository About metadata lives in

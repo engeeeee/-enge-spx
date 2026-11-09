@@ -1,0 +1,684 @@
+"""One coherent desktop shell, with lazily created native pages."""
+import json
+import os
+from pathlib import Path
+import webbrowser
+
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QIcon, QFont
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
+                             QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget,
+                             QPushButton, QPlainTextEdit, QFileDialog, QLineEdit,
+                             QSizePolicy, QSizeGrip, QBoxLayout)
+
+from .. import __version__, terminal
+from ..brand import APP_NAME, ICONS, PROJECT_URL
+from ..line_security import LINE_MODES
+from ..proxy import protocol
+from ..state import SPXError
+from ..storage import DOCKER_STORAGE_DOC
+from . import style
+from .controller import Value
+from .widgets import (Page, Panel, TitleBar, Dialog, Combo, label, bind_text,
+                      button, entry, combo, check, progress, confirm, notice)
+
+NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "logs": "运行日志", "settings": "偏好设置"}
+
+
+class ResizeEdge(QWidget):
+    def __init__(self, parent, edges, cursor):
+        super().__init__(parent)
+        self.edges = edges
+        self.setCursor(cursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.window().windowHandle():
+            self.window().windowHandle().startSystemResize(self.edges)
+
+
+class Window(QMainWindow):
+    def __init__(self, controller):
+        super().__init__(None, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.c = controller
+        self.setWindowTitle(APP_NAME)
+        self.setWindowIcon(QIcon(str(ICONS / "app.ico")))
+        self.setMinimumSize(700, 480)
+        self.resize(1220, 860)
+        self.pages, self.nav, self.action_widgets, self.node_boxes = {}, {}, [], []
+        self.current_page = None
+        self.render_count = 0
+        self.log_view = None
+        self._last_view = None
+        self._force_close = False
+        self.compact = None
+        self.minimized_by_user = False
+        self.resize_edges = []
+        shell = QFrame()
+        shell.setObjectName("Shell")
+        self.setCentralWidget(shell)
+        outer = QVBoxLayout(shell)
+        outer.setContentsMargins(1, 1, 1, 1)
+        outer.setSpacing(0)
+        self.titlebar = TitleBar(self)
+        self.titlebar.controls["minimize"].clicked.disconnect()
+        self.titlebar.controls["minimize"].clicked.connect(self.minimize)
+        outer.addWidget(self.titlebar)
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        outer.addLayout(body, 1)
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("Sidebar")
+        self.sidebar.setFixedWidth(224)
+        side = QVBoxLayout(self.sidebar)
+        self.side_layout = side
+        self.group_labels = []
+        side.setContentsMargins(16, 27, 16, 20)
+        side.setSpacing(7)
+        brand = QHBoxLayout()
+        brand.setContentsMargins(8, 0, 4, 20)
+        brand.setSpacing(11)
+        mark = QLabel()
+        mark.setPixmap(QIcon(str(ICONS / "logo-64.png")).pixmap(QSize(32, 32)))
+        mark.setFixedSize(32, 32)
+        brand.addWidget(mark)
+        names = QVBoxLayout()
+        names.setSpacing(3)
+        self.brand_label = label(APP_NAME, "Brand")
+        self.brand_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+        names.addWidget(self.brand_label)
+        self.brand_subtitle = label("AI 编程隔离工作台", "Caption")
+        names.addWidget(self.brand_subtitle)
+        brand.addLayout(names)
+        side.addLayout(brand)
+        # The minimum comes from actual font metrics in logical pixels. Windows
+        # scaling therefore cannot crop the product name between its neighbors.
+        self.expanded_sidebar_width = max(224, self.brand_label.sizeHint().width() + 16 * 2 + 32 + 11 + 16)
+        self.sidebar.setFixedWidth(self.expanded_sidebar_width)
+        for key, name in NAMES.items():
+            if key in ("overview", "downloads"):
+                heading = label("工作空间" if key == "overview" else "管理", "Caption")
+                heading.setContentsMargins(13, 12 if key == "overview" else 23, 0, 6)
+                side.addWidget(heading)
+                self.group_labels.append(heading)
+            nav = button("  " + name, lambda page=key: self.show_page(page))
+            nav.setObjectName("Nav")
+            nav.setCheckable(True)
+            nav.setIcon(style.icon(key))
+            nav.setIconSize(QSize(18, 18))
+            nav.setToolTip(name)
+            nav.setAccessibleName(name)
+            side.addWidget(nav)
+            self.nav[key] = nav
+        side.addStretch()
+        footer = QVBoxLayout()
+        footer.setContentsMargins(12, 12, 0, 0)
+        footer.setSpacing(8)
+        self.footer_labels = [label("●  本地隔离工作台", "Muted"), label(f"ENGE SPX  {__version__} Preview", "Caption")]
+        for item in self.footer_labels:
+            footer.addWidget(item)
+        side.addLayout(footer)
+        body.addWidget(self.sidebar)
+        main = QVBoxLayout()
+        main.setSpacing(0)
+        self.stack = QStackedWidget()
+        main.addWidget(self.stack, 1)
+        status = QWidget()
+        status_layout = QHBoxLayout(status)
+        status_layout.setContentsMargins(28, 7, 14, 10)
+        self.operation = bind_text(label(kind="Caption"), self.c.operation)
+        self.operation.setWordWrap(True)
+        status_layout.addWidget(self.operation, 1)
+        status_layout.addWidget(QSizeGrip(self))
+        main.addWidget(status)
+        body.addLayout(main, 1)
+        self._create_edges()
+        self.c.ask = lambda title, text: confirm(self, title, text)
+        self.c.notice.connect(lambda title, text, error: notice(self, title, text, error))
+        self.c.changed.connect(self.render)
+        self.c.nodes_changed.connect(self.refresh_node_boxes)
+        self.c.logs_added.connect(self.append_logs)
+        self.c.page_requested.connect(self.show_page)
+        self.c.proxy_requested.connect(lambda: self.proxy_dialog())
+        self.c.close_requested.connect(self.finish_close)
+        self.c.activation_requested.connect(self.return_from_desktop)
+        self.show_page("overview")
+        self.render(self.c.view)
+        self.update_compact()
+        self.fit_to_screen()
+
+    def action(self, text, action, primary=False, ghost=False, ready=False):
+        widget = button(text, action, primary, ghost)
+        self.action_widgets.append((widget, ready))
+        if self.c.view:
+            widget.setEnabled(not self.c.busy and (not ready or self.c.view["ready"]))
+        return widget
+
+    def show_page(self, name):
+        if name == self.current_page:
+            return
+        if name not in self.pages:
+            builder = getattr(self, "build_" + name)
+            self.pages[name] = builder()
+            self.stack.addWidget(self.pages[name])
+        self.stack.setCurrentWidget(self.pages[name])
+        for key, widget in self.nav.items():
+            widget.setChecked(key == name)
+        self.current_page = name
+        self.titlebar.caption.setText((APP_NAME if self.compact else "本机工作空间") + "  /  " + NAMES[name])
+        self.render(self.c.view, force=True)
+
+    def build_overview(self):
+        page = Page("工作台", "准备工作环境，核对代理出口，继续你的项目。")
+        hero = page.panel(hero=True)
+        row = hero.row()
+        hero_row = row
+        text = QVBoxLayout()
+        text.setSpacing(9)
+        self.hero_badge = label("尚未启用", "Accent")
+        self.hero_title = label("", "HeroTitle", True)
+        self.hero_detail = label("", "Muted", True)
+        text.addWidget(self.hero_badge)
+        text.addWidget(self.hero_title)
+        text.addWidget(self.hero_detail)
+        row.addLayout(text, 1)
+        actions = QVBoxLayout()
+        actions.setSpacing(8)
+        self.next_button = self.action("一键准备环境", self.c.next_step, True)
+        self.next_button.setMinimumWidth(140)
+        self.next_button.setIcon(style.icon("arrow", "#241A15", 17))
+        actions.addWidget(self.next_button)
+        self.startup_cancel = button("取消准备", self.c.pause, ghost=True)
+        actions.addWidget(self.startup_cancel)
+        row.addLayout(actions)
+        panel = page.panel("准备工作区", "准备环境、配置路径、核对出口，按顺序完成即可。")
+        steps = QGridLayout()
+        steps.setHorizontalSpacing(12)
+        steps.setVerticalSpacing(14)
+        panel.layout.addLayout(steps)
+        self.step_labels = []
+        step_widgets = []
+        for index, title in enumerate(("Docker", "运行环境", "连接检查", "出口确认")):
+            item = QWidget()
+            group = QVBoxLayout(item)
+            group.setContentsMargins(0, 0, 0, 0)
+            group.setSpacing(8)
+            heading = QHBoxLayout()
+            heading.setSpacing(8)
+            number = label(str(index + 1), "StepNumber")
+            number.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            number.setFixedSize(28, 28)
+            heading.addWidget(number)
+            heading.addWidget(label(title, "Muted"), 1)
+            group.addLayout(heading)
+            value = label("等待处理", "Caption", True)
+            value.setContentsMargins(36, 0, 0, 0)
+            group.addWidget(value)
+            steps.addWidget(item, 0, index)
+            steps.setColumnStretch(index, 1)
+            step_widgets.append(item)
+            self.step_labels.append(value)
+        panel.layout.addSpacing(2)
+        panel.layout.addWidget(progress(self.c.startup_progress))
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.startup_detail))
+        row = panel.row()
+        row.addWidget(self.action("查看下载与安装", lambda: self.show_page("downloads"), ghost=True))
+        startup_links = row
+        row.addWidget(self.action("配置线路与落地", lambda: self.show_page("connection"), ghost=True))
+        row.addStretch()
+        row.addWidget(self.action("使用说明 ↗", self.c.help, ghost=True))
+        metrics = QGridLayout()
+        metrics.setSpacing(14)
+        self.metric_labels = {}
+        metric_widgets = []
+        for key, title in (("line_ip", "线路出口"), ("ip", "落地出口"), ("region", "预计地区"), ("timezone", "环境时区")):
+            box = Panel()
+            box.layout.setContentsMargins(16, 16, 16, 16)
+            box.layout.setSpacing(9)
+            box.layout.addWidget(label(title, "Caption"))
+            value = label("—", "Metric" if key in ("ip", "line_ip") else "Muted", True)
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            box.layout.addWidget(value)
+            metrics.addWidget(box, 0, len(metric_widgets))
+            metrics.setColumnStretch(len(metric_widgets), 1)
+            metric_widgets.append(box)
+            self.metric_labels[key] = value
+        page.layout.addLayout(metrics)
+        route = page.panel("工作区网络路径")
+        self.route_label = label("", wrap=True)
+        self.line_status = label("", "Muted", True)
+        route.layout.addWidget(self.route_label)
+        route.layout.addWidget(self.line_status)
+        row = route.row()
+        row.addWidget(self.action("打开项目工作区", lambda: self.show_page("workspace")))
+        row.addStretch()
+        hint = label("项目保存在本机，工具运行在容器内。", "Caption", True)
+        hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(hint, 1)
+        density = None
+        def adapt(width, height):
+            nonlocal density
+            columns = 4 if width >= 760 else 2 if width >= 440 else 1
+            step_columns = 4 if width >= 660 else 2
+            new_density = columns, step_columns, width < 540, height < 440
+            if density == new_density:
+                return
+            density = new_density
+            for grid, widgets, count in ((metrics, metric_widgets, columns), (steps, step_widgets, step_columns)):
+                for item in widgets:
+                    grid.removeWidget(item)
+                for column in range(4):
+                    grid.setColumnStretch(column, 0)
+                for index, item in enumerate(widgets):
+                    grid.addWidget(item, index // count, index % count)
+                    grid.setColumnStretch(index % count, 1)
+            hero_row.setDirection(QBoxLayout.Direction.TopToBottom if width < 540 else QBoxLayout.Direction.LeftToRight)
+            startup_links.setDirection(QBoxLayout.Direction.TopToBottom if width < 540 else QBoxLayout.Direction.LeftToRight)
+            page.subtitle.setVisible(height >= 440)
+        page.resized.connect(adapt)
+        page.finish()
+        return page
+
+    def node_combo(self, value, line=False):
+        widget = Combo()
+        widget.setMinimumWidth(120)
+        self.node_boxes.append((widget, value, line))
+        widget.currentIndexChanged.connect(lambda index: value.set(widget.itemData(index) or "") if index >= 0 else None)
+        value.changed.connect(lambda selected: widget.setCurrentIndex(widget.findData(selected)))
+        self.refresh_node_boxes()
+        return widget
+
+    def refresh_node_boxes(self):
+        for widget, value, line in self.node_boxes:
+            widget.blockSignals(True)
+            widget.clear()
+            widget.addItem("选择线路节点" if line else "选择落地代理", "")
+            for node in self.c.nodes:
+                widget.addItem(f"{protocol(node)}  ·  {node['label']}", node["id"])
+            widget.setCurrentIndex(max(0, widget.findData(value.get())))
+            widget.blockSignals(False)
+
+    def build_connection(self):
+        page = Page("连接与代理", "分别选择前置线路与落地，清楚掌握工作区的网络路径。")
+        panel = page.panel("落地代理", "支持 SOCKS5、HTTP、HTTPS，也可以导入已有链接和订阅。")
+        row = panel.row()
+        row.addWidget(self.node_combo(self.c.selected), 1)
+        row.addWidget(self.action("添加代理", self.proxy_dialog, True))
+        row.addWidget(self.action("批量导入", self.import_dialog))
+        panel = page.panel("前置线路", "已有 v2ray 可作为本机前置，也可在软件内组合固定加密线路与落地。")
+        panel.layout.addWidget(check("启用前置线路", self.c.relay_enabled))
+        mode = combo(self.c.line_mode, list(LINE_MODES.items()))
+        panel.field("接入方式", mode)
+        panel.field("软件内双跳的线路节点", self.node_combo(self.c.line_selected, True), "从 v2ray 复制受支持的线路分享链接，使用上方批量导入。")
+        panel.field("线路服务器 IPv4", entry(self.c.line_server_ip, "线路地址为域名时填写"), "保留 TLS 名称和证书校验，避免通过本机 DNS 解析线路域名。")
+        row = QHBoxLayout()
+        row.addWidget(entry(self.c.relay_url, "http://127.0.0.1:10809 或 socks5://127.0.0.1:10808"), 1)
+        row.addWidget(self.action("读取系统代理", self.c.read_system_proxy))
+        panel.layout.addWidget(label("本机回环代理 · v2ray 兼容与下载使用", "Muted"))
+        panel.layout.addLayout(row)
+        panel.field("锁定线路出口 IPv4 · 可选", entry(self.c.line_expected_ip, "留空时，确认连接后锁定测得的出口"))
+        panel.layout.addWidget(check("下载运行环境与订阅时使用本机代理", self.c.relay_downloads))
+        panel.layout.addWidget(label("代理不可用时停止下载；主动取消勾选才使用直连。", "Caption", True))
+        row = panel.row()
+        row.addWidget(self.action("导出 v2rayN 路由规则", self.export_v2ray, ghost=True))
+        row.addStretch()
+        panel = page.panel("核对并启用", "检查会停止当前工作环境。请先保存项目，再核对实际出口。")
+        self.connection_route = label("", wrap=True)
+        self.connection_status = label("", "Muted", True)
+        panel.layout.addWidget(self.connection_route)
+        panel.layout.addWidget(self.connection_status)
+        row = panel.row()
+        row.addWidget(self.action("保存设置", self.c.save_settings))
+        row.addWidget(self.action("检查连接", self.c.prepare))
+        self.confirm_button = self.action("核对并确认", self.c.confirm, True)
+        row.addWidget(self.confirm_button)
+        row.addStretch()
+        row.addWidget(self.action("停止环境", lambda: self.c.run(lambda engine: engine.stop()), ghost=True))
+        page.finish()
+        return page
+
+    def build_workspace(self):
+        page = Page("项目工作区", "使用熟悉的终端，让工具在独立 Linux 环境中继续你的项目。")
+        panel = page.panel("选择项目", "只共享你选择的项目文件夹；工具会直接读写其中的文件。")
+        row = panel.row()
+        self.project_box = entry(self.c.project, "选择一个具体项目文件夹")
+        row.addWidget(self.project_box, 1)
+        row.addWidget(self.action("选择文件夹", self.choose_project))
+        projects = self.c.store.settings()["projects"]
+        if projects:
+            recent = Combo()
+            recent.addItem("最近使用的项目", "")
+            for item in reversed(projects):
+                recent.addItem(item, item)
+            recent.currentIndexChanged.connect(lambda index: self.c.project.set(recent.itemData(index)) if index > 0 else None)
+            panel.layout.addWidget(recent)
+        panel = page.panel("打开你的工具", "连接确认后可启动；工具账号与授权会话会保留。")
+        row = panel.row()
+        for title, tool in (("Claude Code", "claude"), ("Codex", "codex"), ("Linux 终端", "shell")):
+            row.addWidget(self.action(title + "  ↗", lambda command=tool: self.c.open_terminal(command), tool == "claude", ready=True))
+        row.addStretch()
+        self.terminal_hint = label("", "Muted", True)
+        panel.layout.addWidget(self.terminal_hint)
+        self.c.terminal_kind.changed.connect(lambda unused: self.update_terminal_hint())
+        self.update_terminal_hint()
+        panel.layout.addWidget(self.action("更换工作区终端", lambda: self.show_page("settings"), ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
+        panel = page.panel("账号与工作区浏览器", "登录页面在共享 Chromium 中打开，与本机日常浏览器资料分开。")
+        row = panel.row()
+        row.addWidget(self.action("登录 Claude Code", lambda: self.c.open_terminal("login-claude"), ready=True))
+        row.addWidget(self.action("登录 Codex", lambda: self.c.open_terminal("login-codex"), ready=True))
+        row.addStretch()
+        row.addWidget(self.action("打开 Chromium ↗", lambda: self.c.run(lambda engine: engine.browser()), ready=True))
+        page.finish()
+        return page
+
+    def build_downloads(self):
+        page = Page("下载与安装", "自动准备依赖，查看进度，保留已经完成的下载。")
+        panel = page.panel("Docker Desktop", "使用本机 Linux containers / WSL 2 引擎。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.docker_text))
+        row = panel.row()
+        row.addWidget(self.action("重新检测", self.c.check_docker))
+        row.addWidget(self.action("启动并检测", lambda: self.c.check_docker(True)))
+        row.addStretch()
+        row.addWidget(self.action("下载 Docker ↗", lambda: webbrowser.open("https://docs.docker.com/desktop/setup/install/windows-install/"), ghost=True))
+        panel = page.panel("运行环境", "首次约 1 GB。已有匹配镜像会复用，导入前自动核验文件。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.runtime_text))
+        panel.layout.addWidget(bind_text(label(kind="SectionTitle"), self.c.download_title))
+        panel.layout.addWidget(progress(self.c.download_progress))
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.download_detail))
+        row = panel.row()
+        row.addWidget(self.action("下载并安装 / 继续", lambda: self.c.prepare(check=False), True))
+        self.pause_button = button("暂停", self.c.pause)
+        row.addWidget(self.pause_button)
+        row.addStretch()
+        panel = page.panel("下载代理", "与工作区的线路模式分别配置，首次安装前即可使用。")
+        panel.layout.addWidget(check("使用本机代理下载运行环境与订阅", self.c.relay_downloads))
+        row = panel.row()
+        row.addWidget(entry(self.c.relay_url, "留空时读取系统回环代理"), 1)
+        row.addWidget(self.action("读取系统代理", self.c.read_system_proxy))
+        panel.layout.addWidget(label("代理不可用时停止；取消勾选才使用直连。", "Caption", True))
+        panel = page.panel("高级方式", "源码构建使用 Docker Desktop 自己的网络设置，可能需要更长时间。")
+        panel.layout.addWidget(self.action("从源码构建", lambda: self.c.prepare(check=False, source=True), ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
+        page.finish()
+        return page
+
+    def build_logs(self):
+        page = Page("运行日志", "查看当前任务的输出；详细安装记录也保存在应用数据目录。")
+        panel = page.panel()
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(1200)
+        self.log_view.setFont(QFont("Consolas", 10))
+        self.log_view.setMinimumHeight(380)
+        self.log_view.setPlainText("\n".join(self.c.log_lines))
+        panel.layout.addWidget(self.log_view)
+        row = panel.row()
+        row.addWidget(self.action("打开数据目录", self.open_data))
+        row.addWidget(self.action("复制诊断信息", self.copy_diagnostics))
+        row.addStretch()
+        page.finish()
+        return page
+
+    def build_settings(self):
+        page = Page("偏好设置", "选择自己的终端，安排数据位置，让工作台适合你的习惯。")
+        panel = page.panel("启动行为")
+        self.startup_toggle = check("打开 ENGE SPX 时自动启动 Docker Desktop", self.c.auto_start_docker, self.c.save_startup_preference)
+        panel.layout.addWidget(self.startup_toggle)
+        self.action_widgets.append((self.startup_toggle, False))
+        panel.layout.addWidget(label("关闭后仍可通过一键准备明确启动。退出软件不会关闭 Docker Desktop。", "Caption", True))
+        panel = page.panel("工作区终端", "Pebrel、Windows Terminal、PowerShell 或你选择的命令行程序。")
+        panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
+        row = QHBoxLayout()
+        self.terminal_path = entry(self.c.terminal_exe, "预设可自动寻找，或选择便携版 exe")
+        row.addWidget(self.terminal_path, 1)
+        row.addWidget(self.action("选择 exe", self.choose_terminal))
+        panel.layout.addWidget(label("终端程序", "Muted"))
+        panel.layout.addLayout(row)
+        self.terminal_args = panel.field("自定义启动参数", entry(self.c.terminal_args, "仅自定义程序需要填写"), "{project} 为项目目录，{title} 为标题，独立的 {command} 插入工作区命令。")
+        self.c.terminal_kind.changed.connect(lambda unused: self.terminal_fields())
+        self.terminal_fields()
+        row = panel.row()
+        row.addWidget(self.action("检测终端", self.c.detect_terminal))
+        row.addWidget(self.action("测试终端", lambda: self.c.terminal_action()))
+        row.addWidget(self.action("保存终端", lambda: self.c.terminal_action(True), True))
+        row.addStretch()
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.terminal_status))
+        panel = page.panel("应用数据与下载缓存", "配置、日志和下载缓存可以迁移到 D 盘等自选目录。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.data_location))
+        row = panel.row()
+        row.addWidget(entry(self.c.data_target, "选择专用的空目标文件夹"), 1)
+        row.addWidget(self.action("选择目录", lambda: self.choose_storage(self.c.data_target)))
+        row = panel.row()
+        row.addWidget(self.action("检查并迁移应用数据", self.c.migrate_data, True))
+        row.addWidget(self.action("打开当前目录", self.open_data, ghost=True))
+        row.addStretch()
+        panel.layout.addWidget(progress(self.c.storage_progress))
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.storage_status))
+        panel.layout.addWidget(label("迁移会停止工作区，校验成功后切换位置并清理已校验副本。项目文件仍在原项目目录。", "Caption", True))
+        panel = page.panel("Docker 数据盘", "Docker Desktop 负责移动实际磁盘，软件记录资源并帮助核验。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.docker_location))
+        row = panel.row()
+        row.addWidget(entry(self.c.docker_target, "例如 D:\\DockerData"), 1)
+        row.addWidget(self.action("选择目录", lambda: self.choose_storage(self.c.docker_target)))
+        panel.layout.addWidget(label("1. 检测位置并准备迁移。\n2. 在 Docker Desktop → Resources → Advanced → Disk image location 选择目标并 Apply。\n3. 回到这里核验原镜像、容器和数据卷。", "Caption", True))
+        row = panel.row()
+        row.addWidget(self.action("检测位置", self.c.detect_storage))
+        row.addWidget(self.action("准备迁移", self.c.prepare_docker_move))
+        row.addWidget(self.action("核验结果", self.c.verify_docker_move, True))
+        row.addStretch()
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.docker_move_status))
+        panel.layout.addWidget(self.action("Docker 官方迁移说明 ↗", lambda: webbrowser.open(DOCKER_STORAGE_DOC), ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
+        panel = page.panel("环境设置", "已有环境固定时区；不同资料或时区请使用独立数据目录。")
+        panel.field("IANA 时区", entry(self.c.timezone))
+        panel.field("本机 Docker 上下文", entry(self.c.context))
+        panel.layout.addWidget(self.action("保存环境设置", self.c.save_settings, True), alignment=Qt.AlignmentFlag.AlignLeft)
+        panel = page.panel("关于 ENGE SPX", "Windows 上的 AI 编程隔离工作台。")
+        panel.layout.addWidget(label(f"{__version__} Preview · engeeeee", "Muted"))
+        panel.layout.addWidget(label("容器按项目共享文件，账号与浏览器资料会保留。容器不等同于完全隔离的独立电脑。", "Caption", True))
+        row = panel.row()
+        row.addWidget(self.action("项目仓库 ↗", lambda: webbrowser.open(PROJECT_URL), ghost=True))
+        row.addWidget(self.action("复制诊断信息", self.copy_diagnostics, ghost=True))
+        row.addStretch()
+        page.finish()
+        return page
+
+    def render(self, view, force=False):
+        if not view or view == self._last_view and not force:
+            return
+        self._last_view = dict(view)
+        self.render_count += 1
+        self.hero_title.setText(view["title"])
+        self.hero_detail.setText(view["detail"])
+        self.hero_badge.setText("●  " + view["badge"])
+        if self.next_button.text() != view["next_text"]:
+            self.next_button.setText(view["next_text"])
+        for widget, needs_ready in self.action_widgets:
+            enabled = not view["busy"] and (not needs_ready or view["ready"])
+            if widget.isEnabled() != enabled:
+                widget.setEnabled(enabled)
+        for name in ("pause_button", "startup_cancel"):
+            if hasattr(self, name):
+                getattr(self, name).setEnabled(view["busy"] and view["cancelable"])
+        self.startup_cancel.setVisible(view["busy"] and view["cancelable"])
+        if hasattr(self, "confirm_button"):
+            self.confirm_button.setEnabled(view["can_confirm"])
+        for widget, text in zip(self.step_labels, view["steps"]):
+            if widget.text() != text:
+                widget.setText(text)
+        for key, widget in self.metric_labels.items():
+            text = self.c.timezone.get() if key == "timezone" else view[key]
+            if widget.text() != text:
+                widget.setText(text)
+        for name, key in (("route_label", "route"), ("line_status", "line_status"), ("connection_route", "route"), ("connection_status", "line_status")):
+            if hasattr(self, name) and getattr(self, name).text() != view[key]:
+                getattr(self, name).setText(view[key])
+
+    def append_logs(self, text):
+        if self.log_view is not None:
+            bar = self.log_view.verticalScrollBar()
+            follow = bar.value() >= bar.maximum() - 4
+            self.log_view.appendPlainText(text)
+            if follow:
+                bar.setValue(bar.maximum())
+
+    def terminal_fields(self):
+        kind = self.c.terminal_kind.get()
+        self.terminal_path.setEnabled(kind != "auto")
+        self.terminal_args.setEnabled(kind == "custom")
+
+    def update_terminal_hint(self):
+        kind = self.c.terminal_kind.get()
+        self.terminal_hint.setText("当前终端：" + next(name for name, key in terminal.PRESETS.items() if key == kind))
+
+    def choose_project(self):
+        value = QFileDialog.getExistingDirectory(self, "选择具体项目文件夹", self.c.project.get())
+        if value:
+            self.c.project.set(value)
+
+    def choose_storage(self, value):
+        path = QFileDialog.getExistingDirectory(self, "选择专用的空目标目录", value.get())
+        if path:
+            value.set(path)
+
+    def choose_terminal(self):
+        path, unused = QFileDialog.getOpenFileName(self, "选择终端程序", self.c.terminal_exe.get(), "Windows 程序 (*.exe);;所有文件 (*)")
+        if path:
+            self.c.terminal_exe.set(path)
+            if self.c.terminal_kind.get() == "auto":
+                self.c.terminal_kind.set("pebrel" if Path(path).stem.lower() == "pebrel" else "custom")
+
+    def export_v2ray(self):
+        path, unused = QFileDialog.getSaveFileName(self, "保存 v2rayN 路由规则", "ENGE-SPX-v2rayN-rules.json", "JSON (*.json)")
+        if path:
+            self.c.export_v2ray(path)
+
+    def open_data(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.c.store.home)))
+
+    def copy_diagnostics(self):
+        QApplication.clipboard().setText(self.c.diagnostics())
+        self.c.operation.set("已复制诊断摘要，不包含节点凭据、出口 IP 或项目路径。")
+
+    def proxy_dialog(self):
+        if not self.c.consent_stop():
+            return
+        dialog = Dialog(self, "添加落地代理", 540)
+        values = {key: Value(value, dialog) for key, value in dict(type="SOCKS5", server="", port="1080", username="", password="", name="").items()}
+        for title, key in (("协议", "type"), ("服务器地址", "server"), ("端口", "port"), ("用户名 · 可选", "username"), ("密码 · 可选", "password"), ("名称 · 可选", "name")):
+            dialog.body.addWidget(label(title, "Muted"))
+            widget = combo(values[key], [(name, name) for name in ("SOCKS5", "HTTP", "HTTPS")]) if key == "type" else entry(values[key], secret=key == "password")
+            dialog.body.addWidget(widget)
+        values["type"].changed.connect(lambda value: values["port"].set({"SOCKS5": "1080", "HTTP": "80", "HTTPS": "443"}[value]))
+        def save():
+            try:
+                self.c.save_proxy({key: value.get() for key, value in values.items()})
+                dialog.accept()
+            except SPXError as error:
+                notice(dialog, "检查代理信息", str(error))
+        actions = QHBoxLayout()
+        actions.addStretch()
+        actions.addWidget(button("取消", dialog.reject, ghost=True))
+        actions.addWidget(button("保存代理", save, True))
+        dialog.body.addLayout(actions)
+        dialog.exec()
+
+    def import_dialog(self):
+        if not self.c.consent_stop():
+            return
+        dialog = Dialog(self, "导入代理与订阅", 660)
+        mode = Value(False, dialog)
+        dialog.body.addWidget(combo(mode, [("代理链接 / JSON / Clash", False), ("订阅地址（HTTPS）", True)]))
+        dialog.body.addWidget(label("HTTPS 落地代理使用第一项；获取订阅需明确选择第二项。", "Caption", True))
+        text = QPlainTextEdit()
+        text.setPlaceholderText("粘贴节点链接、配置内容，或 HTTPS 订阅地址…")
+        text.setMinimumHeight(230)
+        dialog.body.addWidget(text)
+        def load():
+            path, unused = QFileDialog.getOpenFileName(dialog, "选择节点配置")
+            if path:
+                try:
+                    if Path(path).stat().st_size > 2 * 1024**2:
+                        raise ValueError()
+                    text.setPlainText(Path(path).read_text(encoding="utf-8-sig"))
+                    mode.set(False)
+                except (OSError, ValueError):
+                    notice(dialog, "读取失败", "请选择小于 2 MiB 的 UTF-8 文件。")
+        def accept():
+            content = text.toPlainText().strip()
+            if not content:
+                return
+            if self.c.import_nodes(content, mode.get()):
+                dialog.accept()
+        row = QHBoxLayout()
+        row.addWidget(button("选择配置文件", load))
+        row.addStretch()
+        row.addWidget(button("取消", dialog.reject, ghost=True))
+        row.addWidget(button("导入", accept, True))
+        dialog.body.addLayout(row)
+        dialog.exec()
+
+    def minimize(self):
+        self.minimized_by_user = True
+        self.showMinimized()
+
+    def fit_to_screen(self):
+        area = self.screen().availableGeometry()
+        self.setMinimumSize(min(700, max(400, area.width() - 24)), min(480, max(320, area.height() - 24)))
+        self.resize(min(1220, area.width() - 24), min(860, area.height() - 24))
+        self.move(area.center() - self.rect().center())
+
+    def reveal(self):
+        self.minimized_by_user = False
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def return_from_desktop(self):
+        if not self.minimized_by_user:
+            self.reveal()
+
+    def finish_close(self):
+        self._force_close = True
+        self.close()
+
+    def closeEvent(self, event):
+        if self._force_close or self.c.request_close():
+            self.c.delivery.stop()
+            self.c.status_timer.stop()
+            self.c.refresh_timer.stop()
+            event.accept()
+        else:
+            event.ignore()
+
+    def _create_edges(self):
+        for edges, cursor in ((Qt.Edge.LeftEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.RightEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.TopEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.BottomEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.LeftEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeFDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.LeftEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeFDiagCursor)):
+            self.resize_edges.append(ResizeEdge(self, edges, cursor))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "footer_labels"):
+            self.update_compact()
+        if not self.resize_edges:
+            return
+        w, h, b = self.width(), self.height(), 5
+        positions = [(0, b, b, h-2*b), (w-b, b, b, h-2*b), (b, 0, w-2*b, b), (b, h-b, w-2*b, b), (0, 0, b, b), (w-b, 0, b, b), (0, h-b, b, b), (w-b, h-b, b, b)]
+        for edge, position in zip(self.resize_edges, positions):
+            edge.setGeometry(*position)
+            edge.setVisible(not self.isMaximized())
+            edge.raise_()
+
+    def update_compact(self):
+        compact = self.width() < 1000
+        if compact == self.compact:
+            return
+        self.compact = compact
+        self.sidebar.setFixedWidth(76 if compact else self.expanded_sidebar_width)
+        self.side_layout.setContentsMargins(8 if compact else 16, 27, 8 if compact else 16, 20)
+        for widget in [self.brand_label, self.brand_subtitle, *self.group_labels, *self.footer_labels]:
+            widget.setVisible(not compact)
+        for key, widget in self.nav.items():
+            widget.setText("" if compact else "  " + NAMES[key])
+        self.titlebar.caption.setText((APP_NAME if compact else "本机工作空间") + "  /  " + NAMES.get(self.current_page, "工作台"))

@@ -4,7 +4,8 @@ ENGE SPX is maintained by engeeeee. The implementation's historical design refer
 
 The project retains its PolyForm Noncommercial license. The following independently distributed components retain their respective authorship, licenses and terms:
 
-- Python / Tcl / Tk: https://www.python.org/psf/license/ and https://www.tcl.tk/software/tcltk/license.html
+- Python: https://www.python.org/psf/license/
+- Qt / PySide6 Essentials / Shiboken6 6.12.0 (LGPL-3.0 and applicable third-party notices): https://doc.qt.io/qt-6/lgpl.html and https://doc.qt.io/qtforpython-6/licenses.html. Exact source links, license texts and notices are supplied in `licenses/Qt-SOURCES.md`, `licenses/LGPL-3.0.txt`, `licenses/GPL-3.0.txt` and `licenses/qt-6.12.0-notices.zip`. Windows builds expand the bundle into `THIRD-PARTY-LICENSES/Qt`; the dynamically loaded libraries remain replaceable. The application's restrictions do not apply to these LGPL-covered parts or to reverse engineering for debugging modifications to them.
 - PyYAML (MIT): https://github.com/yaml/pyyaml/blob/main/LICENSE
 - tzdata (Apache-2.0, IANA time-zone data public-domain notices): https://github.com/python/tzdata
 - websockets (BSD-3-Clause): https://github.com/python-websockets/websockets

@@ -22,6 +22,8 @@ foreach ($spxNotice in @('README.md','README.zh-CN.md','README.en.md','LICENSE',
     Copy-Item $spxNotice "dist\ENGE-SPX\$spxNotice" -Force
 }
 Copy-Item docs 'dist\ENGE-SPX\docs' -Recurse -Force
+Copy-Item licenses 'dist\ENGE-SPX\licenses' -Recurse -Force
+Expand-Archive -Path 'licenses\qt-6.12.0-notices.zip' -DestinationPath 'dist\ENGE-SPX\THIRD-PARTY-LICENSES\Qt' -Force
 New-Item -ItemType Directory -Path 'dist\ENGE-SPX\assets' -Force | Out-Null
 Copy-Item assets/logo.svg 'dist\ENGE-SPX\assets\logo.svg' -Force
 Compress-Archive -Path dist\ENGE-SPX\* -DestinationPath "dist\ENGE-SPX-Windows-x64-$spxVersion-Portable.zip" -Force
