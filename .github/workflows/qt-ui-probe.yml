@@ -1,0 +1,44 @@
+name: ENGE SPX Qt UI probe
+on:
+  push:
+    branches: [ui/qt-warm-clay]
+permissions:
+  contents: read
+concurrency:
+  group: enge-spx-qt-probe
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  native-windows:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -v
+      - run: python tools/smoke_gui.py
+        env:
+          SPX_UI_REPORT_DIR: ${{ runner.temp }}/spx-qt-ui
+      - name: Check high DPI branding and primary action
+        shell: pwsh
+        env:
+          SPX_UI_REPORT_DIR: ${{ runner.temp }}/spx-qt-ui
+        run: |
+          foreach ($scale in @('1.25', '1.5', '2')) {
+            $env:QT_SCALE_FACTOR = $scale
+            python tools/check_ui_dpi.py
+            if ($LASTEXITCODE -ne 0) { throw "DPI layout failed: $scale" }
+          }
+      - run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging/windows/SPX.spec
+      - run: python tests/test_gui_startup.py --packaged dist/ENGE-SPX/ENGE-SPX.exe
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ENGE-SPX-Qt-Preview
+          path: ${{ runner.temp }}/spx-qt-ui
+          if-no-files-found: ignore

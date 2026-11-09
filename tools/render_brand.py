@@ -25,7 +25,7 @@ def main():
         "settings": '<path d="M3 6h18M3 12h18M3 18h18"/><path d="M8 3v6m9 0v6m-10 0v6"/>',
     }
     for name, paths in glyphs.items():
-        svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#A3A79C" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>'
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#B3ADA2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>'
         cairosvg.svg2png(bytestring=svg.encode(), write_to=str(ICONS / (name + ".png")), output_width=22, output_height=22)
     print("ENGE SPX vector, PNG variants and Windows ICO are ready.")
 
