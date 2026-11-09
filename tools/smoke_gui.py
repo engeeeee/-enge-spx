@@ -11,7 +11,7 @@ from unittest.mock import patch
 if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QEventLoop
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QPushButton
 
@@ -29,9 +29,21 @@ style.apply(app)
 
 
 def settle(controller):
-    deadline = time.monotonic() + 15
-    while controller.busy and time.monotonic() < deadline:
-        QTest.qWait(20)
+    loop = QEventLoop()
+    timer = QTimer()
+    timer.setInterval(10)
+    timer.timeout.connect(lambda: loop.quit() if not controller.busy else None)
+    deadline = QTimer()
+    deadline.setSingleShot(True)
+    deadline.timeout.connect(loop.quit)
+    timer.start()
+    deadline.start(15000)
+    if controller.busy:
+        loop.exec()
+    timer.stop()
+    deadline.stop()
+    if controller.busy:
+        faulthandler.dump_traceback()
     assert not controller.busy, "GUI worker did not finish"
     QTest.qWait(60)
 
