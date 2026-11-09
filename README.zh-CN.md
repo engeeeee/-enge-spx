@@ -6,6 +6,7 @@
 
 - [下载安装与一键准备](https://github.com/engeeeee/ENGE-SPX/blob/main/docs/quickstart.zh-CN.md)
 - [线路与落地代理](https://github.com/engeeeee/ENGE-SPX/blob/main/docs/proxies.zh-CN.md)
+- [常见问题](https://github.com/engeeeee/ENGE-SPX/blob/main/docs/faq.zh-CN.md)
 - [隔离与安全边界](https://github.com/engeeeee/ENGE-SPX/blob/main/docs/security-model.zh-CN.md)
 - [Pebrel、D 盘与 Docker 数据迁移](https://github.com/engeeeee/ENGE-SPX/blob/main/docs/storage-terminal.zh-CN.md)
 

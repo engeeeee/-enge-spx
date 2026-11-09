@@ -4,9 +4,9 @@
 
 建议将首页右侧 **About** 设置为以下中文简介，先说明用途，再列核心能力：
 
-> 面向 Windows 的 AI 编程隔离工作台。在 Docker 容器中运行 Claude Code、Codex 和独立浏览器，通过指定的加密线路＋落地代理访问服务；以项目范围挂载、双出口核验和异常停机，减少对本机日常环境的暴露并约束工作区网络路径。
+> Windows 上的 AI 编程隔离工作台：将 Claude Code、Codex 与浏览器放入容器工作区，通过固定加密线路＋SOCKS5/HTTP/HTTPS 落地双跳访问服务，提供双出口核验与异常停机，减少对本机日常环境的直接暴露。
 
-主页和 topics 的可核对配置保存在 [.github/repository.json](../.github/repository.json)。仓库提供 [Sync repository About](../.github/workflows/repository-about.yml) 流程：配置专用密钥后，修改这个 JSON 并推送到 `main` 会自动同步中文简介和主页。没有密钥时会明确失败，不会把 README 更新当成 About 已更新。
+主页和 topics 的可核对配置保存在 [.github/repository.json](../.github/repository.json)。仓库提供 [Sync repository About](../.github/workflows/repository-about.yml) 流程：修改这个 JSON 并推送到 `main` 后，先核对公开简介与主页；已经一致则直接通过，需要修改时使用专用密钥同步。需要修改但没有密钥时会明确失败，不会把 README 更新当成 About 已更新。Topics 可由下方的本地脚本或仓库管理接口补充，工作流只处理简介与主页。
 
 ## 为同步流程授权
 

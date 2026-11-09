@@ -32,6 +32,7 @@ jobs:
           import json
           import os
           from pathlib import Path
+          import time
           import urllib.error
           import urllib.request
 
@@ -47,10 +48,6 @@ jobs:
           homepage = metadata.get('homepage')
           if homepage != 'https://github.com/engeeeee/ENGE-SPX#readme':
               raise SystemExit('Unexpected homepage; no request sent.')
-          token = os.environ.get('SPX_ABOUT_TOKEN', '').strip()
-          if not token:
-              raise SystemExit('Missing SPX_ABOUT_TOKEN. Add a fine-grained token for ENGE-SPX with Administration: read and write in repository Actions Secrets, then re-run this job.')
-
           class NoRedirect(urllib.request.HTTPRedirectHandler):
               def redirect_request(self, request, *args, **kwargs):
                   return None
@@ -59,19 +56,43 @@ jobs:
           url = 'https://api.github.com/repos/' + expected
           payload = {'description': description, 'homepage': homepage}
           headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'ENGE-SPX-About-Sync'}
+
+          def read_public():
+              with opener.open(urllib.request.Request(url + '?spx_verify=' + str(time.time_ns()), headers={**headers, 'Cache-Control': 'no-cache'}), timeout=30) as response:
+                  return json.load(response)
+
+          def matches(result):
+              return isinstance(result, dict) and result.get('full_name') == expected and all(result.get(key) == value for key, value in payload.items())
+
+          try:
+              public = read_public()
+          except (urllib.error.URLError, TimeoutError, ValueError):
+              raise SystemExit('Could not verify public About metadata. Re-run this job; no credentials are printed.') from None
+          if matches(public):
+              Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('已核验：ENGE SPX 的中文简介和主页与仓库配置一致，无需更新。\n\n' + description + '\n', encoding='utf-8')
+              print('Public About already matches the configuration; no update or credential required.')
+              raise SystemExit(0)
+
+          token = os.environ.get('SPX_ABOUT_TOKEN', '').strip()
+          if not token:
+              raise SystemExit('Missing SPX_ABOUT_TOKEN. Public About differs from the configuration. Add a fine-grained token for ENGE-SPX with Administration: read and write in repository Actions Secrets, then re-run this job.')
           request = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode('utf-8'), headers={**headers, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}, method='PATCH')
           try:
               with opener.open(request, timeout=30) as response:
                   updated = json.load(response)
               # Re-read the public repository without credentials to confirm it.
-              with opener.open(urllib.request.Request(url, headers={**headers, 'Cache-Control': 'no-cache'}), timeout=30) as response:
-                  public = json.load(response)
+              for attempt in range(3):
+                  public = read_public()
+                  if matches(public):
+                      break
+                  if attempt < 2:
+                      time.sleep(1)
           except urllib.error.HTTPError as error:
               raise SystemExit(f'GitHub HTTP {error.code}. Check token expiration, selected repository and Administration write permission. No credentials are printed.') from None
           except (urllib.error.URLError, TimeoutError):
               raise SystemExit('GitHub connection failed. Re-run this job; no credentials are printed.') from None
           for result in (updated, public):
-              if result.get('full_name') != expected or any(result.get(key) != value for key, value in payload.items()):
+              if not matches(result):
                   raise SystemExit('About read-back does not match the expected repository metadata.')
           summary = '已同步并核验 ENGE SPX 的中文简介和主页。\n\n' + description + '\n\n' + homepage + '\n'
           Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(summary, encoding='utf-8')

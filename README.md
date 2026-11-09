@@ -1,106 +1,148 @@
-<p align="center"><img src="assets/logo.svg" width="88" alt="ENGE SPX"></p>
+<p align="center"><img src="assets/logo.svg" width="76" alt="ENGE SPX"></p>
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>Windows 上的 AI 编程隔离工作台</strong></p>
-<p align="center">让 Claude Code、Codex 和浏览器在独立容器环境中，通过你指定的代理出口工作。</p>
-<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
+<p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
+<p align="center">
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.6.0-windows">下载 Windows 版</a> ·
+  <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
+  <a href="docs/security-model.zh-CN.md">隔离与安全</a> ·
+  <a href="README.en.md">English</a>
+</p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml"><img src="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml/badge.svg" alt="Windows / Linux CI"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases"><img src="https://img.shields.io/badge/0.6.0-Preview-D49A33" alt="0.6.0 Preview"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.6.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.6.0-windows"><img src="https://img.shields.io/badge/0.6.0-Preview-D49A33" alt="0.6.0 Preview"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-6D5BD0" alt="PolyForm Noncommercial"></a>
 </p>
 
-**ENGE SPX 用来搭建一个与 Windows 日常环境分开的 AI 编程工作区。** 你选择项目、线路和落地代理，它负责准备 Linux 容器、检查出口，再启动 Claude Code、Codex 与共享 Chromium。工具依赖、工作区浏览器资料和网络配置集中在这套环境内，无需逐个改动本机工具的代理设置。
+**ENGE SPX 让你在 Windows 上建立一套与日常环境分开的 AI 编程工作区。** Claude Code、Codex 和 Chromium 实际运行在 Linux 容器内，由桌面程序统一准备环境、配置代理、核对出口和启动工具。
 
-它适合希望在 Windows 上使用 AI 编程工具，同时**减少本机文件与日常浏览器资料暴露、固定工作区代理路径，并在连接异常时停止环境**的使用者。项目文件仍在你自己的电脑上；AI 服务账号、线路和落地代理由你提供。
+你只需选择项目、配置线路与落地、确认出口，再进入工作区。工具依赖和工作区浏览器资料留在容器环境中，所选项目仍保存在你自己的电脑上。它适合既想使用 AI 编程工具，又希望**缩小本机文件暴露范围、控制代理路径，并在连接异常时停止工作环境**的使用者。
 
-## 三项核心能力
+## 核心功能
 
-| 核心能力 | 它能帮你做什么 |
+| 核心功能 | 作用 |
 | --- | --- |
-| **容器化 AI 工作区** | 在 Linux 容器运行 Claude Code、Codex 和浏览器；项目按需挂载，工具依赖与 Windows 日常环境分开，浏览器资料独立保存 |
-| **固定线路＋落地双跳** | 在软件内组合加密线路与 SOCKS5 / HTTP / HTTPS 落地，约束工作区出网路径；推荐模式不配置直连或自动回退，也提供外部 v2ray 兼容模式 |
-| **出口核验与异常停止** | 分别核对线路和落地出口，由你确认后启用；运行期间检测连接、拓扑与出口变化，发现异常后停止本环境 |
+| **容器化 AI 编程工作区** | 在 Linux 容器中运行 Claude Code、Codex 和终端命令，只挂载选中的项目目录，减少工具依赖与 Windows 日常环境的混用 |
+| **工作区专用浏览器** | 通过独立 Chromium 完成登录与授权，浏览器资料与本机日常浏览器分开；工作区内使用共享的持久 profile |
+| **固定线路＋落地代理** | 将加密线路与 SOCKS5 / HTTP / HTTPS 落地串联；软件内双跳不配置 DIRECT 或自动回退，也支持外部 v2ray 客户端接入 |
+| **双出口核验与异常停止** | 分别检查线路出口和落地出口，由你确认后启用；运行期间检测连接、出口和拓扑变化，发现异常后停止本环境 |
+
+这些能力组成一个完整工作流：**准备隔离环境 → 配置代理路径 → 核对出口 → 打开项目与工具**。工作区浏览器负责环境内的网页登录，桌面终端负责承载交互窗口，编程命令仍在容器中执行。
+
+## 适合哪些场景
+
+- **在 Windows 使用 Claude Code / Codex**：把 Linux 工具依赖、账号资料和工作区浏览器集中管理，保留本机项目目录和熟悉的终端。
+- **已有线路，还需要固定落地**：在软件内组合受支持的加密线路与落地，或继续使用本机 v2ray，将它作为前置中转。
+- **希望减少对日常环境的暴露**：只把必要项目交给容器，使用独立浏览器资料，并检查工作区的实际网络出口。
+
+AI 服务账号、线路和落地代理由你提供。软件只管理这套工作环境，不提供账号、节点或速度与匿名保证。
+
+## 工作区如何运行
 
 ```mermaid
 flowchart LR
-    A[Windows 上选择项目] --> B[隔离工作区：Claude Code / Codex / Chromium]
-    B --> C[固定加密线路]
-    C --> D[SOCKS5 / HTTP / HTTPS 落地]
-    D --> E[目标服务]
+    W["Windows 桌面控制端"] -. "选择并读写共享项目" .-> T
+    subgraph C["Docker Linux 工作区"]
+        T["Claude Code / Codex / Linux 终端"]
+        B["工作区 Chromium"]
+        G["受控网络与代理网关"]
+        T --> G
+        B --> G
+    end
+    G --> L["固定加密线路"]
+    L --> P["SOCKS5 / HTTP / HTTPS 落地"]
+    P --> S["目标服务"]
 ```
 
-图示为“软件内双跳”模式。兼容模式交由本机 v2ray 等客户端转发，目标分流仍由该客户端决定。
+图示为推荐的 **软件内双跳**。Windows 运行控制界面和终端窗口，Linux 容器运行工具与浏览器；浏览器不挂载项目目录或工具账号卷。项目容器读写你选择的真实项目，其他本机目录不主动共享。
 
-## 隔离如何保护你的工作流
-
-ENGE SPX 从文件、进程、浏览器资料和网络四个层面减少日常环境与工具环境的直接接触：
-
-- **缩小文件暴露范围**：工具容器只挂载选中的项目；浏览器不挂载项目或工具账号卷，未选中的本机目录不主动共享。
-- **限制容器权限**：不向工具挂载 Docker 管理接口，移除 Linux capabilities，启用 `no-new-privileges`；网关使用只读根文件系统与只读配置。
-- **控制工作区网络路径**：工作容器接入内部网络，网关承担外联；固定双跳模式无 DIRECT 备用出口，诊断入口仅在网关回环监听。
-- **保留可核对的连接证据**：线路与落地出口分别检查，配置变化后重新确认，后台监测发现异常后停止环境。
-
-**边界同样明确**：所选项目读写共享，工具仍能修改或删除真实文件、读取项目内密钥；工具账号和工作区浏览器资料在项目间共享。容器依赖 Docker / WSL 和宿主机，无法抵御已被控制的宿主机，也不提供匿名保证。Chromium 当前使用 `--no-sandbox`，代理凭据尚未接入 Windows 凭据库加密。监测有周期和超时，不能承诺瞬时发现出口变化。
-
-详见 [隔离与安全模型](docs/security-model.zh-CN.md)。当前为未签名 **Preview**，尚未经过独立安全审计或用户实机组合的完整交互验收。
+<details>
+<summary>查看一键准备界面</summary>
 
 ![ENGE SPX 一键准备界面](docs/images/spx-startup.png)
 
 截图来自真实源码界面的 Linux 图形测试环境，不代表 Windows 实机验收。
 
-## 下载和开始使用
+</details>
 
-支持 **Windows x64**；需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。工作区是 Linux 容器，不是 Windows 虚拟机。打包版本不需要另装 Python。
+## 下载并开始使用
 
-打开 [Releases 下载](https://github.com/engeeeee/ENGE-SPX/releases)：
+当前版本为 **[0.6.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.6.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-| 下载项 | 用法 |
+| 下载方式 | 适合谁 |
 | --- | --- |
-| `ENGE-SPX-Windows-x64-0.6.0-Setup.exe` | 当前用户安装，带开始菜单和桌面快捷方式 |
-| `ENGE-SPX-Windows-x64-0.6.0-Portable.zip` | 完整解压，运行 `ENGE-SPX.exe`，保留 `_internal` 目录 |
-| `spx.exe` | 两种包都包含的命令行入口 |
+| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.6.0-windows/ENGE-SPX-Windows-x64-0.6.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
+| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.6.0-windows/ENGE-SPX-Windows-x64-0.6.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
+| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.6.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
 
-1. 首次安装 [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)，完成它的许可和 WSL 初始化。
-2. 打开 ENGE SPX，点击 **一键准备环境**。软件自动启动已安装的 Docker，等待 Linux 引擎就绪，再复用或下载运行环境。
-3. 添加落地，按需导入加密线路，选择“软件内双跳”或明确的 v2ray 兼容模式。
-4. 检查连接，核对线路出口、落地出口和时区，确认后选择项目、启动工具。
+1. **安装一次 Docker Desktop**：按 [官方安装说明](https://docs.docker.com/desktop/setup/install/windows-install/)完成许可、WSL 和 Linux 引擎初始化。
+2. **点击“一键准备环境”**：软件自动启动已安装的 Docker，等待引擎就绪，再复用已有运行环境，或下载、校验并导入。
+3. **配置线路与落地**：添加 SOCKS5 / HTTP / HTTPS 落地，按需选择软件内双跳或本机 v2ray 兼容模式。
+4. **核对出口并开始编程**：检查线路、落地出口和时区，确认后选择项目，打开 Claude Code、Codex 或 Linux 终端。
 
-打开软件会自动检查 Docker，但首次运行环境下载由你点击开始；进度可见、可以取消。它不会自动安装 WSL、重启系统或修改全局 Docker 上下文。缺少 Docker 或初始化未完成时，界面提供对应入口和说明。
+首次运行环境约 **1 GB**，在软件内获取即可，无需手工处理 Releases 中的 runtime 归档。打开软件本身不会自动开始大型下载；准备进度可见，可以取消，已有下载和数据保留。
 
-详细步骤见 [快速入门](docs/quickstart.zh-CN.md)，代理 URI、JSON、Clash、订阅和协议范围见 [代理配置](docs/proxies.zh-CN.md)。
+详细步骤见 [快速入门](docs/quickstart.zh-CN.md)，安装失败见 [安装排障](docs/installation-troubleshooting.zh-CN.md)。
 
-## 让日常使用更顺手
+## 如何使用自己的线路和落地
 
-核心工作流之外，ENGE SPX 还提供：
+已有 v2ray 线路、只需要增加 SOCKS5 落地时，可按线路协议和管理方式选择下面两种接入方式。线路服务器与线路出口不是同一个概念，落地出口也会单独检查。
 
-- **下载管理**：本机代理下载、进度与速度、暂停续传、SHA-256 和镜像配方核验；代理不可用时不自动退回直连。
-- **自己的终端**：支持 Pebrel、Windows Terminal、PowerShell 或自定义 exe 与参数模板，工具仍在容器中运行。
-- **跨盘存储**：应用配置、日志和下载缓存可迁移到 D 盘；Docker 数据盘另有迁移助手和原资源核验。
-- **已有数据复用**：匹配的镜像、项目容器、工具账号与浏览器卷保留；版本升级或配置改变后按要求重新检查出口。
-- **诊断与命令行**：复制不含节点凭据的诊断摘要，也可用 `spx start` 完成准备和检查，再执行 `spx confirm` 明确确认。
+| 模式 | 适用情况 | 路径由谁控制 |
+| --- | --- | --- |
+| **软件内双跳（推荐）** | 能导入受支持的加密线路分享链接，希望由软件固定第一跳和落地 | ENGE SPX 配置固定的“加密线路 → 落地”，不包含 DIRECT 或自动回退；域名线路需填写服务器 IPv4，保留原 TLS 名称与证书校验 |
+| **本机代理（v2ray 兼容）** | 希望保留现有客户端，或线路使用当前软件尚未支持的传输方式 | 本机 v2ray 等客户端负责到落地的前置路径；ENGE SPX 负责后续工作区链路与出口检查，外部目标分流仍需你正确配置 |
 
-下载代理与工作区链路分别配置，源码构建使用 Docker Desktop 自己的网络。应用数据迁移不会自动移动 Docker 数据盘。具体操作见 [存储与终端设置](docs/storage-terminal.zh-CN.md)。
+也可关闭前置线路，仅使用所选落地；此时本机会连接落地，不具备固定加密第一跳的保护。软件不修改 Windows 系统代理，可以与本机 v2ray 同时运行。系统级 TUN 仍可能改变连接线路服务器的外层路径。
 
-## 文档与支持
+落地支持认证和无认证 SOCKS5 / HTTP / HTTPS；导入支持 URI 列表、JSON、Clash、本地文件及主动获取的 HTTPS 订阅。未支持的传输参数会明确拒绝。协议范围和示例见 [代理配置](docs/proxies.zh-CN.md)，模式边界见 [线路保护](docs/line-protection.zh-CN.md)。
 
-| 内容 | 文档 |
+**工作区代理与下载代理分别配置。** 运行环境和订阅可使用本机下载代理；勾选代理下载后，不可用时停止，不自动改为直连。源码构建的镜像拉取使用 Docker Desktop 自己的网络。
+
+## 隔离带来了什么
+
+| 层面 | ENGE SPX 的做法 | 需要了解的边界 |
+| --- | --- | --- |
+| **文件与进程** | 工具在 Linux 容器中运行，按需挂载项目；不挂载 Docker 管理接口，移除 capabilities 并禁止新增权限 | 选中项目是读写共享，工具仍能读取项目密钥、修改代码或删除文件 |
+| **浏览器资料** | Chromium 使用独立持久 profile，不自动继承日常浏览器登录态，也不挂载项目或工具账号卷 | 工作区浏览器资料和工具账号在项目间共享，切换项目不等于切换身份 |
+| **网络路径** | 工作容器使用内部网络和受控网关；软件内双跳固定线路与落地，诊断入口只在网关回环监听 | 外部 v2ray 兼容模式仍依赖客户端分流；代理服务商是信任边界 |
+| **连接确认** | 启用前核验出口，运行后持续监测，检测到异常时停止环境 | 监测有周期和请求超时，不能承诺瞬间发现出口变化 |
+
+容器依赖 Docker / WSL 和宿主机，不等同于与本机完全隔离的独立电脑。项目需要版本管理与备份，宿主机和所用服务仍需可信。当前 Chromium 使用 `--no-sandbox`，代理凭据尚未接入 Windows 凭据库加密。
+
+完整机制、数据位置和风险见 [隔离与安全模型](docs/security-model.zh-CN.md)。当前 Windows 包未代码签名，项目未经过独立安全审计，也未完成用户实机组合的全流程交互验收。
+
+## 终端、下载和存储
+
+| 功能 | 日常使用中的作用 |
 | --- | --- |
-| 安装、自动启动、首次配置 | [快速入门](docs/quickstart.zh-CN.md) |
-| 代理导入与协议支持 | [线路与落地配置](docs/proxies.zh-CN.md) |
-| v2ray 兼容和双跳限制 | [线路保护](docs/line-protection.zh-CN.md) |
-| 文件、账号与网络边界 | [隔离与安全模型](docs/security-model.zh-CN.md) |
-| D 盘迁移、Pebrel 和恢复 | [存储与终端](docs/storage-terminal.zh-CN.md) |
-| 下载、Docker 凭据等问题 | [安装排障](docs/installation-troubleshooting.zh-CN.md) |
-| 旧版数据接管 | [升级说明](docs/migration.zh-CN.md) |
-| 源码、测试和构建 | [开发说明](docs/development.md) · [贡献指南](CONTRIBUTING.md) |
-| 问题反馈与漏洞 | [支持指南](SUPPORT.md) · [安全报告](SECURITY.md) |
+| **自己的终端** | 支持 Pebrel、Windows Terminal、PowerShell，以及自定义 exe 和启动参数；窗口由你的终端承载，工具继续在容器内运行 |
+| **下载与校验** | 显示速度和进度，支持暂停、断点续传，导入前检查 SHA-256、文件大小与镜像配方 |
+| **应用数据跨盘迁移** | 将配置、日志和下载缓存迁到 D 盘等自选目录，复制后校验，保留安装标识与部分下载 |
+| **Docker 数据盘迁移助手** | 记录资源，指导你在 Docker Desktop 迁移数据盘，恢复后核验原镜像、容器和数据卷 |
+| **已有数据与命令行** | 复用匹配镜像和原有项目、账号、浏览器数据；可用 `spx start` 准备与检查，再用 `spx confirm` 确认 |
 
-关闭窗口后，已确认环境和监测进程继续运行；结束工作请点击“停止环境”或执行 `spx stop`。停止和卸载不会主动删除项目或 Docker 数据卷。版本管理与备份仍由使用者负责。
+应用数据迁移与 Docker 数据盘迁移是两项独立操作，项目原目录也各自保留。操作与恢复见 [存储与终端设置](docs/storage-terminal.zh-CN.md)，旧版接管见 [升级说明](docs/migration.zh-CN.md)。
 
-## 开发与项目状态
+## 常见问题与文档
 
-项目由 [engeeeee](https://github.com/engeeeee) 个人维护。当前重点是 Windows x64、受控代理链路和已有数据兼容。暂不提供 Windows ARM64 安装包、任意协议传输支持、自动更新器或账号匿名保证。WS / gRPC / Reality / XTLS / uTLS 等未支持参数会明确拒绝，详见协议说明。
+Windows 负责桌面控制，工作区实际是 Linux 容器。项目按目录挂载，工具账号和工作区浏览器 profile 共享；需要分开这些资料时，请使用独立数据目录。
+
+关闭窗口后，已确认的环境与监测进程继续运行，结束工作请点击“停止环境”或执行 `spx stop`。[常见问题](docs/faq.zh-CN.md)进一步解释了本机代理、宿主机直连、账号共享和迁移范围。
+
+| 你要做什么 | 对应文档 |
+| --- | --- |
+| 第一次安装、启动与配置 | [快速入门](docs/quickstart.zh-CN.md) |
+| 导入代理、选择协议与双跳模式 | [代理配置](docs/proxies.zh-CN.md) · [线路保护](docs/line-protection.zh-CN.md) |
+| 了解隔离、数据位置与信任边界 | [隔离与安全模型](docs/security-model.zh-CN.md) · [常见问题](docs/faq.zh-CN.md) |
+| 处理安装、下载或凭据工具错误 | [安装排障](docs/installation-troubleshooting.zh-CN.md) |
+| 使用 Pebrel、迁移数据到 D 盘 | [存储与终端](docs/storage-terminal.zh-CN.md) |
+| 反馈问题、提交贡献或报告漏洞 | [支持指南](SUPPORT.md) · [贡献指南](CONTRIBUTING.md) · [安全报告](SECURITY.md) |
+
+## 项目状态与开发
+
+由 [engeeeee](https://github.com/engeeeee) 个人维护，当前重点是 Windows x64、受控代理路径和已有数据兼容。当前未提供 Windows ARM64 安装包或自动更新器；WS / gRPC / Reality / XTLS / uTLS 等不能作为软件内线路导入，具体范围以协议说明为准。
 
 源码需要 Python 3.12+ 和 Tcl/Tk：
 
@@ -110,8 +152,8 @@ python -m venv .venv
 .\.venv\Scripts\spx.exe
 ```
 
-Windows 安装包使用 PyInstaller 和 Inno Setup 构建。CI 包含 Windows / Linux 测试、Windows GUI 与安装卸载检查、实际 Linux Docker 链路和两种镜像存储验证。本版结果与下载摘要见 [0.6.0 验证记录](docs/validation-0.6.zh-CN.md)；检查范围与实机验收的区别见 [开发说明](docs/development.md)，功能变化见 [CHANGELOG](CHANGELOG.md)。
+Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[0.6.0 验证记录](docs/validation-0.6.zh-CN.md)列出了结果、资产摘要和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 许可与来源
 
-本项目使用 [PolyForm Noncommercial 1.0.0](LICENSE)，属于**非商业许可的源码公开项目**，不属于 OSI 定义的开源许可。个人品牌和独立仓库不会移除来源与第三方义务；历史说明见 [NOTICE](NOTICE.md)，组件条款见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。
+本项目使用 [PolyForm Noncommercial 1.0.0](LICENSE)，属于**非商业许可的源码公开项目**，不属于 OSI 定义的开源许可。独立品牌和仓库不会移除来源与第三方义务；历史说明见 [NOTICE](NOTICE.md)，组件条款见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。
