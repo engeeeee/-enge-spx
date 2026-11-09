@@ -1,5 +1,6 @@
 """Create and render the real Tk interface, then close without starting Docker."""
 from pathlib import Path
+import faulthandler
 import os
 import json
 import subprocess
@@ -15,6 +16,7 @@ from enge_spx.state import Store
 from enge_spx import dialogs
 from enge_spx.platform_ui import prepare_windows
 
+faulthandler.dump_traceback_later(60, exit=True)
 
 def capture(root, name):
     directory = os.environ.get("SPX_UI_REPORT_DIR")
@@ -59,6 +61,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
         native.user.GetWindowRect(native.hwnd, ctypes.byref(bounds))
         assert bounds.top >= area.work.top and bounds.bottom <= area.work.bottom, "Initial window overlaps the taskbar or leaves the work area"
     capture(root, "overview")
+    print("GUI initial layout passed", flush=True)
     assert len(app.buttons) >= 12
     assert app.phase.get()
     assert app.settings_match()
@@ -95,6 +98,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
     assert app.data_location.get() == str(target.resolve())
     assert Store(original).instance == app.store.instance
     assert Store().home == target.resolve()
+    print("GUI migration passed", flush=True)
 
     # Exercise the actual asynchronous startup UI without Docker or downloads.
     def settle():
@@ -134,6 +138,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
     assert not app.startup_active
     assert app.startup_title.get() == "准备已取消"
     assert app.store.instance == Store(original).instance
+    print("GUI asynchronous preparation passed", flush=True)
 
     app.chrome.controls["maximize"].invoke()
     root.update()
@@ -147,6 +152,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
         assert app.chrome.native.user.IsIconic(app.chrome.native.hwnd)
         app.chrome.restore()
         root.update()
+    print("GUI window controls passed; Tk state=" + root.state(), flush=True)
 
     def answer_modal(accept=False, enter=False):
         def visit(widget):
@@ -172,6 +178,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
         else:
             dialog._spx_frame.controls["close"].invoke()
     root.grab_set()
+    print("GUI modal checks starting", flush=True)
     root.after(120, lambda: answer_modal(accept=True))
     assert dialogs.askyesno("界面确认检查", "本次检查不访问 Docker。", parent=root)
     assert root.grab_current() == root
@@ -188,4 +195,5 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
     app.show_page("overview")
     root.after(500, root.destroy)
     root.mainloop()
+    faulthandler.cancel_dump_traceback_later()
     print("GUI smoke check passed")
