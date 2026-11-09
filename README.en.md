@@ -114,7 +114,7 @@ Most detailed guides are in Chinese:
 
 ## Development and status
 
-Maintained by [engeeeee](https://github.com/engeeeee). Source use requires Python 3.12+ with PySide6 / Qt. Install with `python -m pip install -e .` and launch `spx`, or use `Start-Windows.cmd` on Windows. Windows packaging uses PyInstaller and Inno Setup. See [development instructions](docs/development.md), [0.8.0 UI, packaging and download validation](docs/validation-0.8.zh-CN.md) and [CHANGELOG](CHANGELOG.md).
+Maintained by [engeeeee](https://github.com/engeeeee). Source use requires Python 3.12+ with PySide6 / Qt. Install with `python -m pip install -e .` and launch `spx`, or use `Start-Windows.cmd` on Windows. Windows packaging uses PyInstaller and Inno Setup. See [development instructions](docs/development.md), [0.8.1 startup, workspace and download validation](docs/validation-0.8.1.zh-CN.md) and [CHANGELOG](CHANGELOG.md).
 
 The current focus is Windows x64, controlled proxy paths and existing-data compatibility. There is no Windows ARM64 package or automatic updater. Unsupported WS / gRPC / Reality / XTLS / uTLS parameters cannot be imported as managed lines.
 

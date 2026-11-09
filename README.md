@@ -153,7 +153,7 @@ python -m venv .venv
 .\.venv\Scripts\spx.exe
 ```
 
-Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[0.8.0 界面验证记录](docs/validation-0.8.zh-CN.md)列出了界面、缩放、下载核验结果和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
+Windows 包使用 PyInstaller 和 Inno Setup 构建。CI 覆盖 Windows / Linux 检查、GUI 与安装卸载、真实 Linux Docker 链路及两种镜像存储；[0.8.1 验证记录](docs/validation-0.8.1.zh-CN.md)列出了手动启动、工作区首次打开、下载核验结果和未覆盖的实机交互范围。源码结构与构建见 [开发说明](docs/development.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 许可与来源
 
