@@ -1,0 +1,79 @@
+name: Sync repository About
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/repository.json'
+      - '.github/workflows/repository-about.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-about
+  cancel-in-progress: false
+
+jobs:
+  sync-about:
+    if: github.repository == 'engeeeee/ENGE-SPX' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Update and verify description and homepage
+        env:
+          SPX_ABOUT_TOKEN: ${{ secrets.SPX_ABOUT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import urllib.error
+          import urllib.request
+
+          expected = 'engeeeee/ENGE-SPX'
+          if os.environ.get('GITHUB_REPOSITORY') != expected:
+              raise SystemExit('Unexpected repository; no request sent.')
+          metadata = json.loads(Path('.github/repository.json').read_text(encoding='utf-8'))
+          if metadata.get('repository') != expected:
+              raise SystemExit('Metadata target does not match; no request sent.')
+          description = metadata.get('description')
+          if not isinstance(description, str) or not description.strip() or len(description) > 350:
+              raise SystemExit('Description must contain 1-350 characters; no request sent.')
+          homepage = metadata.get('homepage')
+          if homepage != 'https://github.com/engeeeee/ENGE-SPX#readme':
+              raise SystemExit('Unexpected homepage; no request sent.')
+          token = os.environ.get('SPX_ABOUT_TOKEN', '').strip()
+          if not token:
+              raise SystemExit('Missing SPX_ABOUT_TOKEN. Add a fine-grained token for ENGE-SPX with Administration: read and write in repository Actions Secrets, then re-run this job.')
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, *args, **kwargs):
+                  return None
+
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+          url = 'https://api.github.com/repos/' + expected
+          payload = {'description': description, 'homepage': homepage}
+          headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'ENGE-SPX-About-Sync'}
+          request = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode('utf-8'), headers={**headers, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}, method='PATCH')
+          try:
+              with opener.open(request, timeout=30) as response:
+                  updated = json.load(response)
+              # Re-read the public repository without credentials to confirm it.
+              with opener.open(urllib.request.Request(url, headers={**headers, 'Cache-Control': 'no-cache'}), timeout=30) as response:
+                  public = json.load(response)
+          except urllib.error.HTTPError as error:
+              raise SystemExit(f'GitHub HTTP {error.code}. Check token expiration, selected repository and Administration write permission. No credentials are printed.') from None
+          except (urllib.error.URLError, TimeoutError):
+              raise SystemExit('GitHub connection failed. Re-run this job; no credentials are printed.') from None
+          for result in (updated, public):
+              if result.get('full_name') != expected or any(result.get(key) != value for key, value in payload.items()):
+                  raise SystemExit('About read-back does not match the expected repository metadata.')
+          summary = '已同步并核验 ENGE SPX 的中文简介和主页。\n\n' + description + '\n\n' + homepage + '\n'
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(summary, encoding='utf-8')
+          print('Verified public About description and homepage. Other repository settings were not changed.')
+          PY

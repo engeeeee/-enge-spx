@@ -59,9 +59,12 @@ versioned prerelease. The publication script is scoped to engeeeee/ENGE-SPX.
 
 The default README is Chinese; keep the English README consistent when changing
 startup behavior or security claims. Repository About metadata lives in
-`.github/repository.json`; it is applied separately with
-`tools/Update-Repository.ps1` by an authorized maintainer. A file commit alone
-does not change GitHub settings.
+`.github/repository.json`; an authorized maintainer can apply it with
+`tools/Update-Repository.ps1`. The dedicated `repository-about.yml` workflow can
+sync description and homepage on main-branch metadata changes after the
+repository-scoped `SPX_ABOUT_TOKEN` secret is configured. A file commit without
+that authorization does not change GitHub settings. See the repository settings
+guide for the required Administration permission and setup instructions.
 
 The startup unit suite covers readiness, legacy CLI fallback, bounded waiting,
 cancellation, context restrictions, existing-image reuse and explicit exit
