@@ -42,7 +42,7 @@ def diagnostics(store, docker_info=None, startup_error=None):
     state = store.read("runtime.json", {})
     relay = settings["relay"]
     info = docker_info or {}
-    return {"app": "ENGE SPX", "version": __version__, "system": platform.system(), "system_release": platform.release(), "architecture": platform.machine(), "docker_version": info.get("docker"), "docker_architecture": info.get("architecture"), "docker_context": settings["context"], "runtime_recorded": len(store.read("images.json", {})) == 3, "phase": state.get("phase", "stopped"), "line_mode": relay.get("mode", "local") if relay.get("enabled") else "disabled", "proxy_downloads": relay.get("downloads", True), "auto_start_docker": settings.get("auto_start_docker", True), "startup_error": startup_error}
+    return {"app": "ENGE SPX", "version": __version__, "system": platform.system(), "system_release": platform.release(), "architecture": platform.machine(), "docker_version": info.get("docker"), "docker_architecture": info.get("architecture"), "docker_context": settings["context"], "runtime_recorded": len(store.read("images.json", {})) == 3, "phase": state.get("phase", "stopped"), "line_mode": relay.get("mode", "local") if relay.get("enabled") else "disabled", "proxy_downloads": relay.get("downloads", True), "auto_start_docker": settings["auto_start_docker"], "startup_error": startup_error}
 
 
 def launch_desktop(docker):

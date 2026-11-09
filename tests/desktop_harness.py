@@ -1,6 +1,7 @@
 """Owned Windows fake Desktop; never launches or changes the real Docker."""
 from contextlib import contextmanager
 import ctypes
+import json
 import os
 from pathlib import Path
 import shutil
@@ -120,6 +121,9 @@ def find_window(user, pid):
 
 def exercise_entry_point(command, base, cli, mode):
     data = base / ("entry-" + mode)
+    data.mkdir(exist_ok=True)
+    if mode == "legacy":
+        (data / "settings.json").write_text(json.dumps({"auto_start_docker": True}), encoding="utf-8")
     process = subprocess.Popen([*command, "--data", str(data), "gui"], env=environment(base, cli, mode), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW)
     user, hwnd = window_api(), None
     ready_at = None
@@ -134,23 +138,24 @@ def exercise_entry_point(command, base, cli, mode):
                     (base / "main-hwnd").write_text(str(hwnd))
             if log_path.is_file():
                 text = log_path.read_text(encoding="utf-8")
-            if "docker-check-ready" in text and ready_at is None:
+            if "docker-check-idle reason=docker_stopped" in text and ready_at is None:
                 ready_at = time.monotonic()
             if ready_at and time.monotonic() - ready_at > 3:
                 break
             time.sleep(.05)
-        assert process.poll() is None, f"GUI exited during Desktop startup: {process.returncode}"
-        assert hwnd and ready_at, "Real GUI never completed Docker preparation"
-        assert (base / "notified").is_file(), "Desktop never notified the real GUI window"
+        assert process.poll() is None, f"GUI exited during the read-only Docker check: {process.returncode}"
+        assert hwnd and ready_at, "Real GUI never completed the read-only Docker check"
+        assert not (base / "launches").exists(), "Opening the GUI launched Desktop"
+        assert not (base / "ready").exists(), "Opening the GUI started the engine"
         result = ctypes.c_size_t()
-        assert user.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 1500, ctypes.byref(result)), "GUI stopped responding after Desktop startup"
+        assert user.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 1500, ctypes.byref(result)), "GUI stopped responding after the read-only check"
         user.PostMessageW(hwnd, 0x0010, 0, 0)
         stdout, stderr = process.communicate(timeout=6)
         assert process.returncode == 0, f"GUI close failed: {process.returncode}\n{stdout}\n{stderr}"
         text = log_path.read_text(encoding="utf-8")
         assert "gui-stop normal" in text and "-error" not in text, text
-        assert (base / "launches").read_text().splitlines() == ["launch"], "Desktop started multiple times"
-        print(f"Real entry point: {Path(command[0]).name} / {mode}; cold start, responsive window and normal close passed", flush=True)
+        assert not (base / "launches").exists(), "Desktop started without a user action"
+        print(f"Real entry point: {Path(command[0]).name} / {mode}; manual-only Docker startup, responsive window and normal close passed", flush=True)
     except BaseException as error:
         if process.poll() is None:
             process.kill()

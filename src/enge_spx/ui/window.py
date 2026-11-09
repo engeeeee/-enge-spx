@@ -421,10 +421,8 @@ class Window(QMainWindow):
     def build_settings(self):
         page = Page("偏好设置", "选择自己的终端，安排数据位置，让工作台适合你的习惯。")
         panel = page.panel("启动行为")
-        self.startup_toggle = check("打开 ENGE SPX 时自动启动 Docker Desktop", self.c.auto_start_docker, self.c.save_startup_preference)
-        panel.layout.addWidget(self.startup_toggle)
-        self.action_widgets.append((self.startup_toggle, False))
-        panel.layout.addWidget(label("关闭后仍可通过一键准备明确启动。退出软件不会关闭 Docker Desktop。", "Caption", True))
+        panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
+        panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。退出软件不会关闭 Docker Desktop。", "Caption", True))
         panel = page.panel("工作区终端", "Pebrel、Windows Terminal、PowerShell 或你选择的命令行程序。")
         panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
         row = QHBoxLayout()

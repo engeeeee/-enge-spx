@@ -77,14 +77,13 @@ class Controller(QObject):
             "relay_url": proxy_url(relay) or "", "relay_downloads": relay.get("downloads", True),
             "line_mode": relay.get("mode", "local" if relay.get("enabled") else "managed"),
             "line_server_ip": relay.get("server_ip", ""), "line_expected_ip": relay.get("expected_ip", ""),
-            "auto_start_docker": settings.get("auto_start_docker", True),
             "terminal_kind": term["kind"], "terminal_exe": term["executable"], "terminal_args": term["arguments"],
             "terminal_status": "工作区、Linux 终端和登录窗口使用相同的终端设置。",
             "data_location": str(store.home), "data_target": "D:\\ENGE-SPX\\data" if os.name == "nt" and Path("D:/").exists() else "",
             "docker_target": store.read("docker-move.json", {}).get("target", "D:\\DockerData" if os.name == "nt" and Path("D:/").exists() else ""),
             "docker_location": "检测后显示 Docker 数据盘位置。", "storage_status": "配置、日志和下载缓存可迁移到自选目录。",
             "docker_move_status": "Docker Desktop 负责实际迁移，完成后回到这里核验。",
-            "operation": "就绪", "startup_title": "准备你的工作环境", "startup_detail": "自动准备 Docker 与运行环境，再核对代理出口。",
+            "operation": "就绪", "startup_title": "准备你的工作环境", "startup_detail": "点击一键准备，启动 Docker 与运行环境，再核对代理出口。",
             "docker_text": "尚未检测 Docker", "runtime_text": "等待核验已有环境" if self.runtime_ok else "尚未安装运行环境",
             "download_title": "获取运行环境", "download_detail": "支持暂停与断点续传，导入前校验完整性。",
             "download_progress": 0, "startup_progress": 0, "storage_progress": 0,
@@ -139,12 +138,12 @@ class Controller(QObject):
         except SPXError:
             return False
 
-    def run(self, action, done=None, cancelable=False):
+    def run(self, action, done=None, cancelable=False, description="正在处理…"):
         if self.busy:
             return False
         self.busy, self.cancelable = True, cancelable
         self.cancel.clear()
-        self.operation.set("正在处理…")
+        self.operation.set(description)
         self.refresh()
 
         def worker():
@@ -203,6 +202,7 @@ class Controller(QObject):
                         self.docker_ready = False
                         self.startup_title.set("需要完成 Docker 准备")
                         self.docker_text.set(value)
+                        log.info("docker-check-idle reason=%s", self.startup_error)
                     elif kind == "paused":
                         self.startup_title.set("准备已取消")
                         self.download_title.set("已暂停，可继续")
@@ -275,16 +275,15 @@ class Controller(QObject):
             self.download_progress.set(100 if stage == "done" else -1)
             self.download_detail.set({"manifest": "通过所选下载代理读取环境清单。", "verify": "导入前检查 SHA-256 与文件大小。", "import": "下载已完成，正在导入 Docker。", "build": "构建输出显示在运行日志中。", "done": "运行环境已核验，可以继续。", "retry": "保留已有进度，正在重连。"}.get(stage, "正在处理…"))
 
-    def check_docker(self, auto_start_override=None):
+    def check_docker(self, auto_start=False):
         if self.busy:
             return
         self.startup_active, self.startup_error = True, None
-        auto = self.auto_start_docker.get() if auto_start_override is None else auto_start_override
-        log.info("docker-check-start auto-start=%s", auto)
+        log.info("docker-check-start auto-start=%s", auto_start)
         def done(result):
             self.prepared(result)
             log.info("docker-check-ready runtime=%s", self.runtime_ok)
-        self.run(lambda engine: prepare_workspace(engine, progress=self.preparation_progress, cancel=self.cancel, auto_start=auto, install=False, check=False), done, True)
+        self.run(lambda engine: prepare_workspace(engine, progress=self.preparation_progress, cancel=self.cancel, auto_start=auto_start, install=False, check=False), done, True)
 
     def prepared(self, result):
         self.startup_active = False
@@ -357,15 +356,6 @@ class Controller(QObject):
             return
         self.run(lambda engine: engine.save_settings(*values))
 
-    def save_startup_preference(self):
-        value = self.auto_start_docker.get()
-        def action(engine):
-            with engine.store.lock():
-                settings = engine.store.settings()
-                settings["auto_start_docker"] = value
-                engine.store.write("settings.json", settings)
-        self.run(action)
-
     def read_system_proxy(self):
         try:
             self.relay_url.set(detect_system_proxy())
@@ -404,7 +394,8 @@ class Controller(QObject):
             return
         path = self.project.get().strip()
         if path:
-            self.run(lambda engine: engine.terminal(path, tool))
+            title = {"claude": "Claude Code", "codex": "Codex", "shell": "Linux 终端", "login-claude": "Claude Code 登录", "login-codex": "Codex 登录"}.get(tool, tool)
+            self.run(lambda engine: engine.terminal(path, tool), description=f"正在启动 {title}，后台检查进行中时会自动等待…")
         else:
             self.notify("先选择项目", "请选择要交给工具读写的具体项目文件夹。")
 

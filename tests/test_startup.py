@@ -49,6 +49,13 @@ class StartupCase(unittest.TestCase):
 
 
 class StartupTests(StartupCase):
+    def test_old_startup_preference_cannot_enable_launch_on_open(self):
+        self.assertFalse(self.store.settings()["auto_start_docker"])
+        self.store.write("settings.json", {"auto_start_docker": True, "selected": "preserved"})
+        self.assertFalse(self.store.settings()["auto_start_docker"])
+        self.assertFalse(diagnostics(self.store)["auto_start_docker"])
+        self.assertEqual(self.store.settings()["selected"], "preserved")
+
     def test_running_engine_is_reused_without_launch(self):
         with patch("enge_spx.startup.launch_desktop") as launch:
             self.assertEqual(ensure_docker(self.engine, windows=True), INFO)

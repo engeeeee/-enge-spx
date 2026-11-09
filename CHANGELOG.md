@@ -1,5 +1,22 @@
 # Changes
 
+## 0.8.1 Preview — 2026-11-09
+
+- Make Docker startup explicit. Opening the app and rechecking status never
+  launch Docker Desktop, containers or downloads. Start only after a user action
+  such as Prepare or Start and check. Ignore the earlier auto-start preference
+  on upgrade and replace its toggle with a description of the manual behavior.
+- Wait up to 30 seconds for the operation lock when opening a tool or browser,
+  so the guard's immediate post-confirmation check does not fail the first click.
+  Keep the UI responsive and show a waiting message. Retry only lock acquisition;
+  route failures still reject the action and tool launches are never repeated.
+- Prepare the tool command, project and browser in one protected operation.
+  Open the prepared viewer after terminal launch without a second readiness
+  probe or lock acquisition. Cover Claude Code, Codex, shell and login actions.
+- Add guard-contention, launch-once, timeout and route-failure regressions. Check
+  source and frozen GUI entries with fresh and older auto-start settings, and
+  exercise explicit Desktop startup through the actual Windows button.
+
 ## 0.8.0 Preview — 2026-11-09
 
 - Replace the Tk/Canvas interface with native Qt widgets, warm charcoal surfaces

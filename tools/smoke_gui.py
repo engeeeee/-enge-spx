@@ -59,7 +59,6 @@ def capture(window, name):
 with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALAPPDATA": str(Path(directory) / "local")}):
     store = Store(Path(directory) / "private")
     controller = Controller(store)
-    controller.auto_start_docker.set(False)
     window = Window(controller)
     window.show()
     QTest.qWait(100)

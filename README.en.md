@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.1-windows">Download</a></p>
 
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
@@ -42,10 +42,10 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 ## Download and start
 
-Current release: **[0.8.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.8.1 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.1-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.0-windows/ENGE-SPX-Windows-x64-0.8.0-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.0-windows/ENGE-SPX-Windows-x64-0.8.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.1-windows/ENGE-SPX-Windows-x64-0.8.1-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.1-windows/ENGE-SPX-Windows-x64-0.8.1-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.
@@ -53,7 +53,7 @@ Current release: **[0.8.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases
 3. Add a landing and choose a managed encrypted line or the local-proxy compatibility mode.
 4. Check the route, review both exits and the time zone, confirm, then select a project and open a tool.
 
-The first runtime download is about 1 GB and starts after you click; existing images are reused. Download progress is visible and cancellation preserves data. There is no need to handle the runtime archive manually. The UI is currently Chinese; see the [quick start](docs/quickstart.zh-CN.md) and [installation troubleshooting](docs/installation-troubleshooting.zh-CN.md).
+Opening ENGE SPX only checks status. Docker starts after you click **一键准备环境** or **启动并检测**, including when upgrading from older auto-start settings. The first runtime download is about 1 GB and starts after you click; existing images are reused. Download progress is visible and cancellation preserves data. There is no need to handle the runtime archive manually. The UI is currently Chinese; see the [quick start](docs/quickstart.zh-CN.md) and [installation troubleshooting](docs/installation-troubleshooting.zh-CN.md).
 
 <details>
 <summary>See the preparation interface</summary>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import errno
 import hashlib
 import json
 import os
@@ -127,10 +128,12 @@ class Store:
             raise SPXError("数据已迁移，请重新打开 ENGE SPX 后继续。")
 
     def settings(self) -> dict:
-        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "auto_start_docker": True, "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {})}
+        # Older versions enabled Desktop startup when opening the GUI. Keep the
+        # legacy field false even for those settings; startup now requires a click.
+        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {}), "auto_start_docker": False}
 
     @contextmanager
-    def lock(self, name="operation"):
+    def lock(self, name="operation", timeout=0, on_wait=None):
         self.check_location()
         path = self.home / (name + ".lock")
         with path.open("a+b") as stream:
@@ -139,15 +142,27 @@ class Store:
                 stream.write(b"0")
                 stream.flush()
             stream.seek(0)
-            try:
-                if os.name == "nt":
-                    import msvcrt
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as error:
-                raise SPXError("环境正在执行其他操作，请稍后重试。") from error
+            deadline = time.monotonic() + timeout
+            waiting = False
+            while True:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise SPXError("环境正在执行其他操作，请稍后重试。") from error
+                    if not waiting and on_wait:
+                        on_wait()
+                    waiting = True
+                    time.sleep(min(.1, remaining))
             try:
                 self.check_location()
                 yield

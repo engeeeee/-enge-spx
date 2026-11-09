@@ -727,7 +727,7 @@ class Engine:
         raise SPXError("本机显示服务未能启动，请查看数据目录中的 relay.log。")
 
     def browser(self):
-        with self.store.lock():
+        with self.store.lock(timeout=30, on_wait=lambda: self.log("等待后台连接检查完成，随后自动打开浏览器…")):
             state = self.ready()
             url = self._browser(state)
         webbrowser.open(url)
@@ -744,12 +744,18 @@ class Engine:
         return obj, key
 
     def tool_command(self, path, command, interactive=True):
-        with self.store.lock():
+        argv, _ = self._tool_session(path, command, interactive)
+        return argv
+
+    def _tool_session(self, path, command, interactive=True):
+        # The guard checks immediately after confirmation and every 30 seconds.
+        # Wait for its lock before executing anything; never retry the launch.
+        with self.store.lock(timeout=30, on_wait=lambda: self.log("等待后台连接检查完成，随后自动启动工作区…")):
             state = self.ready()
-            self._browser(state)
+            url = self._browser(state)
             obj, key = self._project(path, state)
             flags = ["-it"] if interactive else ["-i"]
-            return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), obj["Id"], *command)
+            return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), obj["Id"], *command), url
 
     def terminal(self, path, tool):
         from .terminal import launch, resolve
@@ -760,11 +766,11 @@ class Engine:
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
         config = self.store.settings()["terminal"]
         resolve(config)
-        command = self.tool_command(path, commands[tool])
+        command, url = self._tool_session(path, commands[tool])
         directory, _ = self.store.project(path)
         launch(config, command, str(directory), "ENGE SPX · " + tool, self.docker.environment())
         # Open the viewer so any account authorization URL stays in Chromium.
-        self.browser()
+        webbrowser.open(url)
 
     def status(self):
         return status_snapshot(self.store)
