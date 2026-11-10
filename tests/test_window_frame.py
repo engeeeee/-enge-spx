@@ -123,7 +123,7 @@ class NativeWindowTests(unittest.TestCase):
             with patch.object(self.controller, "ask", return_value=True):
                 self.window.tray_exit.trigger()
             QTest.qWait(20)
-            self.assertEqual(closed.count(), 1)
+            self.assertEqual(closed.count(), 1, f"stage={self.controller.exit_stage} busy={self.controller.busy} sample={self.controller.resource_inflight} timer={self.controller.delivery.isActive()} operation={self.controller.operation.get()}")
             self.assertFalse(self.window.tray.isVisible())
 
     def test_no_tray_keeps_normal_exit_and_never_hides_an_unreachable_background_app(self):
@@ -135,7 +135,7 @@ class NativeWindowTests(unittest.TestCase):
                 if closed.count():
                     break
                 QTest.qWait(20)
-            self.assertEqual(closed.count(), 1)
+            self.assertEqual(closed.count(), 1, f"stage={self.controller.exit_stage} busy={self.controller.busy} sample={self.controller.resource_inflight} timer={self.controller.delivery.isActive()} operation={self.controller.operation.get()}")
 
     def test_legacy_terminal_reopens_as_custom_and_exe_picker_has_no_brand_special_case(self):
         store = Store(Path(self.folder.name) / "legacy-terminal")

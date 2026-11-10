@@ -204,6 +204,8 @@ def exercise_entry_point(command, base, cli, mode):
         if process.poll() is None:
             process.kill()
         stdout, stderr = process.communicate(timeout=6)
+        if log_path.is_file():
+            text = log_path.read_text(encoding="utf-8")
         fault = data / "logs/gui-fault.log"
         details = fault.read_text(encoding="utf-8") if fault.is_file() else "No native fault file"
         raise AssertionError(f"{error}\n{text}\n{details}\n{stdout}\n{stderr}") from error

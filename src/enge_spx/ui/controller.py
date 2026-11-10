@@ -766,8 +766,11 @@ class Controller(QObject):
         self.operation.set("正在停止本实例工作区并退出…")
         def worker():
             def progress(text):
-                self.events.put(("exit_progress", self.clean_message(text)))
+                cleaned = self.clean_message(text)
+                log.info("gui-exit-progress %s", cleaned)
+                self.events.put(("exit_progress", cleaned))
             try:
+                log.info("gui-exit-worker-start")
                 try:
                     engine = Engine(self.store, progress)
                 except SPXError:
@@ -776,6 +779,7 @@ class Controller(QObject):
                         raise
                     engine = Engine(self.store, progress, stop_context=context["context"])
                     engine.doctor()
+                log.info("gui-exit-engine-ready")
                 result = engine.shutdown()
                 if not isinstance(result, dict) or result.get("workspace_stopped") is not True or result.get("background_stopped") is not True:
                     raise SPXError("未能取得完整的工作区与后台停止结果，界面会保留。")
