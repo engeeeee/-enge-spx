@@ -84,7 +84,9 @@ Runtime and subscription downloads use a separate local download proxy. Selectin
 - **Network paths**: tools use an internal network and gateway. Managed chaining has no direct fallback; local compatibility still depends on the external client's routing and the service providers.
 - **Monitoring**: changes stop the environment when detected. IP monitoring has an interval and request timeouts, so exit changes are not detected instantaneously.
 
-Containers depend on the host, Docker and WSL. Chromium currently uses `--no-sandbox`, and proxy credentials are not encrypted with the Windows credential store. The preview has not had an independent security audit or full acceptance testing on the user's Windows + Docker Desktop + v2ray + Pebrel combination. It does not guarantee anonymity, speed or account acceptance. Read the [security model](docs/security-model.zh-CN.md) for the full scope.
+This branch's P0 changes require Chromium namespace and Seccomp-BPF sandbox evidence, and protect application proxy settings with Windows current-user DPAPI. Existing 0.8.2 packages and images require upgrading to receive these changes. See [sandbox, credentials, migration and explicit rollback](docs/security-hardening.zh-CN.md).
+
+Containers depend on the host, Docker and WSL. DPAPI does not protect against malicious code running as the same user, host administrators or Docker administrators; tool-account and browser-profile volumes still need private storage and backups. The preview has not had an independent security audit or full acceptance testing on the user's Windows + Docker Desktop + v2ray + Pebrel combination. It does not guarantee anonymity, speed or account acceptance. Read the [security model](docs/security-model.zh-CN.md) for the full scope.
 
 ## Terminal, downloads and storage
 

@@ -62,6 +62,7 @@ def verify_renderer(browser_pid, timeout=12):
     base_filters = int(base.get("Seccomp_filters", "0"))
     base_depth = len(base.get("NSpid", "").split())
     deadline = time.monotonic() + timeout
+    observed = {"browser_pid": browser_pid, "base_filters": base_filters, "base_pid_depth": base_depth, "renderers": 0, "descendants": 0}
     while time.monotonic() < deadline:
         records = {}
         for path in Path("/proc").iterdir():
@@ -77,14 +78,19 @@ def verify_renderer(browser_pid, timeout=12):
                 continue
             if b"--type=renderer" not in command:
                 continue
+            observed["renderers"] += 1
             ancestor, visited = pid, set()
             while ancestor in records and ancestor not in visited and ancestor != browser_pid:
                 visited.add(ancestor)
                 ancestor = int(records[ancestor].get("PPid", "0"))
             if ancestor != browser_pid:
                 continue
+            observed["descendants"] += 1
             good = {"non_root": int(status["Uid"].split()[0]) != 0, "no_new_privileges": status.get("NoNewPrivs") == "1", "no_capabilities": int(status.get("CapEff", "1"), 16) == 0, "seccomp": status.get("Seccomp") == "2", "additional_seccomp_filter": int(status.get("Seccomp_filters", "0")) > base_filters > 0, "nested_pid_namespace": len(status.get("NSpid", "").split()) > base_depth > 0}
             if all(good.values()):
                 return good
+            observed["renderer_flags"] = good
+            observed["renderer_filters"] = status.get("Seccomp_filters")
+            observed["renderer_pid_depth"] = len(status.get("NSpid", "").split())
         time.sleep(.1)
-    raise RuntimeError("CHROMIUM_SANDBOX_UNAVAILABLE: renderer kernel evidence missing")
+    raise RuntimeError("CHROMIUM_SANDBOX_UNAVAILABLE: renderer kernel evidence missing " + json.dumps(observed, sort_keys=True))

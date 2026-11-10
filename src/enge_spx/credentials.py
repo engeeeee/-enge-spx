@@ -51,7 +51,7 @@ class DPAPI:
         return self.Blob(len(data), ctypes.cast(memory, ctypes.POINTER(ctypes.c_ubyte))), memory
 
     def _run(self, data, entropy, decrypt=False):
-        if not data or len(data) > MAX_BYTES:
+        if not data or len(data) > MAX_BYTES + (4096 if decrypt else 0):
             raise SPXError("凭据数据大小无效，原配置未清除。")
         incoming, keep_input = self._blob(data)
         context, keep_context = self._blob(entropy)

@@ -266,6 +266,12 @@ finally:
             passed("data relocation preserves project container, layer, accounts and browser; gateway uses new bind mount")
             report = {"passed": records, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
             output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        except Exception:
+            # Only the browser supervisor's bounded, non-secret startup errors.
+            browser = engine.inspect("browser")
+            if browser:
+                print("BROWSER STARTUP DIAGNOSTICS", engine.docker.redact(engine.docker.run("logs", "--tail", "35", browser["Id"])), flush=True)
+            raise
         finally:
             try:
                 engine.stop()

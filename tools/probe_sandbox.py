@@ -3,6 +3,7 @@ import argparse
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import time
@@ -39,7 +40,9 @@ def main():
     try:
         with tempfile.TemporaryDirectory() as folder:
             dockerfile = Path(folder) / "Dockerfile"
-            dockerfile.write_text("FROM debian:bookworm-slim\nRUN apt-get update && apt-get install -y --no-install-recommends chromium python3 ca-certificates && rm -rf /var/lib/apt/lists/*\nRUN useradd --create-home --uid 1000 workspace\nUSER 1000:1000\nCMD [\"sleep\",\"infinity\"]\n")
+            dockerfile.write_text("FROM debian:bookworm-slim\nRUN apt-get update && apt-get install -y --no-install-recommends chromium python3 ca-certificates tigervnc-standalone-server openbox xauth && rm -rf /var/lib/apt/lists/*\nRUN useradd --create-home --uid 1000 workspace\nCOPY browser.py sandbox_status.py runtime_secret.py /opt/spx/\nUSER 1000:1000\nCMD [\"sleep\",\"infinity\"]\n")
+            for name in ("browser.py", "sandbox_status.py", "runtime_secret.py"):
+                shutil.copyfile(Path("src/enge_spx/resources/containers") / name, Path(folder) / name)
             subprocess.run(["docker", "build", "-t", "spx-sandbox-probe", str(folder)], check=True)
         for mode in ("default", "restricted"):
             name = "spx-sandbox-probe-" + mode
@@ -68,6 +71,28 @@ def main():
         assert rows.get("pid namespaces") == "yes" and rows.get("network namespaces") == "yes", rows
         assert rows.get("seccomp-bpf sandbox") == "yes", rows
         assert not secure["privileged"] and not secure["cap_add"] and "ALL" in [v.upper() for v in secure["cap_drop"]]
+        name = "spx-sandbox-probe-headed"
+        try:
+            subprocess.run(["docker", "run", "-d", "--name", name, "--user", "1000:1000", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--security-opt", "seccomp=" + str(Path("src/enge_spx/resources/containers/browser-seccomp.json").resolve()), "--network", "none", "--read-only", "--pids-limit", "512", "--memory", "1g", "--shm-size", "256m", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m,mode=1777", "--tmpfs", "/home/workspace:rw,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0700", "spx-sandbox-probe", "python3", "-u", "/opt/spx/browser.py"], check=True, capture_output=True)
+            subprocess.run(["docker", "exec", "-i", name, "python3", "/opt/spx/runtime_secret.py", "browser"], input=json.dumps({"token": "b" * 64, "proxy": "http://127.0.0.1:9"}), text=True, check=True, capture_output=True)
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                result = subprocess.run(["docker", "exec", name, "cat", "/tmp/spx-sandbox-status.json"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    report["headed_kernel_evidence"] = json.loads(result.stdout)
+                    break
+                running = json.loads(subprocess.check_output(["docker", "inspect", name]))[0]["State"]["Running"]
+                if not running:
+                    raise RuntimeError("Headed sandbox failed: " + subprocess.check_output(["docker", "logs", name], stderr=subprocess.STDOUT, text=True)[-10000:])
+                time.sleep(.25)
+            else:
+                raise RuntimeError("Headed sandbox timed out")
+            evidence = report["headed_kernel_evidence"]
+            assert all(evidence.get(key) is True for key in ("namespace", "pid_namespace", "network_namespace", "seccomp_bpf")), evidence
+            assert evidence.get("renderer") and all(evidence["renderer"].values()), evidence
+            print(json.dumps({"headed_kernel_evidence": evidence}), flush=True)
+        finally:
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
         report["success"] = True
     finally:
         args.output.parent.mkdir(parents=True, exist_ok=True)

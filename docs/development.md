@@ -94,6 +94,27 @@ repository-scoped `SPX_ABOUT_TOKEN` secret is configured. A file commit without
 that authorization does not change GitHub settings. See the repository settings
 guide for the required Administration permission and setup instructions.
 
+The P0 security branch keeps production protocol behavior unchanged. Read the
+[source audit](security-p0-audit.zh-CN.md) and [security upgrade guide](security-hardening.zh-CN.md).
+`tests/test_credentials.py` uses real current-user DPAPI on Windows; other platforms
+exercise migration with a test-only opaque-handle provider, never a substitute cipher.
+`tests/test_security_p0.py` covers privilege rejection, sandbox evidence, secret stdin,
+redaction, deletion and stale terminal handoffs. Real Docker tests also verify the
+renderer kernel state, VNC/X11 separation, login callbacks and persistent data.
+
+Run the unprivileged sandbox feasibility probe explicitly on a Docker host:
+
+```powershell
+python tools/probe_sandbox.py --output sandbox.json
+```
+
+It does not alter host userns, AppArmor or other global policies. The isolated
+`security-p0.yml` workflow repeats Windows/Linux regression and packaging checks
+without publishing a release. `tools/benchmark_p0.py` compares a pinned 0.8.2 source
+baseline and the candidate sequentially on one runner; its synthetic browser fixture
+uses network none. Host process, container and WSL-wide measurements must be labeled
+separately. Measurements do not assert a target speedup, anonymity or real-account access.
+
 The startup unit suite covers readiness, legacy CLI fallback, bounded waiting,
 cancellation, context restrictions, existing-image reuse and explicit exit
 review. Windows CI compiles an isolated fake Desktop/CLI pair to exercise real

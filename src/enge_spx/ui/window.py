@@ -306,6 +306,7 @@ class Window(QMainWindow):
         row.addWidget(self.action("添加代理", self.proxy_dialog, True))
         row.addWidget(self.action("批量导入", self.import_dialog))
         row.addWidget(self.action("删除所选代理", self.c.delete_selected_node, ghost=True))
+        panel.layout.addWidget(label("代理配置使用 Windows 当前账户加密；跨盘迁移保留，换电脑前请阅读凭据迁移说明。" if self.c.store.credentials.enabled else "此系统使用私有文件权限保存代理配置，未使用 Windows DPAPI 加密。", "Muted"))
         panel = page.panel("前置线路", "已有 v2ray 可作为本机前置，也可在软件内组合固定加密线路与落地。")
         panel.layout.addWidget(check("启用前置线路", self.c.relay_enabled))
         mode = combo(self.c.line_mode, list(LINE_MODES.items()))

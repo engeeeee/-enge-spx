@@ -1,6 +1,6 @@
 # 安全报告
 
-目前维护的版本为 **0.7.x Preview**，旧版问题原则上在当前版本修复；暂不承诺旧版本回补或响应时限。发布状态以 [Releases](https://github.com/engeeeee/ENGE-SPX/releases) 为准。
+安全修复针对当前开发版本；已发布版本和安装包状态以 [Releases](https://github.com/engeeeee/ENGE-SPX/releases) 为准。本分支包含第一批 P0 沙箱与凭据保护改造，使用旧 0.8.2 包不会获得这些改动。暂不承诺旧版本回补或响应时限。
 
 ## 报告漏洞
 
@@ -12,6 +12,8 @@
 
 ## 当前边界
 
-请先阅读 [隔离与安全模型](docs/security-model.zh-CN.md)。容器、出口检查和异常停机都有明确范围；项目目录读写共享，代理凭据尚未接入系统凭据库加密，Chromium 目前使用 `--no-sandbox`。当前 Windows 包未代码签名，也未经过独立安全审计。
+请先阅读 [隔离与安全模型](docs/security-model.zh-CN.md)及 [P0 升级与恢复](docs/security-hardening.zh-CN.md)。本分支强制验证 Chromium 的 user namespace 与 Seccomp-BPF 沙箱；不能初始化时拒绝浏览器启动，不添加容器特权或无沙箱回退。Windows 的应用代理配置使用当前用户 DPAPI 保护，容器通过 stdin 接收运行时凭据。
+
+项目仍为读写共享，工具账号及浏览器资料仍默认在项目间共享。DPAPI 不能防止同一 Windows 账户下的恶意程序、管理员或 Docker 管理者读取运行时凭据；CLI 账号卷和浏览器 Profile 不属于本批 DPAPI 加密范围。Linux 使用私有文件权限，不能宣称已加密。当前 Windows 包未代码签名，也未经过独立安全审计。
 
 如发现敏感信息已公开，请尽快撤销相关凭据，并删除或编辑公开内容；仅删除消息不能保证已泄露凭据重新安全。
