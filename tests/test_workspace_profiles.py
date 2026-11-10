@@ -51,10 +51,27 @@ class WorkspaceProfileTests(unittest.TestCase):
         (self.store.home / profiles.FILE).unlink()
         with self.assertRaisesRegex(SPXError, "丢失"):
             self.engine.workspace_profiles()
-        for marker in ({"schema": True, "enabled": True}, {"schema": 1, "enabled": 1}):
+        for marker in (None, {"schema": True, "enabled": True}, {"schema": 1, "enabled": 1}):
             self.store.write(profiles.MARKER, marker)
             with self.assertRaises(SPXError):
                 self.engine.workspace_profiles()
+
+    def test_interrupted_first_write_keeps_fence_and_requires_explicit_restore(self):
+        write = self.store.write
+        def interrupted(name, value):
+            if name == profiles.FILE:
+                raise PermissionError("Synthetic access denied")
+            return write(name, value)
+        with patch.object(self.store, "write", side_effect=interrupted):
+            with self.assertRaises(PermissionError):
+                self.identity()
+        self.assertFalse((self.store.home / profiles.FILE).exists())
+        with self.assertRaisesRegex(SPXError, "丢失"):
+            self.engine.workspace_profiles()
+        self.engine._shutdown_locked = Mock()
+        restored = self.engine.restore_workspace_profiles()
+        self.engine._shutdown_locked.assert_called_once()
+        self.assertEqual(restored, profiles.defaults())
 
     def test_oversized_or_redirected_identity_files_reject_before_parsing(self):
         path = self.store.home / profiles.FILE

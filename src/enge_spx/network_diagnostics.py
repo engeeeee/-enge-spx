@@ -21,7 +21,7 @@ from .brand import PACKAGE_RESOURCES
 from .state import SPXError
 
 ERROR_CODES = {"tls_certificate_error", "timeout", "connection_refused", "direct_path_available", "exit_sources_disagree", "proxy_or_transport_failure", "unexpected_exit"}
-DIRECT_RESULTS = {"connected", "replied", "unreachable", "no_response", "connection_failed"}
+DIRECT_RESULTS = {"connected", "replied", "unreachable", "unsupported", "no_response", "connection_failed"}
 LANGUAGE = re.compile(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*")
 
 

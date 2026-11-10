@@ -57,7 +57,7 @@ PYTHONPATH=src python tools/benchmark_resources.py --baseline 6168bf406d9d7d6254
 python tools/benchmark_p0.py --kind host --baseline 6168bf406d9d7d6254e5be102921445f5129db48 --output host.json
 ```
 
-当前本地 Linux ARM64：286 项单元测试，275 通过、11 项 Windows 专用跳过；真实无网络 Docker 数据测试 6 场景通过。初始核心 `1235249` 的 [跨平台专项 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42897634925) 已通过 Windows/Linux 268 项及真实数据测试，原生 Windows 路径别名问题已修正。网络诊断及最终候选的全量 CI、真实 Chromium 与打包结果待候选构建后记录；核心通过不代替这些门禁。
+当前本地 Linux ARM64：287 项单元测试，276 通过、11 项 Windows 专用跳过；真实无网络 Docker 数据测试 6 场景通过。初始核心 `1235249` 的 [跨平台专项 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42897634925) 已通过 Windows/Linux 268 项及真实数据测试，原生 Windows 路径别名问题已修正。网络诊断及最终候选的全量 CI、真实 Chromium 与打包结果待候选构建后记录；核心通过不代替这些门禁。
 
 ## 6. 性能前后对比
 

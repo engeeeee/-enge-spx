@@ -59,7 +59,9 @@ def facts():
 def failed(error):
     if isinstance(error, (TimeoutError, socket.timeout)):
         return "no_response"
-    if getattr(error, "errno", None) in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT):
+    if getattr(error, "errno", None) in (errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT):
+        return "unsupported"
+    if getattr(error, "errno", None) in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EADDRNOTAVAIL):
         return "unreachable"
     return "connection_failed"
 
@@ -79,6 +81,7 @@ def tcp(family, address):
 
 
 def dns_udp():
+    started = time.monotonic()
     identifier = secrets.randbelow(65536)
     packet = struct.pack("!HHHHHH", identifier, 0x0100, 1, 0, 0, 0) + b"\x07example\x03com\x00\x00\x01\x00\x01"
     value = {"test": "public_dns_udp", "target": "1.1.1.1", "port": 53}
@@ -91,6 +94,7 @@ def dns_udp():
         value["result"] = "replied" if response else "no_response"
     except OSError as error:
         value["result"] = failed(error)
+    value["elapsed_ms"] = round((time.monotonic() - started) * 1000, 2)
     return value
 
 

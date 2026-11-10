@@ -812,9 +812,11 @@ class Engine:
             self.log("正在停止当前工作区，切换身份或项目目录权限…")
             self._shutdown_locked()
         self.store.write(PREVIOUS, {"schema": 1, "config": previous})
-        self.store.write(FILE, config)
+        # Fence first initialization before writing the selection. An interrupted
+        # first write must require explicit restore, not look like legacy shared.
         if self.store.read(MARKER) != {"schema": 1, "enabled": True}:
             self.store.write(MARKER, {"schema": 1, "enabled": True})
+        self.store.write(FILE, config)
         return config
 
     def create_workspace_profile(self, name):

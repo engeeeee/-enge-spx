@@ -58,9 +58,10 @@ def load(store):
     # Missing is compatibility; an explicit null or an unknown schema is not.
     check_files(store, FILE, MARKER)
     marker = store.read(MARKER)
-    if marker is not None and (not isinstance(marker, dict) or set(marker) != {"schema", "enabled"} or type(marker["schema"]) is not int or marker["schema"] != 1 or marker["enabled"] is not True):
+    initialized = (store.home / MARKER).is_file()
+    if initialized and (not isinstance(marker, dict) or set(marker) != {"schema", "enabled"} or type(marker["schema"]) is not int or marker["schema"] != 1 or marker["enabled"] is not True):
         raise SPXError("工作区身份迁移记录无效，请恢复配置；不会回退到共享账号。")
-    if marker is not None and not (store.home / FILE).is_file():
+    if initialized and not (store.home / FILE).is_file():
         raise SPXError("工作区身份配置丢失，请恢复上次配置；不会回退到共享账号。")
     value = store.read(FILE, defaults())
     if value is None:
