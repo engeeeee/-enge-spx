@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
@@ -108,6 +109,16 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaises(SPXError):
             containers(self.engine)
         self.assertEqual(self.engine.docker.run.call_count, 2)
+
+    def test_cancelled_sample_does_not_start_another_docker_command(self):
+        cancel = threading.Event()
+        def first(*args, **kwargs):
+            cancel.set()
+            return self.identifier
+        self.engine.docker.run.side_effect = first
+        with self.assertRaisesRegex(SPXError, "已取消"):
+            containers(self.engine, cancel)
+        self.engine.docker.run.assert_called_once()
 
     def test_host_snapshot_does_not_contact_or_start_docker_when_not_ready(self):
         with patch("enge_spx.process_metrics.desktop_processes", return_value=[]):

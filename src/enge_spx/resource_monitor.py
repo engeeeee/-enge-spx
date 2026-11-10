@@ -28,7 +28,11 @@ def _percent(value):
     return number
 
 
-def containers(engine):
+def containers(engine, cancel=None):
+    def checkpoint():
+        if cancel is not None and cancel.is_set():
+            raise SPXError("资源采样已取消。")
+    checkpoint()
     # Do not read environment variables, mounts, command lines or credentials.
     ids = engine.docker.run("ps", "-aq", "--filter", "label=" + engine.owner + "=" + engine.store.instance, timeout=6).splitlines()
     if not ids:
@@ -36,6 +40,7 @@ def containers(engine):
     if any(not re.fullmatch(r"[a-f0-9]{12,64}", identifier) for identifier in ids):
         raise SPXError("容器标识无效，未查询其它资源。")
     selected = ids[:MAX_CONTAINERS]
+    checkpoint()
     template = '{"id":{{json .Id}},"name":{{json .Name}},"owner":{{json (index .Config.Labels "' + engine.owner + '")}},"role":{{json (index .Config.Labels "' + engine.role + '")}},"running":{{json .State.Running}},"oom":{{json .State.OOMKilled}},"memory_limit":{{json .HostConfig.Memory}},"nano_cpus":{{json .HostConfig.NanoCpus}},"period":{{json .HostConfig.CpuPeriod}},"quota":{{json .HostConfig.CpuQuota}}}'
     raw = engine.docker.run("container", "inspect", "--format", template, *selected, timeout=8)
     if len(raw) > 2 * 1024**2:
@@ -47,6 +52,7 @@ def containers(engine):
     running = [row["id"] for row in rows if row["running"]]
     statistics = {}
     if running:
+        checkpoint()
         # An empty ID list would mean all containers. Never issue that command.
         raw = engine.docker.run("stats", "--no-stream", "--no-trunc", "--format", "{{json .}}", *running, timeout=8)
         if len(raw) > 2 * 1024**2:
@@ -71,7 +77,7 @@ class Monitor:
     def __init__(self):
         self.sampler = process_metrics.Sampler()
 
-    def snapshot(self, engine, docker_ready=False):
+    def snapshot(self, engine, docker_ready=False, cancel=None):
         app = [{"name": "ENGE SPX 控制进程", "scope": "app", **self.sampler.sample(os.getpid())}]
         registry = engine.store.home / "processes"
         unavailable = 0
@@ -94,7 +100,7 @@ class Monitor:
         evidence = {"schema": 1, "sampled": time.time(), "cpu_units": "one-core percent for processes/containers; whole-host percent for host", "host": self.sampler.host(), "app": app, "background_unavailable": unavailable, "desktop": desktop, "windows": os.name == "nt", "containers": {"available": False, "reason": "Docker 尚未就绪；资源面板不会启动 Docker。", "rows": []}}
         if docker_ready:
             try:
-                evidence["containers"] = containers(engine)
+                evidence["containers"] = containers(engine, cancel)
             except (OSError, SPXError, ValueError, KeyError, TypeError, AttributeError):
                 evidence["containers"] = {"available": False, "reason": "容器采样暂不可用；Docker 未连接、资源正在变化或权限不足。", "rows": []}
         retained = {item["pid"] for item in [*app, *desktop]}

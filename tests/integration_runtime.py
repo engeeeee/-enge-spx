@@ -410,7 +410,10 @@ finally:
             assert execute(engine, migrated["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
             assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
             passed("data relocation preserves project container, layer, accounts and browser; gateway uses new bind mount")
-            engine.stop()
+            stopped = engine.shutdown()
+            assert stopped["workspace_stopped"] and stopped["background_stopped"]
+            assert not list((store.home / "processes").glob("*.json"))
+            passed("genuine shutdown verifies all owned containers and detached guard/display services stopped after data relocation")
             rejected_sandbox(engine, base)
             passed("namespace initialization failure terminates the browser without a no-sandbox retry")
             report = {"passed": records, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}

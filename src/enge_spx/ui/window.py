@@ -5,7 +5,7 @@ from pathlib import Path
 import webbrowser
 
 from PySide6.QtCore import Qt, QSize, Signal, QEvent
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
                              QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget,
                              QPushButton, QPlainTextEdit, QFileDialog, QLineEdit,
@@ -55,8 +55,13 @@ class Window(QMainWindow):
         self.log_view = None
         self._last_view = None
         self._force_close = False
-        self._explicit_exit = False
         self.tray = None
+        self.tray_hint_shown = False
+        self.exit_buttons = []
+        self.exit_action = QAction("退出软件（停止工作区）", self)
+        self.exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        self.exit_action.triggered.connect(self.stop_and_exit)
+        self.addAction(self.exit_action)
         self.compact = None
         self.minimized_by_user = False
         self.resize_edges = []
@@ -143,6 +148,8 @@ class Window(QMainWindow):
         self.c.ask = lambda title, text: confirm(self, title, text)
         self.c.notice.connect(lambda title, text, error: notice(self, title, text, error))
         self.c.changed.connect(self.render)
+        self.c.changed.connect(self.update_exit_actions)
+        self.c.exit_failed.connect(self.show_exit_error)
         self.c.nodes_changed.connect(self.refresh_node_boxes)
         self.c.logs_added.connect(self.append_logs)
         self.c.page_requested.connect(self.show_page)
@@ -553,6 +560,11 @@ class Window(QMainWindow):
         panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
         panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。退出软件不会关闭 Docker Desktop。", "Caption", True))
         panel.layout.addWidget(label("关闭窗口后隐藏到系统托盘。托盘右键可恢复窗口、保留工作区退出界面，或停止工作区并退出。", "Caption", True))
+        panel.layout.addWidget(label("退出软件（Ctrl+Q）会先停止本实例的 CLI、浏览器、网关与后台服务；Docker Desktop 保持运行。", "Caption", True))
+        for text, action in (("退出软件（停止工作区）", self.stop_and_exit), ("保留工作区退出界面…", self.exit_interface)):
+            item = button(text, action, ghost=True)
+            self.exit_buttons.append(item)
+            panel.layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
         panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
         row = QHBoxLayout()
@@ -786,15 +798,19 @@ class Window(QMainWindow):
         self.tray = QSystemTrayIcon(self.windowIcon(), self)
         self.tray.setToolTip(APP_NAME + " · 工作区控制台")
         self.tray_menu = QMenu(self)
+        self.tray_status = self.tray_menu.addAction("工作区状态")
+        self.tray_status.setEnabled(False)
+        self.tray_menu.addSeparator()
         self.tray_show = self.tray_menu.addAction("显示主窗口", self.reveal)
         self.tray_menu.addSeparator()
-        self.tray_stop_exit = self.tray_menu.addAction("停止工作区并退出", self.stop_and_exit)
-        self.tray_exit = self.tray_menu.addAction("退出界面（保留工作区）", self.exit_interface)
+        self.tray_stop_exit = self.exit_action
+        self.tray_menu.addAction(self.exit_action)
+        more = self.tray_menu.addMenu("更多")
+        self.tray_exit = more.addAction("保留工作区，仅退出界面…", self.exit_interface)
         self.tray.setContextMenu(self.tray_menu)
-        self.titlebar.controls["close"].setToolTip("隐藏到系统托盘")
+        self.titlebar.controls["close"].setToolTip("隐藏到托盘，工作区继续运行")
         self.tray.activated.connect(self.tray_activated)
-        self.c.changed.connect(lambda unused: self.tray_stop_exit.setEnabled(not self.c.busy))
-        self.tray_stop_exit.setEnabled(not self.c.busy)
+        self.update_exit_actions(self.c.view)
         self.tray.show()
         return True
 
@@ -803,20 +819,37 @@ class Window(QMainWindow):
             self.reveal()
 
     def exit_interface(self):
-        self._explicit_exit = True
         self.reveal()
-        self.close()
+        self.c.request_exit("keep")
 
     def stop_and_exit(self):
-        if self.c.busy:
-            return
         self.reveal()
-        self.c.run(lambda engine: engine.stop(), lambda unused: self.finish_close(), description="正在停止本工作区并退出…")
+        self.show_page("overview")
+        self.c.request_exit("stop")
+
+    def update_exit_actions(self, view):
+        pending = self.c.exit_mode is not None
+        self.exit_action.setEnabled(not pending)
+        for item in self.exit_buttons:
+            item.setEnabled(not pending)
+        if self.tray is not None:
+            self.tray_exit.setEnabled(not pending)
+            status = view.get("badge", "尚未启用")
+            self.tray_status.setText(status)
+            self.tray.setToolTip(APP_NAME + " · " + status)
+
+    def show_exit_error(self, message):
+        self.reveal()
+        self.update_resource_activity()
+        self.c.notify("退出尚未完成", message + "\n\n未能确认停止，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。", True)
 
     def closeEvent(self, event):
-        if not self._force_close and not self._explicit_exit and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():
+        if not self._force_close and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():
             self.minimized_by_user = True
             self.hide()
+            if not self.tray_hint_shown and QSystemTrayIcon.supportsMessages():
+                self.tray_hint_shown = True
+                self.tray.showMessage(APP_NAME, "工作区继续在后台运行。托盘右键“退出软件”会停止工作区并退出。", QSystemTrayIcon.MessageIcon.Information, 4000)
             event.ignore()
             return
         if self._force_close or self.c.request_close():
@@ -829,7 +862,6 @@ class Window(QMainWindow):
             event.accept()
             self.closed.emit()
         else:
-            self._explicit_exit = False
             event.ignore()
 
     def update_resource_activity(self):

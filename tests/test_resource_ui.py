@@ -45,7 +45,7 @@ class ResourceUITests(unittest.TestCase):
     def test_sampling_never_overlaps_or_changes_operation_busy_and_hides_cleanly(self):
         entered, release = threading.Event(), threading.Event()
         calls = []
-        def sample(engine, ready):
+        def sample(engine, ready, cancel):
             calls.append(ready)
             entered.set()
             release.wait(3)

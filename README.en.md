@@ -106,7 +106,7 @@ Automatic selection uses Windows Terminal, PowerShell 7, then Windows PowerShell
 
 Downloads support pause, resume, speed/progress display, SHA-256 and exact image-recipe validation. App configuration, logs and download caches can move to another drive. Docker's images, containers and volumes use a separate disk-migration assistant and require applying the move in Docker Desktop. Project and program directories remain separate. See [storage and terminal settings](docs/storage-terminal.zh-CN.md).
 
-Closing the window leaves the confirmed environment and monitor running. Use **停止环境** or `spx stop` to finish. Stopping or uninstalling does not intentionally delete project files or Docker volumes; backups remain the user's responsibility.
+X hides the window to the tray. Genuine **退出软件** / Ctrl+Q first stops this workspace and waits for background services; failed shutdown keeps the interface available for retry. Keeping the workspace while exiting the interface is an explicit, confirmed option under the tray's More menu. See the [exit guide](docs/exit.zh-CN.md). Stopping or uninstalling does not intentionally delete project files or Docker volumes; backups remain the user's responsibility.
 
 ## Documentation and community
 

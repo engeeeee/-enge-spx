@@ -108,4 +108,8 @@ QScrollBar::handle:vertical:hover { background: #8B715A; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 QToolTip { color: #EFEAE1; background: #383129; border: 1px solid #6B5845; padding: 5px; }
+QMenu { background: #302E29; color: #EFEAE1; border: 1px solid #514A3F; padding: 5px; }
+QMenu::item { padding: 8px 18px; border-radius: 4px; }
+QMenu::item:selected { background: #514035; }
+QMenu::item:disabled { color: #8F897E; }
 """

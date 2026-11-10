@@ -135,7 +135,8 @@ def run(context, output):
             assert engine.docker.run("exec", normal_project["Id"], "cat", "/tmp/spx-budget-layer") == "persistent"
             measured["normal_restored"] = {"gateway_memory": 0, "project_memory": normal_project["HostConfig"]["Memory"], "project_quota": normal_project["HostConfig"]["CpuQuota"]}
             passed("normal mode removes CPU quota and restores old memory budgets; only the data-free gateway is replaced")
-            engine.stop()
+            result = engine.shutdown()
+            assert result["workspace_stopped"] and result["background_stopped"]
             sample = containers(engine)
             assert all(not row["running"] and not row["sample_available"] for row in sample["rows"])
             assert foreign.docker.inspect("container", outsider["Id"])["State"]["Running"]

@@ -750,6 +750,27 @@ class Engine:
         with self.store.lock(timeout=45, on_wait=lambda: self.log("正在等待当前安全检查完成后停止工作区…")):
             self._stop()
 
+    def shutdown(self):
+        """Verified user exit: own workspace/services only; never quits Desktop."""
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前安全检查完成，随后停止工作区并退出…")):
+            installed = bool(self.store.read("images.json", {}))
+            self.log("正在撤销连接授权并停止本实例工作区…")
+            self._stop()
+            if installed and not self.docker.executable:
+                raise SPXError("未找到 Docker 命令行工具，已撤销本实例连接授权，但无法核验容器是否停止。界面会保留。")
+            deadline = time.monotonic() + 45
+            self.log("正在等待安全监测、中转和浏览器显示服务安全退出…")
+            for name in ("guard", "forward", "relay"):
+                with self.store.lock(name, timeout=max(0, deadline - time.monotonic())):
+                    pass
+            if self.docker.executable and self.store.read("images.json", {}):
+                for identifier in self.managed():
+                    obj = self.owned(self.docker.inspect("container", identifier))
+                    if obj["State"]["Running"]:
+                        raise SPXError("仍检测到本实例的运行容器，界面会保留，请重试退出。")
+            self.log("工作区与后台服务已停止，项目和账号数据保留。")
+            return {"workspace_stopped": True, "background_stopped": True, "docker_desktop_kept": True}
+
     def save_resources(self, config):
         from .resource_limits import validate
         if not isinstance(config, dict):

@@ -119,6 +119,35 @@ def find_window(user, pid):
     return found[0] if found else None
 
 
+def quit_shortcut(user, hwnd):
+    """Exercise the public Ctrl+Q action; no production test-only exit hook."""
+    from ctypes import wintypes as w
+    class Keyboard(ctypes.Structure):
+        _fields_ = [("key", w.WORD), ("scan", w.WORD), ("flags", w.DWORD), ("time", w.DWORD), ("extra", ctypes.c_size_t)]
+    class Mouse(ctypes.Structure):
+        _fields_ = [("x", w.LONG), ("y", w.LONG), ("data", w.DWORD), ("flags", w.DWORD), ("time", w.DWORD), ("extra", ctypes.c_size_t)]
+    class Payload(ctypes.Union):
+        _fields_ = [("keyboard", Keyboard), ("mouse", Mouse)]
+    class Input(ctypes.Structure):
+        _fields_ = [("type", w.DWORD), ("payload", Payload)]
+    user.SetForegroundWindow.argtypes = [w.HWND]
+    user.GetForegroundWindow.restype = w.HWND
+    user.SetForegroundWindow(hwnd)
+    deadline = time.monotonic() + 2
+    while user.GetForegroundWindow() != hwnd and time.monotonic() < deadline:
+        user.SetForegroundWindow(hwnd)
+        time.sleep(.05)
+    assert user.GetForegroundWindow() == hwnd, "Could not focus the isolated GUI to verify genuine exit"
+    user.SendInput.argtypes = [w.UINT, ctypes.POINTER(Input), ctypes.c_int]
+    user.SendInput.restype = w.UINT
+    events = (Input * 4)()
+    for event, key, flags in zip(events, (0x11, ord('Q'), ord('Q'), 0x11), (0, 0, 2, 2)):
+        event.type = 1
+        event.payload.keyboard.key = key
+        event.payload.keyboard.flags = flags
+    assert user.SendInput(4, events, ctypes.sizeof(Input)) == 4, "Windows rejected the isolated Ctrl+Q input"
+
+
 def exercise_entry_point(command, base, cli, mode):
     data = base / ("entry-" + mode)
     data.mkdir(exist_ok=True)
@@ -163,17 +192,14 @@ def exercise_entry_point(command, base, cli, mode):
             assert user.IsWindowVisible(hwnd), "Original GUI stayed hidden after reopening"
             assert not (base / "launches").exists(), "Tray restore launched Desktop"
             print(f"Real entry point: {Path(command[0]).name} / {mode}; close-to-tray and duplicate-instance restore passed", flush=True)
-            # This isolated fixture never starts a workspace. Explicit tray exit
-            # is exercised in Qt tests; do not add a production shutdown backdoor.
-            process.kill()
-            process.communicate(timeout=6)
-            return
+            quit_shortcut(user, hwnd)
         stdout, stderr = process.communicate(timeout=6)
         assert process.returncode == 0, f"GUI close failed: {process.returncode}\n{stdout}\n{stderr}"
         text = log_path.read_text(encoding="utf-8")
         assert "gui-stop normal" in text and "-error" not in text, text
+        assert "gui-exit-complete mode=stop" in text, "Real exit did not complete the default stopped-workspace flow"
         assert not (base / "launches").exists(), "Desktop started without a user action"
-        print(f"Real entry point: {Path(command[0]).name} / {mode}; manual-only Docker startup, responsive window and normal close passed", flush=True)
+        print(f"Real entry point: {Path(command[0]).name} / {mode}; default verified shutdown without starting Desktop passed", flush=True)
     except BaseException as error:
         if process.poll() is None:
             process.kill()

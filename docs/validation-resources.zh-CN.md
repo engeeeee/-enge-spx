@@ -16,6 +16,7 @@
 | `engine.py`、`relay.py`、`forward.py`、`__main__.py` | 预算保存恢复、容器复用、浏览器停止、后台记录与 CLI |
 | `ui/controller.py`、`ui/window.py`、`ui/widgets.py`、`ui/style.py` | 概览/预算页面、工作线程、采样生命周期与统一控件 |
 | `tests/test_resource_*.py`、`test_resources.py` | 校验、数据保持、原生 API、GUI/CLI 和故障检查 |
+| `tests/test_exit_lifecycle.py`、`desktop_harness.py` | 默认停止、显式保留、任务取消/等待、迁移接管、失败重试、采样收尾及真实 Ctrl+Q 退出 |
 | `tests/integration_resources.py`、`integration_runtime.py` | 真实 cgroup、应用失败、正常模式恢复、浏览器暂停/恢复与既有安全回归 |
 | `tools/benchmark_p0.py`、`benchmark_resources.py`、CI | 同机交替顺序的三组宿主样本及容器阶段对照 |
 
@@ -34,6 +35,8 @@ flowchart LR
 ```
 
 资源采样不调用 ready、不续租、不替代安全监控。保存预算先停止；更新失败不能启动未应用预算的容器。仅清除网关已有内存上限时可替换无用户数据的网关，项目可写层保留。独立浏览器停止通过公开状态标记使显示服务退出，不停止 CLI 或网关。
+
+按发布前追加要求完善退出：X 入托盘；真正退出默认停止本实例，等待当前任务、独立服务锁和资源采样，验证没有运行容器后才关闭。失败保留界面可重试；保留工作区须显式确认。迁移后的路径接管不能被退出请求跳过，不再执行退出中的交互确认/后续任务。[完整规则](exit.zh-CN.md)。
 
 ## 4. 已实现
 

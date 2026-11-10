@@ -116,14 +116,12 @@ class NativeWindowTests(unittest.TestCase):
     def test_tray_exit_closes_interface_and_stop_exit_stops_only_the_workspace(self):
         with patch("enge_spx.ui.window.QSystemTrayIcon.isSystemTrayAvailable", return_value=True):
             self.window.install_tray()
-            with patch.object(self.controller, "run") as run:
+            with patch.object(self.controller, "request_exit") as request:
                 self.window.stop_and_exit()
-                run.assert_called_once()
-                engine = Mock()
-                run.call_args.args[0](engine)
-                engine.stop.assert_called_once_with()
+                request.assert_called_once_with("stop")
             closed = QSignalSpy(self.window.closed)
-            self.window.tray_exit.trigger()
+            with patch.object(self.controller, "ask", return_value=True):
+                self.window.tray_exit.trigger()
             QTest.qWait(20)
             self.assertEqual(closed.count(), 1)
             self.assertFalse(self.window.tray.isVisible())
@@ -133,6 +131,10 @@ class NativeWindowTests(unittest.TestCase):
             self.assertFalse(self.window.install_tray())
             closed = QSignalSpy(self.window.closed)
             self.window.close()
+            for _ in range(100):
+                if closed.count():
+                    break
+                QTest.qWait(20)
             self.assertEqual(closed.count(), 1)
 
     def test_legacy_terminal_reopens_as_custom_and_exe_picker_has_no_brand_special_case(self):
