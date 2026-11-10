@@ -50,6 +50,10 @@ def _launch(store, report, smoke):
             return True
         controller = Controller(store, report, relocated)
         window = App(controller)
+        window.closed.connect(app.quit)
+        if os.name == "nt" and window.install_tray():
+            app.setQuitOnLastWindowClosed(False)
+            log.info("gui-tray-enabled close-action=hide")
         report.attach(window)
         report.observe(window)
         area = app.primaryScreen().availableGeometry()

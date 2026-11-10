@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "scope": "Linux ARM64, Python 3.14.4, Qt offscreen; no Docker/WSL2 workload, no active tray or guard. Three sequential baseline/candidate process pairs; not a Windows or throughput benchmark.",
+  "source": "tools/benchmark_p0.py --kind host --baseline 32c4cdff4641eb3bdea773f3a8ec897aadae9be8",
+  "medians": {
+    "baseline": {
+      "initial_migration_ms": 0.005,
+      "write_20_nodes_ms": 0.456,
+      "read_20_nodes_ms": 0.133,
+      "engine_construction_ms": 1.702,
+      "idle_python_cpu_percent_one_core": 0.0042,
+      "gui_import_construct_first_paint_ms": 221.772,
+      "gui_idle_seconds": 5.251,
+      "gui_idle_cpu_percent_one_core": 0.1225,
+      "gui_working_set_bytes": 92643328,
+      "persistent_bytes": 6643
+    },
+    "candidate": {
+      "initial_migration_ms": 0.005,
+      "write_20_nodes_ms": 0.446,
+      "read_20_nodes_ms": 0.133,
+      "engine_construction_ms": 1.848,
+      "idle_python_cpu_percent_one_core": 0.0038,
+      "gui_import_construct_first_paint_ms": 194.387,
+      "gui_idle_seconds": 4.751,
+      "gui_idle_cpu_percent_one_core": 0.1361,
+      "gui_working_set_bytes": 94011392,
+      "persistent_bytes": 6643
+    }
+  },
+  "samples": [
+    {
+      "schema": 1,
+      "platform": "Linux-7.0.0-1009-oracle-aarch64-with-glibc2.43",
+      "python": "3.14.4",
+      "baseline_commit": "32c4cdff4641eb3bdea773f3a8ec897aadae9be8",
+      "candidate_commit": "8efb10a5d2d93810e9c9f327bafd34b11c1f644a",
+      "kind": "host",
+      "results": {
+        "baseline": {
+          "mode": "private-files",
+          "initial_migration_ms": 0.005,
+          "write_20_nodes_ms": 0.46,
+          "read_20_nodes_ms": 0.137,
+          "engine_construction_ms": 1.722,
+          "idle_python_cpu_percent_one_core": 0.0042,
+          "gui_import_construct_first_paint_ms": 217.048,
+          "gui_idle_seconds": 4.778,
+          "gui_idle_cpu_percent_one_core": 0.1348,
+          "gui_working_set_bytes": 92643328,
+          "persistent_bytes": 6643
+        },
+        "candidate": {
+          "mode": "private-files",
+          "initial_migration_ms": 0.004,
+          "write_20_nodes_ms": 0.446,
+          "read_20_nodes_ms": 0.132,
+          "engine_construction_ms": 1.848,
+          "idle_python_cpu_percent_one_core": 0.0038,
+          "gui_import_construct_first_paint_ms": 194.387,
+          "gui_idle_seconds": 4.751,
+          "gui_idle_cpu_percent_one_core": 0.1315,
+          "gui_working_set_bytes": 94011392,
+          "persistent_bytes": 6643
+        }
+      }
+    },
+    {
+      "schema": 1,
+      "platform": "Linux-7.0.0-1009-oracle-aarch64-with-glibc2.43",
+      "python": "3.14.4",
+      "baseline_commit": "32c4cdff4641eb3bdea773f3a8ec897aadae9be8",
+      "candidate_commit": "8efb10a5d2d93810e9c9f327bafd34b11c1f644a",
+      "kind": "host",
+      "results": {
+        "baseline": {
+          "mode": "private-files",
+          "initial_migration_ms": 0.005,
+          "write_20_nodes_ms": 0.454,
+          "read_20_nodes_ms": 0.132,
+          "engine_construction_ms": 1.702,
+          "idle_python_cpu_percent_one_core": 0.0065,
+          "gui_import_construct_first_paint_ms": 221.772,
+          "gui_idle_seconds": 5.251,
+          "gui_idle_cpu_percent_one_core": 0.1225,
+          "gui_working_set_bytes": 92893184,
+          "persistent_bytes": 6643
+        },
+        "candidate": {
+          "mode": "private-files",
+          "initial_migration_ms": 0.005,
+          "write_20_nodes_ms": 0.447,
+          "read_20_nodes_ms": 0.133,
+          "engine_construction_ms": 1.848,
+          "idle_python_cpu_percent_one_core": 0.0037,
+          "gui_import_construct_first_paint_ms": 188.526,
+          "gui_idle_seconds": 4.751,
+          "gui_idle_cpu_percent_one_core": 0.1361,
+          "gui_working_set_bytes": 92631040,
+          "persistent_bytes": 6643
+        }
+      }
+    },
+    {
+      "schema": 1,
+      "platform": "Linux-7.0.0-1009-oracle-aarch64-with-glibc2.43",
+      "python": "3.14.4",
+      "baseline_commit": "32c4cdff4641eb3bdea773f3a8ec897aadae9be8",
+      "candidate_commit": "8efb10a5d2d93810e9c9f327bafd34b11c1f644a",
+      "kind": "host",
+      "results": {
+        "baseline": {
+          "mode": "private-files",
+          "initial_migration_ms": 0.007,
+          "write_20_nodes_ms": 0.456,
+          "read_20_nodes_ms": 0.133,
+          "engine_construction_ms": 1.692,
+          "idle_python_cpu_percent_one_core": 0.0033,
+          "gui_import_construct_first_paint_ms": 225.787,
+          "gui_idle_seconds": 5.251,
+          "gui_idle_cpu_percent_one_core": 0.1208,
+          "gui_working_set_bytes": 92520448,
+          "persistent_bytes": 6643
+        },
+        "candidate": {
+          "mode": "private-files",
+          "initial_migration_ms": 0.005,
+          "write_20_nodes_ms": 0.444,
+          "read_20_nodes_ms": 0.134,
+          "engine_construction_ms": 1.814,
+          "idle_python_cpu_percent_one_core": 0.0047,
+          "gui_import_construct_first_paint_ms": 200.55,
+          "gui_idle_seconds": 4.751,
+          "gui_idle_cpu_percent_one_core": 0.1449,
+          "gui_working_set_bytes": 94011392,
+          "persistent_bytes": 6643
+        }
+      }
+    }
+  ]
+}

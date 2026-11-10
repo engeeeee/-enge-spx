@@ -24,12 +24,13 @@ from .compat import LEGACY_RECIPES, LEGACY_RUNTIME_DIRECTORY, LEGACY_BROWSER_TOK
 from .docker_env import environment as docker_environment
 from .line_security import LineSecurityError
 from .startup import DockerUnavailable, DockerContextUnavailable, DockerConfigurationError
+from .backends import DEFAULT_BACKEND, get_backend
 
 OWNER = "io.enge.spx.instance"
 ROLE = "io.enge.spx.role"
 STORAGE = "io.enge.spx.storage"
 RECIPE = "io.enge.spx.recipe"
-GATEWAY_IMAGE = "ghcr.io/sagernet/sing-box:v1.14.3"
+GATEWAY_IMAGE = DEFAULT_BACKEND.image
 RESOURCES = CONTAINERS
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 TOOLS = {"claude": ["claude"], "codex": ["codex"], "shell": ["bash", "-l"], "login-claude": ["claude", "auth", "login"], "login-codex": ["codex", "login"]}
@@ -141,6 +142,7 @@ class Engine:
     def __init__(self, store: Store, log=lambda message: None, stop_context=None):
         self.store, self.log = store, log
         self.settings = {"context": stop_context} if stop_context else store.settings()
+        self.backend = get_backend(self.settings.get("proxy_backend"))
         self.docker = Docker(self.settings["context"])
         from .redaction import redact, values
         self.secret_values = set() if stop_context else values(self.settings) | values(store.read("nodes.json", [])) | values(store.read("runtime.json", {})) | values(store.read("relay.json", {}))
@@ -351,6 +353,10 @@ class Engine:
                 managed_line(line, relay["server_ip"])
                 if selected:
                     chain_outbounds(self.node_by_id(selected), relay, line)
+            if selected:
+                from .line_security import chain_outbounds
+                outbounds, _ = chain_outbounds(self.node_by_id(selected), relay, line if relay.get("mode") == "managed" else None)
+                self.backend.gateway_config(outbounds, "127.0.0.1", relay["enabled"])
             if old.get("context") != context and self.store.read("images.json"):
                 raise SPXError("已安装的环境不能切换 Docker 上下文。请使用新的专用数据目录。")
             established = self.store.read("environment.json")
@@ -383,23 +389,11 @@ class Engine:
         from .proxy import route_config
         relay = route_config(settings["relay"])
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
-        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2})
+        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2, "network_policy": 1, "proxy_backend": self.backend.name})
 
     def networks(self):
-        for name, internal in ((self.internal, True), (self.external, False)):
-            obj = self.docker.inspect("network", name)
-            if not obj:
-                args = ["network", "create", "--label", self.owner + "=" + self.store.instance]
-                if internal:
-                    args.append("--internal")
-                self.docker.run(*args, name)
-                obj = self.docker.inspect("network", name)
-            self.owned(obj)
-            if obj.get("Internal") != internal or obj.get("Driver") != "bridge" or obj.get("EnableIPv6"):
-                raise SPXError("容器网络的隔离配置不一致。")
-        config = self.docker.inspect("network", self.internal)["IPAM"]["Config"]
-        subnet = next(ipaddress.ip_network(x["Subnet"]) for x in config if ":" not in x["Subnet"])
-        return str(subnet[2]), str(subnet[3])
+        from .network_policy import ensure
+        return ensure(self)
 
     def ensure_container(self, role, image, arguments, command=(), name=None):
         name = name or self.prefix + "-" + role
@@ -427,7 +421,7 @@ class Engine:
         ids = self.image_ids()
         gateway_ip, session_ip = self.networks()
         from .proxy import loopback, validate_relay
-        from .line_security import chain_outbounds, LINE_CHECK, LINE_PROXY, line_rules
+        from .line_security import chain_outbounds, LINE_PROXY
         relay = validate_relay(self.store.settings()["relay"])
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
         outbounds, forward_target = chain_outbounds(self.node(), relay, line)
@@ -445,11 +439,7 @@ class Engine:
                 raise SPXError("本机无法解析节点的 IPv4 地址。") from error
         directory = self.store.home / "gateway"
         directory.mkdir(exist_ok=True)
-        config = {"log": {"level": "warn"}, "inbounds": [{"type": "mixed", "tag": "clients", "listen": gateway_ip, "listen_port": 2080}], "outbounds": outbounds, "route": {"final": "selected"}}
-        if relay["enabled"]:
-            # Work containers must not reach the line-only diagnostic listener.
-            config["inbounds"].append({"type": "mixed", "tag": LINE_CHECK, "listen": "127.0.0.1", "listen_port": 2082})
-            config["route"]["rules"] = line_rules(outbounds)
+        config = self.backend.gateway_config(outbounds, gateway_ip, relay["enabled"])
         self.store.write("gateway/config.json", config)
         journal = self._image_abis.get("gateway") != "legacy"
         self.set_lease(time.time() + 300, {"lease_journal": journal}, reset=True)
@@ -528,7 +518,7 @@ class Engine:
         return evidence
 
     def check(self):
-        with self.store.lock():
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("正在等待当前安全检查完成，随后重新检查连接…")):
             self.doctor()
             self._stop("正在检查连接。")
             try:
@@ -537,8 +527,11 @@ class Engine:
                 # container. Keep the named Profile/download volumes; the next
                 # browser launch still validates the replacement and renderer.
                 self._retire_stopped_browser()
-                self.take_over_legacy_guard()
                 state = self.setup()
+                # Network migration inside setup can stop again. Clear its
+                # signal only after setup, while runtime is still stopped, and
+                # before either an old or a new guard can observe a new policy.
+                self.take_over_legacy_guard()
                 state.update({"phase": "checking", "policy": self.policy()})
                 self.store.write("runtime.json", state)
                 self.ensure_forward(state)
@@ -553,19 +546,22 @@ class Engine:
                 raise
 
     def take_over_legacy_guard(self):
-        if not self.store.legacy or self.store.read("controller.json", {}).get("app") == "enge-spx":
-            return
-        # The previous controller wakes every 30 seconds. Keep the state stopped
-        # until it releases its guard lock, so it cannot stop a newly confirmed
-        # SPX connection using the old policy fingerprint.
-        self.log("正在接管旧版后台监测，最长约 40 秒；原有数据会保留。")
+        # This applies to every upgrade, not just the original product rename:
+        # a 0.8.x guard uses an older policy algorithm and must not see a new
+        # ready session before it exits. Keep stopped until its lock is released.
+        notified = False
         deadline = time.monotonic() + 40
         while True:
             try:
                 with self.store.lock("guard"):
-                    self.store.write("controller.json", {"app": "enge-spx"})
+                    (self.store.home / "guard-stop.json").unlink(missing_ok=True)
+                    if self.store.read("controller.json", {}) != {"app": "enge-spx"}:
+                        self.store.write("controller.json", {"app": "enge-spx"})
                 return
             except SPXError:
+                if not notified:
+                    self.log("正在等待上一个后台监测退出，升级旧版时最长约 40 秒；数据保留。")
+                    notified = True
                 if time.monotonic() >= deadline:
                     raise SPXError("旧版后台监测尚未退出，请先退出旧版程序，再重新检查连接。")
                 time.sleep(.2)
@@ -576,8 +572,11 @@ class Engine:
             raise SPXError("容器已停止或重新创建，请重新检查和确认连接。")
         if set(session["NetworkSettings"]["Networks"]) != {self.internal} or set(gateway["NetworkSettings"]["Networks"]) != {self.internal, self.external}:
             raise SPXError("检测到容器网络发生变化。")
-        if not self.owned(self.docker.inspect("network", self.internal)).get("Internal"):
-            raise SPXError("内部网络隔离已改变。")
+        if session.get("HostConfig", {}).get("Dns") != ["127.0.0.1"]:
+            raise SPXError("工作区 DNS 配置已改变，环境已拒绝继续连接。")
+        from .network_policy import validate as validate_network
+        validate_network(self, self.docker.inspect("network", self.internal), True)
+        validate_network(self, self.docker.inspect("network", self.external), False)
         config = self.store.read("gateway/config.json")
         if fingerprint(config) != state["config_hash"] or self.policy() != state["policy"]:
             raise SPXError("节点或运行配置已改变，请重新检查。")
@@ -649,7 +648,8 @@ class Engine:
     def guard(self):
         try:
             with self.store.lock("guard"):
-                while self.store.read("runtime.json", {}).get("phase") == "ready":
+                stop_signal = self.store.home / "guard-stop.json"
+                while not stop_signal.is_file() and self.store.read("runtime.json", {}).get("phase") == "ready":
                     try:
                         with self.store.lock():
                             self.ready()
@@ -663,7 +663,13 @@ class Engine:
                     except SPXError:
                         if self.store.read("runtime.json", {}).get("phase") != "ready":
                             break
-                    time.sleep(30)
+                    # Keep the same network-check cadence. Only poll a cheap,
+                    # non-secret stop signal during sleep, so stop/recheck does
+                    # not wait a whole monitor interval or reuse older code.
+                    for _ in range(30):
+                        if stop_signal.is_file():
+                            return
+                        time.sleep(1)
         except SPXError:
             pass
 
@@ -683,6 +689,10 @@ class Engine:
         except SPXError:
             state = {"lease_journal": (self.store.home / "gateway/lease.jsonl").is_file()}
         write_error = None
+        try:
+            self.store.write("guard-stop.json", {"schema": 1, "requested": True})
+        except (OSError, SPXError) as error:
+            write_error = error
         try:
             self.store.write("runtime.json", {"phase": "stopped", "reason": reason})
         except (OSError, SPXError) as error:
@@ -720,7 +730,7 @@ class Engine:
         self.docker.secret_env.clear()
 
     def stop(self):
-        with self.store.lock():
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("正在等待当前安全检查完成后停止工作区…")):
             self._stop()
 
     def save_terminal(self, config):

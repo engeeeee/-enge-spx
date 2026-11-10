@@ -1,5 +1,27 @@
 # Changes
 
+## 0.9.0 proxy and network preview — 2026-11-10
+
+- Extract a Proxy Backend Adapter around the existing sing-box 1.14.3 core;
+  retain fixed routing, independent line/final checks, leases and fail-closed
+  shutdown. Add VLESS Reality/Vision, VLESS/Trojan/VMess WS/gRPC and Hysteria2
+  QUIC/UDP with optional salamander; reject unverified TCP-only detours for QUIC.
+- Validate protocol parameters without TLS downgrade, file-path imports or
+  credential echo. Preserve 0.8.4 canonical nodes and IDs. Convert common
+  Clash/Mihomo nodes while ignoring their routing/providers with explicit notice.
+- Upgrade internal bridges to isolated mode using a versioned, stopped-only
+  migration journal. Preserve container IDs/layers, recover interruption and
+  rollback metadata without starting a weaker policy. Audit DNS and IPv6.
+- Wait for the previous guard before approving a new policy, including upgrades
+  within the current product name. Interrupt monitor sleep with a public stop
+  signal while preserving the network-check cadence and lease deadlines.
+- Close the Windows window to the tray; expose restore, keep-workspace interface
+  exit and stop-workspace exit. Preserve manual Docker startup, generic terminal
+  selection, 0.8.4 browser retirement, sandbox and DPAPI protections.
+- Add real TLS/Reality/QUIC/UDP and fixed-chain fixtures, fault injection,
+  DNS/IPv6/host-path, migration, identity and native Windows tray regressions.
+  No new production dependency, proxy core, host listening port or capability.
+
 ## 0.8.4 startup hotfix preview — 2026-11-10
 
 - Retire this installation's stopped browser before connection review and

@@ -4,16 +4,18 @@ import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import ipaddress
+import os
 from pathlib import Path
 import secrets
 import select
 import socket
+import subprocess
 import tempfile
 import threading
 import time
 
 from enge_spx.engine import Engine, GATEWAY_IMAGE
-from enge_spx.nodes import uri_node
+from enge_spx.nodes import uri_node, normalize
 from enge_spx.proxy import relay_config
 from enge_spx.line_security import LINE_CHECK_CODE
 from enge_spx.state import Store, SPXError, atomic_json
@@ -187,6 +189,40 @@ def run(context):
                     pass
             assert store.read("runtime.json")["phase"] == "stopped"
             print("PASS managed line failure cannot fall back to a live landing or direct Internet", flush=True)
+
+            # Exercise the full Engine path with QUIC, including the lease,
+            # separate public exit checks and guard shutdown. The protocol
+            # matrix additionally covers packet loss and UDP payloads offline.
+            engine.docker.run("rm", line_name)
+            cert, key = line_dir / "hy2.pem", line_dir / "hy2.key"
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", str(key), "-out", str(cert), "-days", "1", "-subj", "/CN=quic.spx.test", "-addext", "subjectAltName=DNS:quic.spx.test"], check=True, capture_output=True)
+            key.chmod(0o600)
+            quic_password = secrets.token_hex(16)
+            line_config["inbounds"] = [{"type": "hysteria2", "listen": "0.0.0.0", "listen_port": 8444, "users": [{"name": "fixture", "password": quic_password}], "tls": {"enabled": True, "certificate_path": "/config/hy2.pem", "key_path": "/config/hy2.key"}}]
+            atomic_json(line_dir / "config.json", line_config)
+            engine.docker.run("run", "-d", "--name", line_name, "--user", str(os.getuid()), "--network", engine.external, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "128m", "--pids-limit", "128", "--add-host", "landing.spx.invalid:" + ip, "--mount", f"type=bind,source={line_dir},target=/config,readonly", GATEWAY_IMAGE, "run", "-c", "/config/config.json")
+            quic_ip = engine.docker.inspect("container", line_name)["NetworkSettings"]["Networks"][engine.external]["IPAddress"]
+            line_node = normalize({"type": "hysteria2", "server": quic_ip, "server_port": 8444, "password": quic_password, "tls": {"enabled": True, "server_name": "quic.spx.test", "certificate": [cert.read_text(encoding="utf-8")]}})
+            engine.save_nodes([landing, line_node])
+            secured = relay_config(True, "", False, "managed", line_node["id"])
+            engine.save_settings(landing["id"], store.settings()["timezone"], context, secured)
+            evidence = engine.check()
+            assert evidence["direct_blocked"] and evidence["line_mode"] == "managed"
+            engine.confirm()
+            state = engine.ready()
+            assert state["forward_target"] is None
+            assert store.read("gateway/config.json")["outbounds"][1]["type"] == "hysteria2"
+            print("PASS actual Engine Hysteria2 QUIC line -> authenticated SOCKS landing; separate public exit confirmation and lease", flush=True)
+            engine.docker.run("stop", "--time", "2", line_name)
+            assert engine.docker.inspect("container", name)["State"]["Running"]
+            try:
+                engine.ready()
+            except SPXError:
+                pass
+            else:
+                raise AssertionError("Failed QUIC first hop did not stop the environment")
+            assert store.read("runtime.json")["phase"] == "stopped"
+            print("PASS Hysteria2 UDP server failure stops the actual Engine with the landing still alive", flush=True)
         except Exception:
             print('Line proxy connections:',len(seen),flush=True)
             for role in ("gateway", "session"):

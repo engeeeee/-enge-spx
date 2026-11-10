@@ -109,7 +109,7 @@ class MigrationTests(unittest.TestCase):
                     networks = {engine.internal: {}}
                     if role == "gateway":
                         networks[engine.external] = {}
-                    return {"Id": role, "State": {"Running": running}, "Config": {"Labels": {engine.owner: store.instance, engine.role: role}}, "NetworkSettings": {"Networks": networks}, "HostConfig": {"NetworkMode": "container:session"}}
+                    return {"Id": role, "State": {"Running": running}, "Config": {"Labels": {engine.owner: store.instance, engine.role: role}}, "NetworkSettings": {"Networks": networks}, "HostConfig": {"NetworkMode": "container:session", "Dns": ["127.0.0.1"]}}
                 objects = {engine.prefix + "-" + role: container(role, role != "browser") for role in ("gateway", "session", "project", "browser")}
                 # The old stopped browser intentionally has no readonly rootfs,
                 # non-root image user, or application seccomp profile.
@@ -118,7 +118,7 @@ class MigrationTests(unittest.TestCase):
                 engine.docker = Mock()
                 def inspect(kind, name):
                     if kind == "network":
-                        return {"Internal": True, "Labels": {engine.owner: store.instance}}
+                        return {"Internal": name == engine.internal, "Driver": "bridge", "EnableIPv6": False, "Options": {"com.docker.network.bridge.gateway_mode_ipv4": "isolated"} if name == engine.internal else {}, "Labels": {engine.owner: store.instance}}
                     return objects.get(name) or next((item for item in objects.values() if item["Id"] == name), None)
                 engine.docker.inspect.side_effect = inspect
                 def run(*args, **kwargs):
@@ -181,6 +181,29 @@ class MigrationTests(unittest.TestCase):
         thread.join(timeout=3)
         self.assertFalse(thread.is_alive())
         self.assertEqual(store.read("controller.json"), {"app": "enge-spx"})
+
+    def test_current_brand_upgrade_also_waits_for_an_old_guard_after_stop(self):
+        store = Store(self.base / "fresh")
+        store.write("controller.json", {"app": "enge-spx"})
+        store.write("runtime.json", {"phase": "ready"})
+        store.write("guard-stop.json", {"schema": 1, "requested": True})
+        held, exited = threading.Event(), threading.Event()
+        def previous_guard():
+            with store.lock("guard"):
+                held.set()
+                deadline = time.monotonic() + 3
+                while store.read("runtime.json")["phase"] != "stopped" and time.monotonic() < deadline:
+                    time.sleep(.01)
+                time.sleep(.15)  # An old process is still unwinding after stop.
+                exited.set()
+        thread = threading.Thread(target=previous_guard)
+        thread.start()
+        self.assertTrue(held.wait(2))
+        store.write("runtime.json", {"phase": "stopped"})
+        Engine(store).take_over_legacy_guard()
+        self.assertTrue(exited.is_set(), "A new session could race the previous policy implementation")
+        thread.join(timeout=3)
+        self.assertFalse((store.home / "guard-stop.json").exists())
 
     def test_forward_heartbeat_does_not_replace_a_ready_guest_listener(self):
         store = Store(self.base / "fresh")

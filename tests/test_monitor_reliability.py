@@ -72,19 +72,87 @@ class MonitorReliabilityTests(unittest.TestCase):
                 failed.append(True)
                 raise windows_denied()
             original(name, value)
+        idle_ticks = []
         def tick(delay):
             if delay == 3:
                 self.assertEqual(self.store.read("runtime.json"), old)
             else:
-                self.assertEqual(delay, 30)
-                original("runtime.json", {"phase": "stopped"})
+                self.assertEqual(delay, 1)
+                idle_ticks.append(delay)
+                if len(idle_ticks) == 30:
+                    original("runtime.json", {"phase": "stopped"})
         with patch.object(self.store, "write", side_effect=write), patch("enge_spx.engine.time.sleep", side_effect=tick) as sleep:
             engine.guard()
-        self.assertEqual([call.args[0] for call in sleep.call_args_list], [3, 30])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [3] + [1] * 30)
         self.assertEqual(engine.probe_chain.call_count, 2)
         engine._stop.assert_not_called()
         self.assertGreater(self.store.read("gateway/lease.json")["expires"], time.time())
         engine.log.assert_called_once()
+
+    def test_stop_signal_interrupts_guard_sleep_without_another_network_check(self):
+        self.store.write("runtime.json", {"phase": "ready"})
+        engine = Engine(self.store)
+        engine.ready = Mock()
+        def stop_during_sleep(delay):
+            self.assertEqual(delay, 1)
+            self.store.write("guard-stop.json", {"schema": 1, "requested": True})
+        with patch("enge_spx.engine.time.sleep", side_effect=stop_during_sleep) as sleep:
+            engine.guard()
+        engine.ready.assert_called_once_with()
+        sleep.assert_called_once_with(1)
+        # Releasing the old monitor lock precedes clearing the stop signal.
+        with self.store.lock("guard"):
+            self.assertTrue((self.store.home / "guard-stop.json").is_file())
+        self.store.write("runtime.json", {"phase": "stopped"})
+        engine.take_over_legacy_guard()
+        self.assertFalse((self.store.home / "guard-stop.json").exists())
+
+    def test_stop_signal_write_denial_does_not_prevent_container_shutdown(self):
+        self.store.write("images.json", {"gateway": "image"})
+        engine = Engine(self.store)
+        engine.docker = Mock(executable="docker.exe")
+        engine.managed = Mock(return_value=["gateway-container"])
+        obj = {"Id": "gateway-container", "Config": {"Labels": {engine.role: "gateway"}}, "State": {"Running": True}}
+        engine.docker.inspect.return_value = obj
+        engine.owned = Mock(return_value=obj)
+        original = self.store.write
+        def write(name, value):
+            if name == "guard-stop.json":
+                raise windows_denied()
+            original(name, value)
+        with patch.object(self.store, "write", side_effect=write):
+            with self.assertRaises(PermissionError):
+                engine.stop()
+        engine.docker.run.assert_called_once_with("stop", "--time", "8", "gateway-container", timeout=25)
+        self.assertEqual(self.store.read("runtime.json")["phase"], "stopped")
+        self.assertEqual(self.store.read("gateway/lease.json")["expires"], 0)
+
+    def test_network_migration_stop_signal_cannot_cancel_the_new_monitor(self):
+        engine = Engine(self.store)
+        engine.docker = Mock(executable=None)
+        engine.doctor = Mock()
+        engine._retire_stopped_browser = Mock()
+        def migrate_and_setup():
+            engine._stop("正在升级内部网络隔离策略")
+            return {}
+        engine.setup = Mock(side_effect=migrate_and_setup)
+        engine.policy = Mock(return_value="policy")
+        engine.ensure_forward = Mock()
+        engine.wait_line_listener = Mock()
+        engine.audit_topology = Mock()
+        engine.probe_chain = Mock(return_value={"ip": "8.8.8.8"})
+        engine.start_guard = Mock()
+        engine.check()
+        engine.confirm()
+        self.assertEqual(self.store.read("runtime.json")["phase"], "ready")
+        self.assertFalse((self.store.home / "guard-stop.json").exists())
+        # Run the actual loop: a stale migration marker would skip ready().
+        engine.ready = Mock()
+        def finish(delay):
+            self.store.write("guard-stop.json", {"schema": 1, "requested": True})
+        with patch("enge_spx.engine.time.sleep", side_effect=finish):
+            engine.guard()
+        engine.ready.assert_called_once_with()
 
     def test_stop_still_shuts_down_gateway_when_lease_write_is_denied(self):
         self.store.write("images.json", {"gateway": "image"})

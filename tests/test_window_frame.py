@@ -3,13 +3,14 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from unittest.mock import Mock
 
 if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest, QSignalSpy
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from enge_spx.state import Store
 from enge_spx.ui import style
@@ -93,6 +94,46 @@ class NativeWindowTests(unittest.TestCase):
         value.set("after")
         value.set("after")
         self.assertEqual(spy.count(), 1)
+
+    def test_close_hides_to_tray_without_canceling_work_or_stopping_monitor_timers(self):
+        with patch("enge_spx.ui.window.QSystemTrayIcon.isSystemTrayAvailable", return_value=True):
+            self.assertTrue(self.window.install_tray())
+            self.controller.busy = True
+            with patch.object(self.controller, "request_close") as close:
+                self.window.close()
+                QTest.qWait(20)
+                self.assertFalse(self.window.isVisible())
+                self.assertTrue(self.window.tray.isVisible())
+                self.assertFalse(self.controller.cancel.is_set())
+                self.assertTrue(self.controller.status_timer.isActive())
+                close.assert_not_called()
+            self.window.return_from_desktop()
+            self.assertFalse(self.window.isVisible())
+            self.window.tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
+            self.assertTrue(self.window.isVisible())
+            self.controller.busy = False
+
+    def test_tray_exit_closes_interface_and_stop_exit_stops_only_the_workspace(self):
+        with patch("enge_spx.ui.window.QSystemTrayIcon.isSystemTrayAvailable", return_value=True):
+            self.window.install_tray()
+            with patch.object(self.controller, "run") as run:
+                self.window.stop_and_exit()
+                run.assert_called_once()
+                engine = Mock()
+                run.call_args.args[0](engine)
+                engine.stop.assert_called_once_with()
+            closed = QSignalSpy(self.window.closed)
+            self.window.tray_exit.trigger()
+            QTest.qWait(20)
+            self.assertEqual(closed.count(), 1)
+            self.assertFalse(self.window.tray.isVisible())
+
+    def test_no_tray_keeps_normal_exit_and_never_hides_an_unreachable_background_app(self):
+        with patch("enge_spx.ui.window.QSystemTrayIcon.isSystemTrayAvailable", return_value=False):
+            self.assertFalse(self.window.install_tray())
+            closed = QSignalSpy(self.window.closed)
+            self.window.close()
+            self.assertEqual(closed.count(), 1)
 
     def test_legacy_terminal_reopens_as_custom_and_exe_picker_has_no_brand_special_case(self):
         store = Store(Path(self.folder.name) / "legacy-terminal")
