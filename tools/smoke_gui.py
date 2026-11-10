@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
         assert window.pages[name].isVisible()
         if name in ("connection", "workspace"):
             capture(window, name)
-    window.c.terminal_kind.set("pebrel")
+    window.c.terminal_kind.set("unknown-preset")
     assert not window.terminal_args.isEnabled()
     window.c.terminal_kind.set("custom")
     assert window.terminal_args.isEnabled()

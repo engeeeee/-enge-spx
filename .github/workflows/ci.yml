@@ -158,6 +158,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
+      - name: Verify real cgroup budgets, stopped updates and container data reuse
+        run: python -u tests/integration_resources.py --context default --output "$RUNNER_TEMP/resource-results.json"
       - name: Verify stopped network migration, rollback and DNS/UDP/IPv6 boundaries
         run: python -u tests/integration_network_policy.py --context default --output "$RUNNER_TEMP/p1-network-policy.json"
       - name: Build isolated protocol fixtures

@@ -15,6 +15,7 @@ GLYPHS = {
     "workspace": '<path d="M3 8V5h7l2 3h9v12H3z"/><path d="m8 12 3 3-3 3m6 0h3"/>',
     "downloads": '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     "logs": '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    "resources": '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/>',
     "settings": '<path d="M3 6h18M3 12h18M3 18h18m-13-15v6m9 0v6m-10 0v6"/>',
     "arrow": '<path d="M5 12h14m-6-6 6 6-6 6"/>',
     "external": '<path d="M14 3h7v7m0-7L10 14M10 3H3v18h18v-7"/>',
@@ -87,10 +88,10 @@ QPushButton#WindowControl { background: transparent; border: none; border-radius
 QPushButton#WindowControl:hover { background: #3D3830; color: #EFEAE1; }
 QPushButton#WindowClose { background: transparent; border: none; border-radius: 5px; padding: 2px; font-size: 20px; color: #B3ADA2; }
 QPushButton#WindowClose:hover { background: #914E41; color: #FFF2EB; }
-QLineEdit, QComboBox, QPlainTextEdit { background: #25241F; border: 1px solid #4B453A; border-radius: 7px; padding: 10px 11px; color: #EFEAE1; selection-background-color: #614638; selection-color: #FFF1E7; }
-QLineEdit:hover, QComboBox:hover { border-color: #6A5D4B; }
-QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus { border-color: #D69778; }
-QLineEdit:disabled, QComboBox:disabled { color: #817A6F; border-color: #3C3830; }
+QLineEdit, QComboBox, QPlainTextEdit, QSpinBox, QDoubleSpinBox { background: #25241F; border: 1px solid #4B453A; border-radius: 7px; padding: 10px 11px; color: #EFEAE1; selection-background-color: #614638; selection-color: #FFF1E7; }
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover { border-color: #6A5D4B; }
+QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #D69778; }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled { color: #817A6F; border-color: #3C3830; }
 QComboBox { padding-right: 30px; }
 QComboBox::drop-down { width: 28px; border: none; }
 QComboBox QAbstractItemView { background: #302C26; border: 1px solid #5B4D3D; selection-background-color: #5C4132; padding: 5px; }

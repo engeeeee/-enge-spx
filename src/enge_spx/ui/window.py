@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import webbrowser
 
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, Signal, QEvent
 from PySide6.QtGui import QIcon, QFont
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
                              QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget,
@@ -15,14 +15,15 @@ from .. import __version__, terminal
 from ..brand import APP_NAME, ICONS, PROJECT_URL
 from ..line_security import LINE_MODES
 from ..proxy import protocol
+from ..resource_limits import ROLES, MIN_MEMORY
 from ..state import SPXError
 from ..storage import DOCKER_STORAGE_DOC
 from . import style
 from .controller import Value
 from .widgets import (Page, Panel, TitleBar, Dialog, Combo, label, bind_text,
-                      button, entry, combo, check, progress, confirm, notice)
+                      button, entry, combo, check, progress, confirm, notice, budget_number)
 
-NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "logs": "运行日志", "settings": "偏好设置"}
+NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "resources": "资源与性能", "logs": "运行日志", "settings": "偏好设置"}
 
 
 class ResizeEdge(QWidget):
@@ -169,6 +170,7 @@ class Window(QMainWindow):
         for key, widget in self.nav.items():
             widget.setChecked(key == name)
         self.current_page = name
+        self.update_resource_activity()
         self.titlebar.caption.setText((APP_NAME if self.compact else "本机工作空间") + "  /  " + NAMES[name])
         self.render(self.c.view, force=True)
 
@@ -374,6 +376,59 @@ class Window(QMainWindow):
         row.addWidget(self.action("登录 Codex", lambda: self.open_tool("login-codex"), ready=True))
         row.addStretch()
         row.addWidget(self.action("打开 Chromium ↗", lambda: self.c.run(lambda engine: engine.browser()), ready=True))
+        row = panel.row()
+        row.addWidget(self.action("停止浏览器 · 保留 CLI", lambda: self.c.run(lambda engine: engine.stop_browser()), ghost=True))
+        row.addWidget(self.action("资源与浏览器启动设置", lambda: self.show_page("resources"), ghost=True))
+        row.addStretch()
+        page.finish()
+        return page
+
+    def build_resources(self):
+        page = Page("资源与性能", "查看占用来源，为工作区安排预算；安全监测始终独立运行。")
+        panel = page.panel("资源预算", "正常模式沿用原有上限；低资源模式限制 CPU、减少内存，并默认按需打开浏览器。")
+        panel.field("工作模式", combo(self.c.resource_mode, [("正常 · 沿用现有预算", "normal"), ("低资源", "low"), ("自定义", "custom")]))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        for column, text in enumerate(("工作环境", "CPU 上限", "内存上限")):
+            grid.addWidget(label(text, "Muted"), 0, column)
+        for index, (role, title) in enumerate(ROLES.items(), 1):
+            grid.addWidget(label(title), index, 0)
+            for column, suffix, cpu in ((1, "_cpu", True), (2, "_memory", False)):
+                widget = budget_number(self.c.values["budget_" + role + suffix], cpu, 0 if role == "gateway" else MIN_MEMORY[role])
+                widget.setAccessibleName(title + (" CPU 上限" if cpu else "内存上限"))
+                grid.addWidget(widget, index, column)
+        panel.layout.addLayout(grid)
+        panel.layout.addWidget(label("CPU 0 表示不限；网关内存可设为不限，其它容器使用有效内存上限。上限不是预留量，多项目预算会累加。内存与交换合计最多为所设内存的两倍（内核支持时）。", "Caption", True))
+        panel.layout.addWidget(check("启动工具时同时打开工作区浏览器", self.c.auto_browser))
+        panel.layout.addWidget(label("关闭此项后仍可单独打开 Chromium；显式点击登录会准备浏览器，不会回退到本机浏览器。", "Caption", True))
+        panel = page.panel("当前项目的独立预算", "先在项目工作区选择目录；未单独设置的项目沿用上方 CLI 预算。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.project))
+        panel.layout.addWidget(check("为当前项目单独设置预算", self.c.project_budget_enabled))
+        row = panel.row()
+        for value, cpu, title in ((self.c.project_budget_cpu, True, "项目 CPU 上限"), (self.c.project_budget_memory, False, "项目内存上限")):
+            widget = budget_number(value, cpu, MIN_MEMORY["project"])
+            widget.setAccessibleName(title)
+            widget.setEnabled(self.c.project_budget_enabled.get())
+            self.c.project_budget_enabled.changed.connect(widget.setEnabled)
+            row.addWidget(widget)
+        row.addStretch()
+        row = panel.row()
+        row.addWidget(self.action("保存资源设置", self.c.save_resources, True))
+        row.addWidget(self.action("恢复上次设置", lambda: self.c.save_resources(True)))
+        row.addStretch()
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.resource_status))
+        panel = page.panel("应用进程", "界面和已登记的后台服务，工作集可能包含共享页；短时 Docker CLI 不列入此处。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.resource_app_text))
+        panel = page.panel("本实例的 Linux 容器", "Docker CLI 内存读数已扣除部分文件缓存；磁盘 I/O 是累计值，不是实时带宽。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.resource_container_text))
+        panel = page.panel("主机、Docker Desktop 与 WSL2", "WSL2 包含容器和其它发行版，不能与容器内存相加。停止环境不等于 WSL2 立即归还所有缓存。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.resource_system_text))
+        panel.layout.addWidget(bind_text(label(kind="Caption", wrap=True), self.c.resource_caption))
+        row = panel.row()
+        row.addWidget(button("立即采样", self.c.sample_resources))
+        row.addWidget(self.action("停止本工作区", lambda: self.c.run(lambda engine: engine.stop()), ghost=True))
+        row.addStretch()
         page.finish()
         return page
 
@@ -534,7 +589,7 @@ class Window(QMainWindow):
 
     def update_terminal_hint(self):
         kind = self.c.terminal_kind.get()
-        self.terminal_hint.setText("当前终端：" + next(name for name, key in terminal.PRESETS.items() if key == kind))
+        self.terminal_hint.setText("当前终端：" + next((name for name, key in terminal.PRESETS.items() if key == kind), "自定义终端"))
 
     def choose_project(self):
         value = QFileDialog.getExistingDirectory(self, "选择具体项目文件夹", self.c.project.get())
@@ -697,6 +752,7 @@ class Window(QMainWindow):
             event.ignore()
             return
         if self._force_close or self.c.request_close():
+            self.c.stop_resource_monitor()
             self.c.delivery.stop()
             self.c.status_timer.stop()
             self.c.refresh_timer.stop()
@@ -707,6 +763,26 @@ class Window(QMainWindow):
         else:
             self._explicit_exit = False
             event.ignore()
+
+    def update_resource_activity(self):
+        if not hasattr(self, "c"):
+            return
+        background = not self.isVisible() or self.isMinimized()
+        self.c.set_background(background)
+        self.c.set_resource_visible(self.current_page == "resources" and not background)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.update_resource_activity()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.update_resource_activity()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self.update_resource_activity()
 
     def _create_edges(self):
         for edges, cursor in ((Qt.Edge.LeftEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.RightEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.TopEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.BottomEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.LeftEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeFDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.LeftEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeFDiagCursor)):
