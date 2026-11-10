@@ -67,6 +67,15 @@ python tools/benchmark_p0.py --kind host --baseline 6168bf406d9d7d6254e5be102921
 
 PR 中按规则跳过的导出、两种镜像存储导入和发布不计为 PR 已通过；合入主分支后由相同流水线重新验证，只有该次 Windows/Linux/容器/打包和两种存储导入全部成功，才自动发布并核验制品摘要。测试和性能原始 JSON 保留在上述运行 Artifact，源码与测试不因最终文档记录而更改。
 
+发布提交为 `42a3aa7c93c612be4ad591043724d876ad8c7d28`，对应 [主分支发布 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42911715618) 全部成功。该次 Windows/Linux、冻结安装包、真实运行与身份回归、协议和资源测试均重跑通过；原生 containerd 与独立经典存储都实际下载、校验、导入同次导出的包，并验证重复安装、旧标签和容器数据保留。发布任务仅采用同次制品。
+
+[0.11.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows) 已公开 7 个资产。发布后再次实际下载安装版和便携版：分别为 32,393,140 B 和 50,839,530 B，SHA-256 与发布摘要/校验文件一致，便携包全量 ZIP CRC 通过，三个新增检查资源齐全。运行镜像清单 schema、版本、平台、三种配方/标识、875,937,637 B 大小与公开摘要相符；不再重复下载整个镜像归档，其实际导入证据来自上述同次双存储门禁。
+
+| Windows 资产 | 实际下载 SHA-256 |
+| --- | --- |
+| Setup.exe | `082c2ae5d4b10f62236b9cb36a994d89134d18165a8fcd7e0f81af40bfcf5cb4` |
+| Portable.zip | `78b57017362497cba896eec1194982f5ce110d113b75322708b601387175ff13` |
+
 ## 6. 性能前后对比
 
 镜像配方和正常资源默认不变，未增加常驻容器/网络定时器。同一专项 CI、Python 3.12、默认共享模式与 20 个合成节点，对照 0.10.0；三组 baseline/candidate 交替次序，以下为中位数。GUI 空闲每组约 5 秒，CPU 为单核百分比，工作集为测量结束时的 OS 计数：
