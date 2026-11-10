@@ -9,6 +9,8 @@ permissions:
 concurrency:
   group: spx-security-p0-${{ github.ref }}
   cancel-in-progress: true
+env:
+  PYTHONPATH: src
 jobs:
   sandbox-feasibility:
     runs-on: ubuntu-latest

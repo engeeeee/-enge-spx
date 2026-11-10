@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -131,6 +132,31 @@ class CredentialBoundaryTests(unittest.TestCase):
             with self.assertRaises(SPXError):
                 engine.attach_command(str(project), "claude", "same", "owned")
         engine.docker.run.assert_not_called()
+
+    def test_internal_children_never_take_the_parent_migration_lock(self):
+        from enge_spx.__main__ import main
+        for action in ("guard", "relay", "forward"):
+            engine = Mock()
+            engine.guard.return_value = None
+            with patch("enge_spx.__main__.Store", return_value=self.store), patch("enge_spx.__main__.Engine", return_value=engine), patch.object(self.store, "migrate_credentials") as migrate, patch("enge_spx.relay.main"), patch("enge_spx.forward.main"), patch("sys.argv", ["spx", action]), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(main(), 0)
+            migrate.assert_not_called()
+
+    def test_emergency_stop_can_revoke_when_runtime_credentials_cannot_be_decrypted(self):
+        self.store.write("settings.json", {**self.store.settings(), "context": "default"})
+        metadata = self.store.read("controller-context.json")
+        self.assertEqual(metadata["instance"], self.store.instance)
+        self.assertEqual(metadata["context"], "default")
+        engine = Engine(self.store, stop_context=metadata["context"])
+        engine.docker.executable = None
+        real_read = self.store.read
+        def read(name, default=None):
+            if name in ("runtime.json", "settings.json", "nodes.json", "relay.json"):
+                raise SPXError("cannot decrypt")
+            return real_read(name, default)
+        with patch.object(self.store, "read", side_effect=read):
+            engine.stop()
+        self.assertEqual(real_read("runtime.json")["phase"], "stopped")
 
     @unittest.skipIf(os.name == "nt", "Container helper uses Linux ownership and O_NOFOLLOW")
     def test_container_ram_file_is_private_and_rejects_symlinks(self):

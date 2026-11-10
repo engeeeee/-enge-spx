@@ -57,7 +57,10 @@ def main():
             print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True}))
             return 0
         store = Store(args.data)
-        if args.action not in ("stop", "credentials"):
+        # Internal children may be started while the parent holds the operation
+        # lock (notably the display relay). Their Store still encrypts every new
+        # secret write, but they must not wait for a second migration lock.
+        if args.action not in ("stop", "credentials", "guard", "relay", "forward", "attach"):
             store.migrate_credentials()
         if args.action in (None, "gui"):
             try:
