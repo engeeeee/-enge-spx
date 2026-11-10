@@ -12,6 +12,9 @@
 - Upgrade internal bridges to isolated mode using a versioned, stopped-only
   migration journal. Preserve container IDs/layers, recover interruption and
   rollback metadata without starting a weaker policy. Audit DNS and IPv6.
+- Wait for the previous guard before approving a new policy, including upgrades
+  within the current product name. Interrupt monitor sleep with a public stop
+  signal while preserving the network-check cadence and lease deadlines.
 - Close the Windows window to the tray; expose restore, keep-workspace interface
   exit and stop-workspace exit. Preserve manual Docker startup, generic terminal
   selection, 0.8.4 browser retirement, sandbox and DPAPI protections.

@@ -182,6 +182,29 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(store.read("controller.json"), {"app": "enge-spx"})
 
+    def test_current_brand_upgrade_also_waits_for_an_old_guard_after_stop(self):
+        store = Store(self.base / "fresh")
+        store.write("controller.json", {"app": "enge-spx"})
+        store.write("runtime.json", {"phase": "ready"})
+        store.write("guard-stop.json", {"schema": 1, "requested": True})
+        held, exited = threading.Event(), threading.Event()
+        def previous_guard():
+            with store.lock("guard"):
+                held.set()
+                deadline = time.monotonic() + 3
+                while store.read("runtime.json")["phase"] != "stopped" and time.monotonic() < deadline:
+                    time.sleep(.01)
+                time.sleep(.15)  # An old process is still unwinding after stop.
+                exited.set()
+        thread = threading.Thread(target=previous_guard)
+        thread.start()
+        self.assertTrue(held.wait(2))
+        store.write("runtime.json", {"phase": "stopped"})
+        Engine(store).take_over_legacy_guard()
+        self.assertTrue(exited.is_set(), "A new session could race the previous policy implementation")
+        thread.join(timeout=3)
+        self.assertFalse((store.home / "guard-stop.json").exists())
+
     def test_forward_heartbeat_does_not_replace_a_ready_guest_listener(self):
         store = Store(self.base / "fresh")
         state = {"gateway": "owned-gateway", "policy": "policy", "forward_target": {"host": "127.0.0.1", "port": 7890}}

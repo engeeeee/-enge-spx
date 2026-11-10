@@ -518,7 +518,7 @@ class Engine:
         return evidence
 
     def check(self):
-        with self.store.lock():
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("正在等待当前安全检查完成，随后重新检查连接…")):
             self.doctor()
             self._stop("正在检查连接。")
             try:
@@ -543,19 +543,22 @@ class Engine:
                 raise
 
     def take_over_legacy_guard(self):
-        if not self.store.legacy or self.store.read("controller.json", {}).get("app") == "enge-spx":
-            return
-        # The previous controller wakes every 30 seconds. Keep the state stopped
-        # until it releases its guard lock, so it cannot stop a newly confirmed
-        # SPX connection using the old policy fingerprint.
-        self.log("正在接管旧版后台监测，最长约 40 秒；原有数据会保留。")
+        # This applies to every upgrade, not just the original product rename:
+        # a 0.8.x guard uses an older policy algorithm and must not see a new
+        # ready session before it exits. Keep stopped until its lock is released.
+        notified = False
         deadline = time.monotonic() + 40
         while True:
             try:
                 with self.store.lock("guard"):
-                    self.store.write("controller.json", {"app": "enge-spx"})
+                    (self.store.home / "guard-stop.json").unlink(missing_ok=True)
+                    if self.store.read("controller.json", {}) != {"app": "enge-spx"}:
+                        self.store.write("controller.json", {"app": "enge-spx"})
                 return
             except SPXError:
+                if not notified:
+                    self.log("正在等待上一个后台监测退出，升级旧版时最长约 40 秒；数据保留。")
+                    notified = True
                 if time.monotonic() >= deadline:
                     raise SPXError("旧版后台监测尚未退出，请先退出旧版程序，再重新检查连接。")
                 time.sleep(.2)
@@ -642,7 +645,8 @@ class Engine:
     def guard(self):
         try:
             with self.store.lock("guard"):
-                while self.store.read("runtime.json", {}).get("phase") == "ready":
+                stop_signal = self.store.home / "guard-stop.json"
+                while not stop_signal.is_file() and self.store.read("runtime.json", {}).get("phase") == "ready":
                     try:
                         with self.store.lock():
                             self.ready()
@@ -656,7 +660,13 @@ class Engine:
                     except SPXError:
                         if self.store.read("runtime.json", {}).get("phase") != "ready":
                             break
-                    time.sleep(30)
+                    # Keep the same network-check cadence. Only poll a cheap,
+                    # non-secret stop signal during sleep, so stop/recheck does
+                    # not wait a whole monitor interval or reuse older code.
+                    for _ in range(30):
+                        if stop_signal.is_file():
+                            return
+                        time.sleep(1)
         except SPXError:
             pass
 
@@ -676,6 +686,10 @@ class Engine:
         except SPXError:
             state = {"lease_journal": (self.store.home / "gateway/lease.jsonl").is_file()}
         write_error = None
+        try:
+            self.store.write("guard-stop.json", {"schema": 1, "requested": True})
+        except (OSError, SPXError) as error:
+            write_error = error
         try:
             self.store.write("runtime.json", {"phase": "stopped", "reason": reason})
         except (OSError, SPXError) as error:
