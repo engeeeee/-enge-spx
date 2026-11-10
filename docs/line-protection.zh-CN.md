@@ -1,6 +1,6 @@
 # v2ray 线路保护
 
-适用于 ENGE SPX 0.5.2 / 0.6.x Preview。工作区的最终出口与“如何连接落地代理”是两项不同的检查。
+适用于 ENGE SPX 0.9.0 Preview。工作区的最终出口与“如何连接落地代理”是两项不同的检查。
 
 ## 推荐：软件内双跳
 
@@ -19,7 +19,7 @@
 
 软件内双跳直接配置加密线路的协议、认证和固定端点。落地连接必须经过它，没有 DIRECT、自动测速组或故障转移组作为备用。外部 v2ray 的分流规则不能让这条应用内链路跳过已配置的第一跳。
 
-支持 SS AEAD / 2022、Trojan TCP/TLS、VLESS TCP/TLS、加密 VMess AEAD TCP 和 HTTPS 第一跳。普通 HTTP 和 SOCKS5 可作落地，不能作此模式的加密线路。WS、gRPC、Reality、XTLS、uTLS 等当前未支持的分享参数会被拒绝；不会删除这些参数后尝试直连。
+支持 SS AEAD / 2022、Trojan TLS、VLESS TLS / Reality / Vision、加密 VMess、HTTPS 与 Hysteria2 第一跳，包括已验证的 WS/gRPC 组合。普通 HTTP 和 SOCKS5 可作落地，不能作此模式的加密线路。不支持的传输或安全参数会明确拒绝，不会剥除参数后连接。协议矩阵和 Hysteria2 的 UDP 限制见 [第二批说明](proxy-p1.zh-CN.md)。
 
 线路服务商能够看到你与它建立连接，并决定服务器侧如何出网；该模式不能约束服务商、不保证匿名，也不能抵御宿主机被控制。宿主机的系统级 TUN 仍可能改变到线路服务器的外层路径，但应用配置要求的加密第一跳仍须成功建立。
 

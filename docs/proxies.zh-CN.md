@@ -32,5 +32,6 @@ https://user:password@proxy.example:443
 
 导入窗口区分“代理链接 / JSON / Clash”和“订阅地址（HTTPS）”，避免把 HTTPS 代理当成订阅。订阅仅主动获取，不保存其地址，不自动刷新。
 
-还支持 Trojan TCP/TLS、VLESS TCP/TLS、VMess AEAD TCP（可选 TLS）、Shadowsocks AEAD / 2022 TCP。暂不支持 WS、gRPC、Reality、XTLS、插件、uTLS、自定义证书、跳过 TLS 校验或 SOCKS5 外加 TLS；不支持的条目会明确拒绝，不会剥掉参数后继续连接。软件内线路要求加密，普通 HTTP/SOCKS5 可作为落地。当前仅支持 IPv4 出口；启用线路后落地域名由线路解析，未启用线路时节点地址仍由本机解析。
+支持 Trojan TCP/TLS、VLESS TCP/TLS 与 Reality/Vision、VLESS/Trojan/VMess 的 WebSocket 和 gRPC、Shadowsocks AEAD / 2022，以及 Hysteria2/QUIC（固定端口，可选 salamander）。常见 Clash/Mihomo YAML 只导入节点，不执行其分组、DIRECT、自动回退、DNS 配置或远程 provider。详见 [协议参数与组合限制](proxy-p1.zh-CN.md)。
 
+TLS 必须验证；Reality 必须有有效公钥和显式域名 SNI。Hysteria2 可单独使用，或作软件内第一跳连接 SOCKS5/HTTP(S) 落地。它不能套入当前 TCP 本机转发或其它未验证的前置组合；UDP 不通时不改走 TCP 或 DIRECT。工作区的 HTTP/SOCKS 代理解析目标域名，绕过代理的原始 DNS/UDP/IPv6 路径保持阻断。当前仍以 IPv4 出口核验为准。

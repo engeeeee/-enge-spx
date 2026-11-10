@@ -353,6 +353,10 @@ class Engine:
                 managed_line(line, relay["server_ip"])
                 if selected:
                     chain_outbounds(self.node_by_id(selected), relay, line)
+            if selected:
+                from .line_security import chain_outbounds
+                outbounds, _ = chain_outbounds(self.node_by_id(selected), relay, line if relay.get("mode") == "managed" else None)
+                self.backend.gateway_config(outbounds, "127.0.0.1", relay["enabled"])
             if old.get("context") != context and self.store.read("images.json"):
                 raise SPXError("已安装的环境不能切换 Docker 上下文。请使用新的专用数据目录。")
             established = self.store.read("environment.json")
@@ -709,7 +713,7 @@ class Engine:
         self.docker.secret_env.clear()
 
     def stop(self):
-        with self.store.lock():
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("正在等待当前安全检查完成后停止工作区…")):
             self._stop()
 
     def save_terminal(self, config):

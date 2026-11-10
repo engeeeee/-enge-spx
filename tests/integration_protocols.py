@@ -5,6 +5,7 @@ Run with an official matching core: PYTHONPATH=src python tests/integration_prot
 Only fixture servers have direct outbounds; every tested client uses the adapter.
 """
 import argparse
+import base64
 from contextlib import ExitStack
 from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,7 @@ import uuid
 
 from enge_spx.backends import DEFAULT_BACKEND
 from enge_spx.nodes import normalize, uri_node
+from enge_spx.redaction import redact, values
 
 
 DOMAIN = "spx-target.invalid"
@@ -156,14 +158,14 @@ class Core:
         self.path.chmod(0o600)
         checked = subprocess.run([binary, "check", "-c", str(self.path)], capture_output=True, text=True)
         if checked.returncode:
-            raise RuntimeError(name + " config rejected: " + checked.stderr[-2000:])
+            raise RuntimeError(name + " config rejected: " + redact(checked.stderr[-2000:], values(config)))
         self.log_path = folder / (name + ".log")
         self.log = self.log_path.open("wb")
         self.process = subprocess.Popen([binary, "run", "-c", str(self.path)], stdout=self.log, stderr=self.log)
         time.sleep(.15)
         if self.process.poll() is not None:
             self.close()
-            raise RuntimeError(name + " did not start: " + self.log_path.read_text()[-2000:])
+            raise RuntimeError(name + " did not start: " + redact(self.log_path.read_text()[-2000:], values(config)))
 
     def close(self):
         if self.process is not None and self.process.poll() is None:
@@ -259,8 +261,9 @@ def main():
             inbounds, cases, landing = [], [], []
             variants = [(kind, transport) for kind in ("vless", "trojan", "vmess") for transport in (None, "ws", "grpc")]
             variants += [("vless", "reality"), ("shadowsocks", None), ("socks", None), ("http", None), ("http", "tls"), ("hysteria2", None), ("hysteria2", "salamander")]
+            variants += [("vmess", "plain"), ("shadowsocks", "2022-aes128"), ("shadowsocks", "2022-aes256"), ("shadowsocks", "2022-chacha")]
             for kind, transport in variants:
-                name = kind + "-" + (transport or "tcp")
+                name = kind + "-" + (transport or ("quic" if kind == "hysteria2" else "tcp"))
                 inbound = {"type": kind, "tag": name, "listen": "127.0.0.1", "listen_port": port(kind == "hysteria2")}
                 outbound = {"type": kind, "server": "127.0.0.1", "server_port": inbound["listen_port"]}
                 if kind in ("socks", "http"):
@@ -271,8 +274,10 @@ def main():
                     if transport == "tls":
                         inbound["tls"], outbound["tls"] = deepcopy(server_tls), deepcopy(client_tls)
                 elif kind == "shadowsocks":
-                    inbound.update(method="aes-128-gcm", password=password)
-                    outbound.update(method="aes-128-gcm", password=password)
+                    method = {"2022-aes128": "2022-blake3-aes-128-gcm", "2022-aes256": "2022-blake3-aes-256-gcm", "2022-chacha": "2022-blake3-chacha20-poly1305"}.get(transport, "aes-128-gcm")
+                    secret = base64.b64encode(secrets.token_bytes(16 if transport == "2022-aes128" else 32)).decode() if transport else password
+                    inbound.update(method=method, password=secret)
+                    outbound.update(method=method, password=secret)
                 else:
                     user = {"name": "fixture", "uuid" if kind in ("vless", "vmess") else "password": identity if kind in ("vless", "vmess") else password}
                     inbound["users"] = [user]
@@ -280,8 +285,11 @@ def main():
                     inbound["tls"], outbound["tls"] = deepcopy(server_tls), deepcopy(client_tls)
                     if kind == "vmess":
                         outbound["security"] = "auto"
+                        if transport == "plain":
+                            inbound.pop("tls")
+                            outbound.pop("tls")
                     if transport in ("ws", "grpc"):
-                        value = {"type": "ws", "path": "/fixture"} if transport == "ws" else {"type": "grpc", "service_name": "fixture"}
+                        value = {"type": "ws", "path": "/fixture", "max_early_data": 2048, "early_data_header_name": "Sec-WebSocket-Protocol"} if transport == "ws" else {"type": "grpc", "service_name": "fixture"}
                         inbound["transport"], outbound["transport"] = deepcopy(value), value
                     elif transport == "reality":
                         inbound["users"][0]["flow"] = outbound["flow"] = "xtls-rprx-vision"
@@ -320,6 +328,35 @@ def main():
                         udp_echo(proxy_port, fixtures.udp.server_address[1])
                         assert fixtures.udp_sources[-1] == "127.0.0.2"
                         passed(name + ": real QUIC TCP and fragmented UDP payload")
+                finally:
+                    client.close()
+            for index, (name, node) in enumerate(cases):
+                value = deepcopy(node["outbound"])
+                if not value.get("tls") or value["tls"].get("reality"):
+                    continue
+                value["tls"]["server_name"] = "incorrect.spx.test"
+                config = DEFAULT_BACKEND.gateway_config([value], "127.0.0.1", False)
+                proxy_port = config["inbounds"][0]["listen_port"] = port()
+                client = Core(args.core, folder, "bad-hostname-" + str(index), config)
+                try:
+                    rejected_request(proxy_port, target, fixtures, name + " wrong TLS hostname")
+                    passed(name + ": trusted CA still rejects a wrong TLS hostname")
+                finally:
+                    client.close()
+            authenticated = set()
+            for index, (name, node) in enumerate(cases):
+                value = deepcopy(node["outbound"])
+                kind = value["type"]
+                if kind in authenticated:
+                    continue
+                authenticated.add(kind)
+                value["uuid" if kind in ("vless", "vmess") else "password"] = str(uuid.uuid4())
+                config = DEFAULT_BACKEND.gateway_config([value], "127.0.0.1", False)
+                proxy_port = config["inbounds"][0]["listen_port"] = port()
+                client = Core(args.core, folder, "bad-auth-" + str(index), config)
+                try:
+                    rejected_request(proxy_port, target, fixtures, kind + " bad authentication")
+                    passed(kind + ": authentication failure has no direct fallback")
                 finally:
                     client.close()
             for index, (name, node) in enumerate(cases):
@@ -364,7 +401,7 @@ def main():
                     passed("Reality wrong " + field + " fails closed")
                 finally:
                     client.close()
-            hy2 = next(node for name, node in cases if name == "hysteria2-tcp")
+            hy2 = next(node for name, node in cases if name == "hysteria2-quic")
             gate = UDPGate(hy2["outbound"]["server_port"])
             cleanup.callback(gate.close)
             config = DEFAULT_BACKEND.gateway_config([{**deepcopy(hy2["outbound"]), "server_port": gate.port}], "127.0.0.1", False)
@@ -381,6 +418,13 @@ def main():
             server.close()
             # The landing is deliberately still alive. Killing the first hop
             # must not silently connect the landing or target from the gateway.
+            config = DEFAULT_BACKEND.gateway_config([landing[0][1]["outbound"]], "127.0.0.1", False)
+            proxy_port = config["inbounds"][0]["listen_port"] = port()
+            client = Core(args.core, folder, "landing-health-control", config)
+            try:
+                assert fetch(proxy_port, target)["peer"] == "127.0.0.3"
+            finally:
+                client.close()
             for index, (name, node) in enumerate(cases):
                 if name in landing_names:
                     continue
