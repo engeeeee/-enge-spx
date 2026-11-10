@@ -26,6 +26,8 @@ def validate_container(obj):
     good = str(config.get("User", "")).split(":")[0] == "1000" and not host.get("Privileged") and not host.get("CapAdd") and "ALL" in {str(v).upper() for v in host.get("CapDrop", [])} and host.get("ReadonlyRootfs") and any(value in ("no-new-privileges", "no-new-privileges=true") for value in opts) and profile_ok
     if not good:
         raise SPXError("浏览器容器权限或 seccomp 策略不符合安全要求，请停止环境并重新准备；不会使用无沙箱模式。")
+    if host.get("PidMode") not in (None, "", "private") or host.get("IpcMode") not in (None, "", "private") or host.get("Devices") or host.get("DeviceRequests") or any(item.get("Type") == "bind" or item.get("Type") == "volume" and item.get("Destination") not in ("/home/workspace", "/home/workspace/Downloads") for item in obj.get("Mounts", [])):
+        raise SPXError("浏览器存在非预期的宿主 namespace、设备或文件挂载，入口已拒绝。")
 
 
 def validate_status(value):

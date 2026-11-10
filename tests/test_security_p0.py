@@ -37,13 +37,17 @@ class SandboxTests(unittest.TestCase):
         policy = json.loads(browser_security.PROFILE.read_text())
         good = {"Config": {"User": "1000:1000"}, "HostConfig": {"Privileged": False, "CapDrop": ["ALL"], "CapAdd": [], "ReadonlyRootfs": True, "SecurityOpt": ["no-new-privileges", "seccomp=" + json.dumps(policy)]}}
         browser_security.validate_container(good)
-        for field, value in (("Privileged", True), ("CapAdd", ["SYS_ADMIN"]), ("CapDrop", []), ("ReadonlyRootfs", False), ("SecurityOpt", ["no-new-privileges", "seccomp=unconfined"])):
+        for field, value in (("Privileged", True), ("CapAdd", ["SYS_ADMIN"]), ("CapDrop", []), ("ReadonlyRootfs", False), ("SecurityOpt", ["no-new-privileges", "seccomp=unconfined"]), ("PidMode", "host"), ("IpcMode", "host"), ("Devices", [{"PathOnHost": "/dev/sda"}])):
             invalid = copy.deepcopy(good)
             invalid["HostConfig"][field] = value
             with self.assertRaises(SPXError):
                 browser_security.validate_container(invalid)
         invalid = copy.deepcopy(good)
         invalid["Config"]["User"] = "0"
+        with self.assertRaises(SPXError):
+            browser_security.validate_container(invalid)
+        invalid = copy.deepcopy(good)
+        invalid["Mounts"] = [{"Type": "bind", "Source": "/var/run/docker.sock", "Destination": "/docker.sock"}]
         with self.assertRaises(SPXError):
             browser_security.validate_container(invalid)
 

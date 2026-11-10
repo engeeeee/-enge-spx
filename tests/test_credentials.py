@@ -128,6 +128,12 @@ class CredentialTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertFalse(list(target.parent.glob(".failed-export.spx-export-*")))
 
+    def test_unknown_migration_marker_does_not_disable_encryption_requirements(self):
+        self.store.write("nodes.json", [{"password": "original"}])
+        atomic_json(self.store.home / "credentials-state.json", {"schema": 99, "state": "complete"})
+        with self.assertRaises(SPXError):
+            self.store.read("nodes.json")
+
     def test_private_posix_files_are_not_claimed_to_be_encrypted(self):
         if os.name == "nt":
             self.skipTest("POSIX policy")

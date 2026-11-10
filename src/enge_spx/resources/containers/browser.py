@@ -78,7 +78,8 @@ def main():
             raise SystemExit("VNC display failed to start.")
         time.sleep(0.1)
     spawn(["openbox"])
-    browser = spawn([*chromium, "about:blank"])
+    # Force a local document so the real display must instantiate a renderer.
+    browser = spawn([*chromium, "data:text/html,<title>ENGE SPX</title><p>Workspace browser ready.</p>"])
     try:
         verified["renderer"] = verify_renderer(browser.pid)
     except Exception:

@@ -137,7 +137,12 @@ class Store:
             value = json.loads(path.read_text(encoding="utf-8"))
             if hasattr(self, "credentials"):
                 marker = self.home / "credentials-state.json"
-                required = marker.exists() and json.loads(marker.read_text(encoding="utf-8")).get("state") == "complete"
+                required = False
+                if marker.exists():
+                    metadata = json.loads(marker.read_text(encoding="utf-8"))
+                    if not isinstance(metadata, dict) or metadata.get("schema") != 1 or metadata.get("state") != "complete" or metadata.get("mode") != "dpapi-current-user":
+                        raise SPXError("凭据迁移记录版本无效；请保留数据并使用对应版本恢复。")
+                    required = True
                 return self.credentials.decode(name, value, required)
             return value
         except (OSError, ValueError) as error:

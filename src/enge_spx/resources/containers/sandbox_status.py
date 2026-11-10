@@ -76,6 +76,10 @@ def verify_renderer(browser_pid, timeout=12):
                 command = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
             except OSError:
                 continue
+            if "chrom" in status.get("Name", "").lower():
+                kind = next((arg.decode("ascii", errors="replace") for arg in command if arg.startswith(b"--type=")), "browser")
+                entry = {"pid": pid, "parent": status.get("PPid"), "type": kind[:50], "filter_count": status.get("Seccomp_filters"), "pid_depth": len(status.get("NSpid", "").split())}
+                observed.setdefault("processes", {})[str(pid)] = entry
             if b"--type=renderer" not in command:
                 continue
             observed["renderers"] += 1
