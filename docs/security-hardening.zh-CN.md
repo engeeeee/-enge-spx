@@ -14,6 +14,14 @@ Chromium 继续以 UID/GID 1000 运行，启用 user namespace、PID namespace�
 
 内核需支持非特权 user namespaces、嵌套 PID/network namespaces、Seccomp-BPF 和 `/proc` 中的 filter / NSpid 证据。Docker Desktop / WSL2 的内核、AppArmor 或其它 LSM 可能拒绝初始化。本软件不修改宿主 sysctl 或全局 LSM 策略，不会静默退回无沙箱。本地管理员需使用实际版本运行验证；Linux CI 成功不能代替 Windows + WSL2 验收。
 
+### 0.8.4 升级兼容修复
+
+0.8.3 在确认连接时会审计本实例的所有容器，包括已经停止、尚未更换的旧浏览器。旧容器没有新的只读根文件系统与专用 seccomp 策略，因而可能在真正启动新浏览器前就被拒绝。0.8.4 在停止环境之后、检查出口之前移除已停止的浏览器实例，不传 `-v` 或强制删除标志，持久 Profile、下载和工具账号卷保留。启动新浏览器时继续核验容器权限和真实 renderer 内核证据；正在运行的不安全容器不会被放行。
+
+安全选项解析同时兼容 Docker 的 `key=value`、`key:value` 和不带值的 `no-new-privileges`。关闭或缺失 no-new-privileges、冲突重复项、unconfined 与不同 seccomp 内容仍被拒绝。错误消息只列未通过的固定检查项，不输出原始容器配置、路径或环境变量。
+
+升级时停止旧环境、退出旧 GUI，再用原账户打开新版本和原数据目录。0.8.3 的镜像配方、DPAPI 封套、节点 ID 与卷名不变；已有合格镜像可以复用。无需清空数据或重装 Docker。
+
 受限主机可以显式只用 CLI：
 
 ```powershell

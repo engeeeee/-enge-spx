@@ -11,21 +11,51 @@ def arguments():
     return ["--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m,mode=1777", "--security-opt", "seccomp=" + str(PROFILE)]
 
 
+def _security_options(options):
+    """Docker accepts both key=value and legacy key:value security options.
+
+    Split at the first separator, before the JSON payload, which can contain
+    either character itself. Keep duplicates so a later false/unconfined option
+    cannot be hidden by an earlier safe value.
+    """
+    parsed = {}
+    if not isinstance(options, list) or any(not isinstance(value, str) for value in options):
+        return parsed
+    for option in options:
+        key, separator, value = option.partition("=")
+        if ":" in key:
+            key, separator, value = option.partition(":")
+        parsed.setdefault(key, []).append(value if separator else None)
+    return parsed
+
+
 def validate_container(obj):
     config = obj.get("Config") or {}
     host = obj.get("HostConfig") or {}
-    opts = host.get("SecurityOpt") or []
-    profiles = [value.split("=", 1)[1] for value in opts if value.startswith("seccomp=")]
+    opts = _security_options(host.get("SecurityOpt"))
+    profiles = opts.get("seccomp", [])
     expected = json.loads(PROFILE.read_text(encoding="utf-8"))
     profile_ok = False
-    if len(profiles) == 1:
+    if len(profiles) == 1 and profiles[0] is not None:
         try:
             profile_ok = json.loads(profiles[0]) == expected
         except ValueError:
             profile_ok = profiles[0] == str(PROFILE)
-    good = str(config.get("User", "")).split(":")[0] == "1000" and not host.get("Privileged") and not host.get("CapAdd") and "ALL" in {str(v).upper() for v in host.get("CapDrop", [])} and host.get("ReadonlyRootfs") and any(value in ("no-new-privileges", "no-new-privileges=true") for value in opts) and profile_ok
-    if not good:
-        raise SPXError("浏览器容器权限或 seccomp 策略不符合安全要求，请停止环境并重新准备；不会使用无沙箱模式。")
+    no_new_privileges = opts.get("no-new-privileges", [])
+    checks = {
+        "User=1000": str(config.get("User", "")).split(":")[0] == "1000",
+        "Privileged=false": host.get("Privileged") is False,
+        "CapAdd=空": not host.get("CapAdd"),
+        "CapDrop=ALL": "ALL" in {str(v).upper() for v in host.get("CapDrop") or []},
+        "ReadonlyRootfs=true": host.get("ReadonlyRootfs") is True,
+        "no-new-privileges=true": bool(no_new_privileges) and all(value in (None, "true") for value in no_new_privileges),
+        "seccomp=应用专用策略": profile_ok,
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        # Only fixed check names are safe to expose; never dump inspect, paths,
+        # environment variables, tokens or a raw security-option value.
+        raise SPXError("浏览器容器安全检查未通过：" + "、".join(failed) + "。请停止环境并重试；不会使用无沙箱模式。")
     if host.get("PidMode") not in (None, "", "private") or host.get("IpcMode") not in (None, "", "private") or host.get("Devices") or host.get("DeviceRequests") or any(item.get("Type") == "bind" or item.get("Type") == "volume" and item.get("Destination") not in ("/home/workspace", "/home/workspace/Downloads") for item in obj.get("Mounts", [])):
         raise SPXError("浏览器存在非预期的宿主 namespace、设备或文件挂载，入口已拒绝。")
 

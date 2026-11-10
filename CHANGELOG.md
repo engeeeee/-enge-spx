@@ -1,5 +1,20 @@
 # Changes
 
+## 0.8.4 startup hotfix preview — 2026-11-10
+
+- Retire this installation's stopped browser before connection review and
+  confirmation. A pre-sandbox browser left by an upgrade must not block the new
+  policy audit; the replacement still passes container and renderer checks.
+  Remove no volumes, do not force-remove a running browser, and preserve project
+  writable layers, browser Profile, downloads and tool accounts.
+- Accept Docker's equivalent equals/colon security-option representations while
+  rejecting missing/false no-new-privileges, conflicting duplicates, unconfined
+  and altered seccomp policies. Name failed checks without dumping inspect data
+  or secrets. No sandbox, capability, TLS or network-isolation relaxation.
+- Add current/legacy naming migration regressions, real Docker upgrade markers
+  and kernel no-new-privileges checks. Reuse the unchanged runtime recipes and
+  existing versioned credential format. Protocol batch 2 remains paused.
+
 ## 0.8.3 P0 security preview — 2026-11-10
 
 - Require non-root Chromium namespace/PID/network and Seccomp-BPF sandbox
