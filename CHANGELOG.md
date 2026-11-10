@@ -20,7 +20,9 @@
   Queue exit during work, cancel preparation safely, preserve migration handoff,
   suppress follow-up dialogs, finish resource queries and wait for services.
   Failed/incomplete stop retains a retryable interface; keep-workspace exit needs
-  explicit confirmation. Exercise public Ctrl+Q in source and frozen GUI tests.
+  explicit confirmation. Restore existing tray instances through Qt so widget
+  visibility and input stay synchronized. Exercise public Ctrl+Q in source and
+  frozen GUI tests.
 - Add real cgroup/rollback/foreign-workload tests, native process-handle and UI
   lifecycle checks, browser pause/restart regression and same-runner stage
   measurements. No new production dependency, runtime image or capability.
