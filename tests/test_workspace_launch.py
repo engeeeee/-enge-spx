@@ -25,8 +25,9 @@ class WorkspaceLaunchTests(unittest.TestCase):
     def engine(self):
         engine = Engine(self.store)
         engine.docker = Mock()
+        engine.docker.secret_env = {}
         engine.docker.command.side_effect = lambda *args: ["docker.exe", *args]
-        engine.ready = Mock(return_value={"session": "session"})
+        engine.ready = Mock(return_value={"session": "session", "browser_token": "a" * 64})
         engine._browser = Mock(return_value="http://127.0.0.1:12345/vnc.html")
         engine._project = Mock(return_value=({"Id": "project-container"}, "project-key"))
         engine.proxy_env = Mock(return_value=[])

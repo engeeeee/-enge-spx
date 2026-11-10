@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--data", type=Path, help="专用数据目录；默认跟随偏好设置中的迁移位置")
     parser.add_argument("--project", default=str(Path.cwd()), help="项目目录")
+    parser.add_argument("--without-browser", action="store_true", help="显式仅运行 CLI，不启动浏览器；不会回退到本机或无沙箱浏览器")
     parser.add_argument("--smoke-gui", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="action")
@@ -29,6 +30,14 @@ def main():
     importer.add_argument("file", type=Path, help="本地订阅/节点文件（不保存订阅地址）")
     selector = sub.add_parser("select")
     selector.add_argument("index", type=int, help="节点序号，从 1 开始")
+    attach = sub.add_parser("attach", help=argparse.SUPPRESS)
+    attach.add_argument("tool", choices=("claude", "codex", "shell", "login-claude", "login-codex"))
+    attach.add_argument("--session", required=True)
+    attach.add_argument("--container", required=True)
+    credentials = sub.add_parser("credentials", help="凭据保护、迁移、删除和显式旧格式导出")
+    credentials.add_argument("operation", choices=("status", "migrate", "clear-proxies", "export-legacy"))
+    credentials.add_argument("--output", type=Path)
+    credentials.add_argument("--allow-plaintext", action="store_true")
     for action in ("claude", "codex", "exec"):
         item = sub.add_parser(action, add_help=False)
         item.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -48,6 +57,8 @@ def main():
             print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True}))
             return 0
         store = Store(args.data)
+        if args.action not in ("stop", "credentials"):
+            store.migrate_credentials()
         if args.action in (None, "gui"):
             try:
                 from .gui import launch
@@ -55,7 +66,14 @@ def main():
                 raise SPXError("桌面界面依赖不完整，请安装 requirements.txt 后重试。") from error
             launch(store, smoke=args.smoke_gui)
             return 0
-        engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True))
+        try:
+            engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True))
+        except SPXError:
+            context = store.read("controller-context.json", {})
+            if args.action != "stop" or context.get("instance") != store.instance or not context.get("context"):
+                raise
+            engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True), stop_context=context["context"])
+            engine.doctor()
         if args.action == "relay":
             from .relay import main as relay_main
             relay_main(store)
@@ -67,6 +85,23 @@ def main():
         elif args.action == "diagnostics":
             from .startup import diagnostics
             result = diagnostics(store)
+        elif args.action == "credentials":
+            if args.operation == "status":
+                result = {"schema": 1, "mode": "dpapi-current-user" if store.credentials.enabled else "private-files", "pending": store.credentials.pending(store.home)}
+            elif args.operation == "migrate":
+                engine.stop()
+                result = store.migrate_credentials()
+            elif args.operation == "clear-proxies":
+                engine.clear_proxy_credentials()
+                result = {"proxy_credentials_cleared": True}
+            else:
+                if args.output is None or not args.allow_plaintext:
+                    raise SPXError("请指定 --output 专用目录及 --allow-plaintext，导出会包含明文凭据。")
+                engine.stop()
+                result = store.export_legacy_credentials(args.output, args.allow_plaintext)
+        elif args.action == "attach":
+            command = engine.attach_command(args.project, args.tool, args.session, args.container, interactive=bool(sys.stdin and sys.stdin.isatty()))
+            return subprocess.call(command, env=engine.docker.environment())
         elif args.action == "start":
             from .startup import prepare_workspace
             result = prepare_workspace(engine, auto_start=not args.no_start_docker, install=not args.no_install, progress=lambda value: print(value.get("message", value["stage"]), file=sys.stderr, flush=True))
@@ -91,7 +126,7 @@ def main():
             if not command:
                 raise SPXError("请在 exec 后填写 Linux 命令。")
             attached = bool(sys.stdin and sys.stdin.isatty())
-            cmd = engine.tool_command(args.project, command, interactive=attached)
+            cmd = engine.tool_command(args.project, command, interactive=attached, browser=not args.without_browser)
             return subprocess.call(cmd, env=engine.docker.environment())
         else:
             result = getattr(engine, args.action)()

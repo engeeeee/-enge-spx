@@ -100,12 +100,19 @@ async def run(store: Store):
     async with serve(handler, "127.0.0.1", 0, process_request=request, compression=None, ping_timeout=60, max_size=2 * 1024 * 1024, subprotocols=["binary"], select_subprotocol=lambda conn, protocols: "binary" if "binary" in protocols else None) as server:
         port = server.sockets[0].getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
+        current = store.read("runtime.json", {})
+        if current.get("phase") != "ready" or current.get("browser_token") != token:
+            return
         store.write("relay.json", {"origin": origin, "control": control, "browser": browser_id, "token": token})
-        while True:
-            await asyncio.sleep(2)
-            current = store.read("runtime.json", {})
-            if current.get("phase") != "ready" or current.get("browser_token") != token:
-                break
+        try:
+            while True:
+                current = store.read("runtime.json", {})
+                if current.get("phase") != "ready" or current.get("browser_token") != token:
+                    break
+                await asyncio.sleep(2)
+        finally:
+            if store.read("relay.json", {}).get("control") == control:
+                (store.home / "relay.json").unlink(missing_ok=True)
 
 
 def main(store):

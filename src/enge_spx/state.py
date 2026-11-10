@@ -114,7 +114,7 @@ class Store:
         self.home = relocated_home(home or default_home())
         if any(c in str(self.home) for c in (",", "\n", "\r")):
             raise SPXError("数据目录不能包含逗号或换行。")
-        self.home.mkdir(parents=True, exist_ok=True)
+        self.home.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.instance_file = self.home / "instance.json"
         with self.lock("instance"):
             if not self.instance_file.exists():
@@ -124,19 +124,82 @@ class Store:
         self.legacy = identity.get("app") != "enge-spx"
         if not isinstance(self.instance, str) or len(self.instance) != 12 or any(c not in "0123456789abcdef" for c in self.instance):
             raise SPXError("数据目录的安装标识无效，请使用其他专用目录。")
+        from .credentials import CredentialCodec
+        self.credentials = CredentialCodec(self.instance)
 
     def read(self, name: str, default=None):
+        from .credentials import check_path
+        check_path(self.home, name)
         path = self.home / name
         if not path.exists():
             return default
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if hasattr(self, "credentials"):
+                marker = self.home / "credentials-state.json"
+                required = marker.exists() and json.loads(marker.read_text(encoding="utf-8")).get("state") == "complete"
+                return self.credentials.decode(name, value, required)
+            return value
         except (OSError, ValueError) as error:
             raise SPXError(f"无法读取 {name}；请保留数据目录并检查文件。") from error
 
     def write(self, name: str, value) -> None:
         self.check_location()
+        from .credentials import check_path
+        check_path(self.home, name)
+        context = value.get("context") if name == "settings.json" and isinstance(value, dict) else None
+        if hasattr(self, "credentials"):
+            value = self.credentials.encode(name, value)
         atomic_json(self.home / name, value)
+        if context:
+            atomic_json(self.home / "controller-context.json", {"schema": 1, "instance": self.instance, "context": context})
+
+    def migrate_credentials(self):
+        if not self.credentials.enabled:
+            return {"schema": 1, "mode": "private-files", "encrypted": False, "migrated": []}
+        with self.lock(timeout=30):
+            pending = self.credentials.pending(self.home)
+            from .storage import _private_directory
+            _private_directory(self.home)
+            # Protect and round-trip every record before changing any file.
+            encoded = {}
+            for name in pending:
+                path = self.home / name
+                plain = self.read(name)
+                encoded[name] = self.credentials.encode(name, plain)
+                if self.credentials.decode(name, encoded[name]) != plain:
+                    raise SPXError("凭据迁移校验失败，原数据已保留。")
+            for name, value in encoded.items():
+                atomic_json(self.home / name, value)
+            atomic_json(self.home / "controller-context.json", {"schema": 1, "instance": self.instance, "context": self.settings()["context"]})
+            atomic_json(self.home / "credentials-state.json", {"schema": 1, "state": "complete", "mode": "dpapi-current-user"})
+            return {"schema": 1, "mode": "dpapi-current-user", "encrypted": True, "migrated": pending}
+
+    def export_legacy_credentials(self, target, allow_plaintext=False):
+        if not allow_plaintext:
+            raise SPXError("旧格式导出会包含明文代理凭据。必须显式指定 --allow-plaintext，并选择专用私有目录。")
+        from .storage import destination_path, _private_directory
+        import shutil
+        destination = destination_path(target, [self.home, *self.settings()["projects"]])
+        stage = destination.with_name("." + destination.name + ".spx-export-" + uuid.uuid4().hex[:10])
+        with self.lock(timeout=30):
+            if self.read("runtime.json", {}).get("phase", "stopped") != "stopped":
+                raise SPXError("请先停止环境再导出回滚配置。")
+            stage.mkdir(mode=0o700, parents=True)
+            try:
+                _private_directory(stage)
+                for name in ("instance.json", "nodes.json", "settings.json", "images.json", "environment.json"):
+                    value = self.read(name)
+                    if value is not None:
+                        atomic_json(stage / name, value)
+                atomic_json(stage / "runtime.json", {"phase": "stopped", "reason": "旧格式回滚导出；不能与原数据目录同时运行。"})
+                if destination.exists():
+                    destination.rmdir()
+                stage.rename(destination)
+            except Exception:
+                shutil.rmtree(stage, ignore_errors=True)
+                raise
+        return {"schema": 0, "plaintext": True, "directory": str(destination), "source_unchanged": True}
 
     def check_location(self):
         if (self.home / "relocated.json").exists():

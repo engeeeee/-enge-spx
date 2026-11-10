@@ -305,6 +305,7 @@ class Window(QMainWindow):
         row.addWidget(self.node_combo(self.c.selected), 1)
         row.addWidget(self.action("添加代理", self.proxy_dialog, True))
         row.addWidget(self.action("批量导入", self.import_dialog))
+        row.addWidget(self.action("删除所选代理", self.c.delete_selected_node, ghost=True))
         panel = page.panel("前置线路", "已有 v2ray 可作为本机前置，也可在软件内组合固定加密线路与落地。")
         panel.layout.addWidget(check("启用前置线路", self.c.relay_enabled))
         mode = combo(self.c.line_mode, list(LINE_MODES.items()))

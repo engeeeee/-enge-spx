@@ -64,7 +64,8 @@ def main():
         secure = report["cases"][-1]
         rows = {row[0].strip().lower(): row[1].strip().lower() for row in secure["sandbox_table"] if len(row) > 1}
         assert secure["exit"] == 0, secure["stderr"]
-        assert rows.get("namespace sandbox") == "yes", rows
+        assert rows.get("namespace sandbox") == "yes" or rows.get("layer 1 sandbox") == "namespace", rows
+        assert rows.get("pid namespaces") == "yes" and rows.get("network namespaces") == "yes", rows
         assert rows.get("seccomp-bpf sandbox") == "yes", rows
         assert not secure["privileged"] and not secure["cap_add"] and "ALL" in [v.upper() for v in secure["cap_drop"]]
         report["success"] = True

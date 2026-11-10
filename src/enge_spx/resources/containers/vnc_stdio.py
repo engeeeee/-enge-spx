@@ -5,9 +5,10 @@ import threading
 
 
 def main():
-    with socket.create_connection(("127.0.0.1", 5900), timeout=10) as connection:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(10)
+        connection.connect("/tmp/spx-vnc.sock")
         connection.settimeout(None)
-        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         def upload():
             try:
                 while data := os.read(0, 65536):

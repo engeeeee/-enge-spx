@@ -23,6 +23,7 @@ from websockets.exceptions import InvalidStatus
 from enge_spx.engine import Engine, GATEWAY_IMAGE, OWNER
 from enge_spx.nodes import parse_nodes
 from enge_spx.state import Store, SPXError, atomic_json
+from enge_spx.browser_security import validate_container, validate_status
 
 
 def wait_lock(store):
@@ -83,6 +84,36 @@ def run(context, output):
                 viewer = engine._browser(state)
                 worker, key = engine._project(str(project), state)
             browser = engine.inspect("browser")
+            validate_container(browser)
+            sandbox = validate_status(json.loads(execute(engine, browser["Id"], "print(open('/tmp/spx-sandbox-status.json').read())")))
+            passed("Chromium namespace/PID/network/seccomp sandbox and actual renderer kernel evidence verified")
+            for role in ("gateway", "browser"):
+                inspected = engine.inspect(role)
+                metadata = json.dumps({key: inspected.get(key) for key in ("Args", "Path", "Config", "HostConfig", "Mounts")})
+                assert password not in metadata and state["browser_token"] not in metadata
+                assert not inspected["HostConfig"]["Privileged"] and not inspected["HostConfig"]["CapAdd"]
+                assert not inspected["HostConfig"].get("PortBindings")
+            gateway = engine.inspect("gateway")
+            assert {item["Destination"] for item in gateway["Mounts"] if item["Type"] == "bind"} == {"/config/lease.jsonl"}
+            assert execute(engine, gateway["Id"], "from pathlib import Path; print(Path('/tmp/spx/config.json').exists())") == "False"
+            assert execute(engine, browser["Id"], "from pathlib import Path; print(Path('/dev/shm/spx/browser.json').exists())") == "False"
+            passed("proxy passwords and browser token absent from Docker metadata; only public lease bind-mounted; RAM handoff files removed")
+            isolation_code = '''import socket,struct,errno
+for port in (5900,6099):
+ s=socket.socket(); s.settimeout(2)
+ assert s.connect_ex(('127.0.0.1',port)) != 0, 'Browser display exposed over TCP'
+ s.close()
+s=socket.socket(socket.AF_UNIX); s.settimeout(2)
+try:
+ s.connect('\\0/tmp/.X11-unix/X99')
+ s.sendall(struct.pack('<BBHHHHH',ord('l'),0,11,0,0,0,0))
+ assert s.recv(1024)[:1] != b'\\x01', 'X11 accepted a CLI peer without its private cookie'
+except OSError as error:
+ assert error.errno in (errno.ENOENT,errno.ECONNREFUSED,errno.EACCES), str(error)
+finally: s.close()
+print('DISPLAY_ISOLATED')'''
+            assert execute(engine, worker["Id"], isolation_code) == "DISPLAY_ISOLATED"
+            passed("CLI cannot access VNC TCP, X11 TCP or unauthenticated shared-namespace X11")
             for _ in range(80):
                 try:
                     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -117,7 +148,7 @@ def run(context, output):
                 passed(command + " executable: " + version)
             execute(engine, worker["Id"], f"from pathlib import Path; Path('/workspace/{key}/marker.txt').write_text('project'); Path('/home/workspace/.spx-test').write_text('home'); Path('/tmp/spx-layer').write_text('layer')")
             execute(engine, browser["Id"], "from pathlib import Path; Path('/home/workspace/.spx-browser-test').write_text('browser')")
-            engine.docker.run("exec", "--env", "SPX_BROWSER_TOKEN=" + state["browser_token"], worker["Id"], "python3", "/opt/spx/open_browser.py", "https://example.com", timeout=45)
+            engine.docker.run("exec", *engine.control_env(state), worker["Id"], "python3", "/opt/spx/open_browser.py", "https://example.com", timeout=45)
             passed("tool authorization URL opens inside shared Chromium")
             # Share a localhost callback listener between the actual two containers.
             execute(engine, worker["Id"], "import subprocess; subprocess.Popen(['python3','-m','http.server','1455','--bind','127.0.0.1'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)")
@@ -225,8 +256,8 @@ finally:
                 assert engine.inspect("session")["Id"] == previous_session
                 gateway = engine.inspect("gateway")
                 assert gateway["Id"] != previous_gateway
-                mount = next(item for item in gateway["Mounts"] if item["Destination"] == "/config")
-                assert Path(mount["Source"]).resolve() == (store.home / "gateway").resolve()
+                mount = next(item for item in gateway["Mounts"] if item["Destination"] == "/config/lease.jsonl")
+                assert Path(mount["Source"]).resolve() == (store.home / "gateway/lease.jsonl").resolve()
             finally:
                 lock.__exit__(None, None, None)
             assert (project / "marker.txt").read_text() == "project"

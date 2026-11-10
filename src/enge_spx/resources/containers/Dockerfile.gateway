@@ -2,6 +2,6 @@ FROM ghcr.io/sagernet/sing-box:v1.14.3 AS transport
 FROM python:3.12-alpine
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=transport /usr/local/bin/sing-box /usr/local/bin/sing-box
-COPY gateway.py /opt/spx/gateway.py
+COPY gateway.py runtime_secret.py /opt/spx/
 COPY tunnel.py /opt/spx/tunnel.py
 ENTRYPOINT ["python3", "-u", "/opt/spx/gateway.py"]
