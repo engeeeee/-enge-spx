@@ -1,0 +1,8 @@
+**
+!src/
+!src/enge_spx/
+!src/enge_spx/**
+!tests/
+!tests/integration_protocols.py
+**/__pycache__
+**/*.pyc

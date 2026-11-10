@@ -17,7 +17,7 @@ REALITY = f"vless://{UUID}@192.0.2.1:443?security=reality&sni=cdn.example&pbk={P
 
 class ProtocolNodeTests(unittest.TestCase):
     def test_084_canonical_nodes_and_persistent_ids_are_unchanged(self):
-        fixtures = json.loads((Path(__file__).parent / "fixtures/nodes-0.8.4.json").read_text())
+        fixtures = json.loads((Path(__file__).parent / "fixtures/nodes-0.8.4.json").read_text(encoding="utf-8"))
         for row in fixtures:
             with self.subTest(row=row.get("uri", "VMess JSON")):
                 result = uri_node(row["uri"]) if "uri" in row else normalize(row["json"])
