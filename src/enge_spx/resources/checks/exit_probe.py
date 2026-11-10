@@ -4,7 +4,9 @@ import ipaddress
 import json
 import os
 import socket
+import ssl
 import sys
+import urllib.error
 import urllib.request
 
 
@@ -48,8 +50,23 @@ def probe(proxy, detailed=False):
     return evidence
 
 
+def failure_code(error):
+    cause = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(cause, ssl.SSLCertVerificationError):
+        return "tls_certificate_error"
+    if isinstance(cause, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(cause, ConnectionRefusedError):
+        return "connection_refused"
+    if isinstance(error, ValueError) and str(error) == "Direct outbound connectivity is available.":
+        return "direct_path_available"
+    if isinstance(error, ValueError) and str(error) == "Exit IP sources disagree or the exit is not public IPv4.":
+        return "exit_sources_disagree"
+    return "proxy_or_transport_failure"
+
+
 if __name__ == "__main__":
     try:
         print(json.dumps(probe(sys.argv[1], "--details" in sys.argv[2:]), ensure_ascii=False))
-    except Exception:
-        raise SystemExit("Exit verification failed. No direct connection fallback was attempted.")
+    except Exception as error:
+        raise SystemExit("Exit verification failed [SPX_PROBE:" + failure_code(error) + "]. No direct connection fallback was attempted.")

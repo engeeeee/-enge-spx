@@ -24,7 +24,7 @@ from .controller import Value
 from .widgets import (Page, Panel, TitleBar, Dialog, Combo, label, bind_text,
                       button, entry, combo, check, progress, confirm, notice, budget_number)
 
-NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "resources": "资源与性能", "logs": "运行日志", "settings": "偏好设置"}
+NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "network": "网络检查", "downloads": "下载与安装", "resources": "资源与性能", "logs": "运行日志", "settings": "偏好设置"}
 
 
 class ResizeEdge(QWidget):
@@ -153,6 +153,7 @@ class Window(QMainWindow):
         self.c.changed.connect(self.update_exit_actions)
         self.c.exit_failed.connect(self.show_exit_error)
         self.c.nodes_changed.connect(self.refresh_node_boxes)
+        self.c.workspace_changed.connect(self.refresh_workspace_profiles)
         self.c.logs_added.connect(self.append_logs)
         self.c.page_requested.connect(self.show_page)
         self.c.proxy_requested.connect(lambda: self.proxy_dialog())
@@ -358,8 +359,10 @@ class Window(QMainWindow):
 
     def build_workspace(self):
         page = Page("项目工作区", "使用熟悉的终端，让工具在独立 Linux 环境中继续你的项目。")
-        panel = page.panel("选择项目", "只共享你选择的项目文件夹；工具会直接读写其中的文件。")
+        responsive_rows = []
+        panel = page.panel("选择项目", "只共享选中的目录，可显式授予只读或读写权限。")
         row = panel.row()
+        responsive_rows.append(row)
         self.project_box = entry(self.c.project, "选择一个具体项目文件夹")
         row.addWidget(self.project_box, 1)
         row.addWidget(self.action("选择文件夹", self.choose_project))
@@ -371,8 +374,28 @@ class Window(QMainWindow):
                 recent.addItem(item, item)
             recent.currentIndexChanged.connect(lambda index: self.c.project.set(recent.itemData(index)) if index > 0 else None)
             panel.layout.addWidget(recent)
-        panel = page.panel("打开你的工具", "连接确认后可启动；工具账号与授权会话会保留。")
+        panel = page.panel("工作区身份与目录权限", "新身份从空白账号和浏览器资料开始。应用会先停止当前环境，需要重新检查并确认连接。")
         row = panel.row()
+        responsive_rows.append(row)
+        self.workspace_profile_box = Combo()
+        self.workspace_profile_box.setSizeAdjustPolicy(Combo.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.workspace_profile_box.setMinimumContentsLength(12)
+        row.addWidget(self.workspace_profile_box, 1)
+        row.addWidget(self.action("新建身份", self.new_workspace_profile))
+        self.refresh_workspace_profiles()
+        self.workspace_profile_box.currentIndexChanged.connect(lambda index: self.c.workspace_profile.set(self.workspace_profile_box.itemData(index)) if index >= 0 else None)
+        self.c.workspace_profile.changed.connect(lambda unused: self.sync_workspace_profile())
+        row = panel.row()
+        responsive_rows.append(row)
+        row.addWidget(combo(self.c.workspace_access, [("只读项目", "ro"), ("读写项目", "rw")]), 1)
+        self.workspace_apply_button = self.action("应用身份与授权", self.c.apply_workspace, True)
+        row.addWidget(self.workspace_apply_button)
+        row.addWidget(self.action("恢复上次", lambda: self.c.apply_workspace(restore=True), ghost=True))
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.workspace_status))
+        panel.layout.addWidget(label("只读限制项目文件，登录与临时数据仍可保存。切换项目不会自动复制账号；原共享身份保持兼容。", "Caption", True))
+        panel = page.panel("打开你的工具", "使用已应用的身份与目录权限，账号和授权会话按身份保留。")
+        row = panel.row()
+        responsive_rows.append(row)
         for title, tool in (("Claude Code", "claude"), ("Codex", "codex"), ("Linux 终端", "shell")):
             row.addWidget(self.action(title + "  ↗", lambda command=tool: self.open_tool(command), tool == "claude", ready=True))
         row.addStretch()
@@ -381,18 +404,68 @@ class Window(QMainWindow):
         self.c.terminal_kind.changed.connect(lambda unused: self.update_terminal_hint())
         self.update_terminal_hint()
         panel.layout.addWidget(self.action("更换工作区终端", lambda: self.show_page("settings"), ghost=True), alignment=Qt.AlignmentFlag.AlignLeft)
-        panel = page.panel("账号与工作区浏览器", "登录页面在共享 Chromium 中打开，与本机日常浏览器资料分开。")
+        panel = page.panel("账号与工作区浏览器", "登录页面使用当前身份的 Chromium，与其它身份及本机浏览器资料分开。")
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("登录 Claude Code", lambda: self.open_tool("login-claude"), ready=True))
         row.addWidget(self.action("登录 Codex", lambda: self.open_tool("login-codex"), ready=True))
         row.addStretch()
-        row.addWidget(self.action("打开 Chromium ↗", lambda: self.c.run(lambda engine: engine.browser()), ready=True))
+        row.addWidget(self.action("打开 Chromium ↗", self.c.open_workspace_browser, ready=True))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("停止浏览器 · 保留 CLI", lambda: self.c.run(lambda engine: engine.stop_browser()), ghost=True))
         row.addWidget(self.action("资源与浏览器启动设置", lambda: self.show_page("resources"), ghost=True))
         row.addStretch()
+        previous_narrow = None
+        def adapt(width, height):
+            nonlocal previous_narrow
+            narrow = width < 550
+            if narrow != previous_narrow:
+                previous_narrow = narrow
+                for layout in responsive_rows:
+                    layout.setDirection(QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight)
+        page.resized.connect(adapt)
+        adapt(page.viewport().width(), page.viewport().height())
         page.finish()
         return page
+
+    def refresh_workspace_profiles(self):
+        if not hasattr(self, "workspace_profile_box"):
+            return
+        box = self.workspace_profile_box
+        box.blockSignals(True)
+        box.clear()
+        if self.c.workspace_config:
+            for identity, name in self.c.workspace_config["profiles"].items():
+                box.addItem(name, identity)
+        else:
+            box.addItem("身份配置不可用，请恢复", "")
+        box.blockSignals(False)
+        self.sync_workspace_profile()
+
+    def sync_workspace_profile(self):
+        if hasattr(self, "workspace_profile_box"):
+            box = self.workspace_profile_box
+            box.blockSignals(True)
+            box.setCurrentIndex(box.findData(self.c.workspace_profile.get()))
+            box.blockSignals(False)
+
+    def new_workspace_profile(self):
+        dialog = Dialog(self, "新建空白身份")
+        dialog.body.addWidget(label("新身份不会复制旧账号、Cookie 或浏览器资料。创建后仍需应用到项目并重新登录。", "Muted", True))
+        name = QLineEdit()
+        name.setMaxLength(64)
+        name.setPlaceholderText("例如：个人项目、独立测试")
+        dialog.body.addWidget(name)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(button("取消", dialog.reject, ghost=True))
+        def create():
+            if self.c.create_workspace(name.text()):
+                dialog.accept()
+        row.addWidget(button("创建空白身份", create, True))
+        dialog.body.addLayout(row)
+        dialog.exec()
 
     def build_resources(self):
         page = Page("资源与性能", "查看占用来源，为工作区安排预算；安全监测始终独立运行。")
@@ -498,6 +571,34 @@ class Window(QMainWindow):
         page.finish()
         self.select_resource_view("usage")
         return page
+
+    def build_network(self):
+        page = Page("网络环境检查", "按对象查看实际证据，区分已验证、未运行和不可用；不自动更改环境。")
+        panel = page.panel("检查当前工作区", "公网检测只在受控容器中执行，宿主只读路由，浏览器不会自动启动。出口复核失败、发现直连或安全条件变化时，会停止本实例并核验结果。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.network_summary))
+        row = panel.row()
+        row.addWidget(self.action("检查网络环境", self.c.check_network, True))
+        row.addWidget(self.action("导出脱敏报告", self.save_network_report))
+        row.addWidget(self.action("查看时区设置", lambda: self.show_page("settings"), ghost=True))
+        panel.layout.addWidget(label("WebRTC 仅观察本地候选与容器回环测试，不代表验证所有公网 STUN/TURN。IP 地区为近似参考，不保证匿名或不会关联账号。", "Caption", True))
+        panel = page.panel("检测对象与证据", "宿主、容器、浏览器、第一跳与最终出口分开记录。语言只读；已有环境的时区保持固定。")
+        evidence = QPlainTextEdit()
+        evidence.setReadOnly(True)
+        evidence.setMinimumHeight(320)
+        evidence.setPlainText(self.c.network_evidence.get())
+        self.c.network_evidence.changed.connect(evidence.setPlainText)
+        panel.layout.addWidget(evidence)
+        page.resized.connect(lambda width, height: row.setDirection(QBoxLayout.Direction.TopToBottom if width < 550 else QBoxLayout.Direction.LeftToRight))
+        page.finish()
+        return page
+
+    def save_network_report(self):
+        if self.c.network_report is None:
+            self.c.notify("先运行检查", "请先生成一份当前工作区的网络检查报告。")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "导出脱敏网络报告", "ENGE-SPX-network-report.json", "JSON (*.json)")
+        if path:
+            self.c.export_network_report(path)
 
     def select_resource_view(self, view):
         self.resource_view = view

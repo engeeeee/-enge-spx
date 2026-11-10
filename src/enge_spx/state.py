@@ -186,11 +186,15 @@ class Store:
     def export_legacy_credentials(self, target, allow_plaintext=False):
         if not allow_plaintext:
             raise SPXError("旧格式导出会包含明文代理凭据。必须显式指定 --allow-plaintext，并选择专用私有目录。")
+        from .workspace_profiles import load, SHARED
         from .storage import destination_path, _private_directory
         import shutil
         destination = destination_path(target, [self.home, *self.settings()["projects"]])
         stage = destination.with_name("." + destination.name + ".spx-export-" + uuid.uuid4().hex[:10])
         with self.lock(timeout=30):
+            workspace = load(self)
+            if workspace["selected"] != SHARED or any(value != {"profile": SHARED, "access": "rw"} for value in workspace["projects"].values()):
+                raise SPXError("旧格式不能保留独立身份或只读授权。请先明确恢复默认共享、读写模式并停止环境，再导出回滚配置；身份资料卷会保留。")
             if self.read("runtime.json", {}).get("phase", "stopped") != "stopped":
                 raise SPXError("请先停止环境再导出回滚配置。")
             stage.mkdir(mode=0o700, parents=True)

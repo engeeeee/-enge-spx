@@ -11,6 +11,11 @@ from .state import Store, SPXError
 
 
 def main():
+    # Frozen Windows CLI pipes may use a non-CJK code page. Keep machine JSON
+    # ASCII-escaped and human error messages printable instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if callable(getattr(stream, "reconfigure", None)):
+            stream.reconfigure(errors="backslashreplace")
     parser = argparse.ArgumentParser(prog="spx", description="ENGE SPX — 本机项目、共享工具与受控代理出口")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--data", type=Path, help="专用数据目录；默认跟随偏好设置中的迁移位置")
@@ -22,6 +27,20 @@ def main():
     for action in ("gui", "doctor", "diagnostics", "check", "confirm", "browser", "stop", "status", "guard", "relay", "forward", "shell"):
         sub.add_parser(action)
     sub.add_parser("stop-browser", help="停止浏览器及显示服务，保留 CLI、网关和持久资料")
+    identities = sub.add_parser("profiles", help="独立账号/浏览器身份及项目只读授权；切换会停止工作区")
+    identity_actions = identities.add_subparsers(dest="profile_action", required=True)
+    identity_actions.add_parser("list", help="查看身份和项目授权，不启动 Docker")
+    create_identity = identity_actions.add_parser("create", help="创建空白身份，不复制现有账号，也不自动切换")
+    create_identity.add_argument("name")
+    select_identity = identity_actions.add_parser("select", help="停止工作区并切换浏览器身份；不改变项目绑定")
+    select_identity.add_argument("identity")
+    apply_identity = identity_actions.add_parser("apply", help="将 --project 项目绑定到身份并显式设置权限")
+    apply_identity.add_argument("identity")
+    apply_identity.add_argument("--access", choices=("ro", "rw"), required=True)
+    identity_actions.add_parser("restore", help="恢复上次选择/授权，保留所有身份数据")
+    network = sub.add_parser("network-check", help="主动检查当前受控工作区并生成脱敏网络证据；不启动 Docker 或浏览器")
+    network.add_argument("--skip-browser", action="store_true", help="不执行实际浏览器语言/时区/WebRTC 检查")
+    network.add_argument("--output", type=Path, help="导出脱敏 JSON，不含代理凭据、项目路径或浏览器令牌")
     resources = sub.add_parser("resources", help="只读资源采样，或停止工作区后保存/恢复预算")
     resource_action = resources.add_mutually_exclusive_group()
     resource_action.add_argument("--apply", type=Path, help="保存 schema=1 JSON 预算；会停止本工作区，下次启动应用")
@@ -63,6 +82,8 @@ def main():
             assert tunnel_type() and (ASSETS / "app.ico").is_file() and (PACKAGE_RESOURCES / "checks/exit_probe.py").is_file()
             for name in ("browser-seccomp.json", "sandbox_status.py", "runtime_secret.py"):
                 assert (PACKAGE_RESOURCES / "containers" / name).is_file()
+            for name in ("environment_probe.py", "browser_probe.py", "browser_shutdown.py"):
+                assert (PACKAGE_RESOURCES / "checks" / name).is_file()
             codec = CredentialCodec("000000000000")
             fixture = [{"password": "synthetic-self-test-only"}]
             assert codec.decode("nodes.json", codec.encode("nodes.json", fixture)) == fixture
@@ -104,6 +125,24 @@ def main():
             result = diagnostics(store)
         elif args.action == "stop-browser":
             result = engine.stop_browser()
+        elif args.action == "profiles":
+            if args.profile_action == "list":
+                result = engine.workspace_profiles()
+            elif args.profile_action == "create":
+                result = engine.create_workspace_profile(args.name)
+            elif args.profile_action == "select":
+                result = engine.configure_workspace(args.identity)
+            elif args.profile_action == "apply":
+                result = engine.configure_workspace(args.identity, args.project, args.access)
+            else:
+                result = engine.restore_workspace_profiles()
+        elif args.action == "network-check":
+            result = engine.network_diagnostics(browser=not args.skip_browser)
+            if args.output:
+                from .state import atomic_json
+                atomic_json(args.output, result)
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 2 if result.get("status") in ("unsafe", "failed") else 0
         elif args.action == "resources":
             from .resource_limits import validate
             if args.apply:
@@ -172,7 +211,7 @@ def main():
         else:
             result = getattr(engine, args.action)()
         if result is not None:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
     except (SPXError, OSError) as error:
         if sys.stderr:

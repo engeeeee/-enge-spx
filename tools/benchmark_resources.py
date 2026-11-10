@@ -1,4 +1,4 @@
-"""Same-host Docker stage measurements against 0.9.0; synthetic data only.
+"""Same-host Docker stage measurements against an explicit revision; synthetic data only.
 
 Uses previously verified images from integration_runtime.py. Does not run real AI
 service requests, claim WSL2 measurements on Linux, or change global host settings.

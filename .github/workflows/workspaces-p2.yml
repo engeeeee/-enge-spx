@@ -1,0 +1,100 @@
+name: ENGE SPX Workspace Profiles
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/workspace-profiles-p2]
+    paths: ['src/**', 'tests/**', 'tools/**', '.github/workflows/workspaces-p2.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-workspaces-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -v
+      - run: python tools/smoke_gui.py
+      - name: Three same-runner 0.10.0 and candidate pairs with alternating source order
+        shell: python
+        run: |
+          import subprocess, sys
+          for index in range(3):
+              command = [sys.executable, 'tools/benchmark_p0.py', '--kind', 'host', '--baseline', '6168bf406d9d7d6254e5be102921445f5129db48', '--output', f'host-workspaces-{index}.json']
+              if index % 2:
+                  command.append('--candidate-first')
+              subprocess.run(command, check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Host-workspaces-${{ runner.os }}
+          path: host-workspaces-*.json
+          if-no-files-found: error
+  data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -u tests/integration_workspace_data.py --context default --output workspace-data.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Workspace-data
+          path: workspace-data.json
+          if-no-files-found: error
+  runtime-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Import the checksum-verified 0.10.0 runtime with unchanged recipes
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          from unittest.mock import patch
+          from enge_spx.engine import Engine
+          from enge_spx.state import Store
+          from enge_spx import downloads
+          root = Path(os.environ['RUNNER_TEMP']) / 'spx-profile-upgrade'
+          store = Store(root)
+          store.write('settings.json', {**store.settings(), 'context': 'default', 'relay': {'enabled': False, 'downloads': False}})
+          engine = Engine(store, lambda text: print(text, flush=True))
+          # Test-only pinned older release; production version/recipe validation
+          # is unchanged. The complete archive is hashed before Docker import.
+          with patch.object(downloads, '__version__', '0.10.0'), patch.object(downloads, 'RELEASE', 'https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/'):
+              engine.install_prebuilt()
+          engine.image_ids()
+          Path('upgrade-runtime.json').write_text(json.dumps({'images': store.read('images.json'), 'recipes': engine.recipes}))
+      - name: Verify rapid identity switching and diagnostics on the previous runtime
+        run: python -u tests/integration_profiles.py --context default --runtime-report upgrade-runtime.json --output workspace-profiles-upgrade.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Profile-upgrade-0.10.0
+          path: |
+            upgrade-runtime.json
+            workspace-profiles-upgrade.json
+          if-no-files-found: warn

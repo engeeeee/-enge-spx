@@ -47,22 +47,33 @@ import json
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*args): pass
  def do_GET(self):
+  import re,urllib.parse
+  nonce=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('fixture',[''])[0]
+  if re.fullmatch('[a-f0-9]{32}',nonce) is None:
+   self.send_error(404);return
   prior='spx_fixture=persistent' in self.headers.get('Cookie','')
-  html="<script>const previous=localStorage.getItem('spx_fixture');localStorage.setItem('spx_fixture','persistent');fetch('/evidence',{method:'POST',body:JSON.stringify({cookie:"+json.dumps(prior)+",storage:previous==='persistent'})});</script>"
+  html="<script>const previous=localStorage.getItem('spx_fixture');localStorage.setItem('spx_fixture','persistent');fetch('/evidence/"+nonce+"',{method:'POST',body:JSON.stringify({cookie:"+json.dumps(prior)+",storage:previous==='persistent'})});</script>"
   body=html.encode()
   self.send_response(200);self.send_header('Content-Type','text/html');self.send_header('Content-Length',str(len(body)))
+  self.send_header('Cache-Control','no-store')
   self.send_header('Set-Cookie','spx_fixture=persistent; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax')
   self.end_headers();self.wfile.write(body)
  def do_POST(self):
+  import re
+  nonce=self.path.removeprefix('/evidence/')
+  if re.fullmatch('[a-f0-9]{32}',nonce) is None:
+   self.send_error(404);return
   size=int(self.headers.get('Content-Length','0'));assert 0<size<2048
   evidence=json.loads(self.rfile.read(size));assert set(evidence)=={'cookie','storage'}
-  Path('/home/workspace/.spx-login-evidence.json').write_text(json.dumps(evidence))
+  Path('/home/workspace/.spx-login-evidence-'+nonce+'.json').write_text(json.dumps(evidence))
   self.send_response(204);self.end_headers()
 ThreadingHTTPServer(('127.0.0.1',1455),Handler).serve_forever()
 '''
 
 
 def login_fixture(engine, worker, browser, state, start_server=True):
+    nonce = secrets.token_hex(16)
+    evidence_path = "/home/workspace/.spx-login-evidence-" + nonce + ".json"
     if start_server:
         engine.docker.run("exec", "-d", worker, "python3", "-c", LOGIN_FIXTURE)
     for _ in range(40):
@@ -71,10 +82,11 @@ def login_fixture(engine, worker, browser, state, start_server=True):
             break
         except SPXError:
             time.sleep(.1)
-    execute(engine, worker, "from pathlib import Path; Path('/home/workspace/.spx-login-evidence.json').unlink(missing_ok=True)")
-    engine.docker.run("exec", *engine.control_env(state), worker, "python3", "/opt/spx/open_browser.py", "http://127.0.0.1:1455/", timeout=45)
+    # Each request requires fresh server evidence. Restored tabs or a cached old
+    # HTML response must never overwrite a later identity assertion.
+    engine.docker.run("exec", *engine.control_env(state), worker, "python3", "/opt/spx/open_browser.py", "http://127.0.0.1:1455/?fixture=" + nonce, timeout=45)
     for _ in range(60):
-        raw = execute(engine, worker, "from pathlib import Path; p=Path('/home/workspace/.spx-login-evidence.json'); print(p.read_text() if p.exists() else '')")
+        raw = execute(engine, worker, "from pathlib import Path; p=Path(" + repr(evidence_path) + "); print(p.read_text() if p.exists() else '')")
         if raw:
             return json.loads(raw)
         time.sleep(.2)
@@ -266,7 +278,7 @@ print('DISPLAY_ISOLATED')'''
             # Share a localhost callback listener between the actual two containers.
             first_identity = login_fixture(engine, worker["Id"], browser["Id"], state)
             assert first_identity == {"cookie": False, "storage": False}, first_identity
-            value = execute(engine, browser["Id"], "import urllib.request; print(urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:1455',timeout=5).status)")
+            value = execute(engine, browser["Id"], "import urllib.request; print(urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:1455/?fixture=00000000000000000000000000000000',timeout=5).status)")
             assert value == "200", value
             passed("browser can reach the tool's localhost OAuth callback")
             fonts = engine.docker.run("exec", browser["Id"], "fc-list", ":lang=zh", "family")

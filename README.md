@@ -3,15 +3,15 @@
 <p align="center"><strong>Windows 上的 AI 编程隔离工作台</strong></p>
 <p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
 <p align="center">
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows">下载 Windows 版</a> ·
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows">下载 Windows 版</a> ·
   <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
   <a href="docs/security-model.zh-CN.md">隔离与安全</a> ·
   <a href="README.en.md">English</a>
 </p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml"><img src="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml/badge.svg" alt="Windows / Linux CI"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows"><img src="https://img.shields.io/badge/0.10.0-Preview-D49A33" alt="0.10.0 Preview"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows"><img src="https://img.shields.io/badge/0.11.0-Preview-D49A33" alt="0.11.0 Preview"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-6D5BD0" alt="PolyForm Noncommercial"></a>
 </p>
 
@@ -24,7 +24,8 @@
 | 核心功能 | 作用 |
 | --- | --- |
 | **容器化 AI 编程工作区** | 在 Linux 容器中运行 Claude Code、Codex 和终端命令，只挂载选中的项目目录，减少工具依赖与 Windows 日常环境的混用 |
-| **工作区专用浏览器** | 通过独立 Chromium 完成登录与授权，浏览器资料与本机日常浏览器分开；工作区内使用共享的持久 profile |
+| **工作区专用浏览器** | 通过沙箱 Chromium 完成登录与授权，浏览器资料与本机日常浏览器分开；可选择独立身份，分别保存 Cookie、缓存和登录态 |
+| **身份隔离与项目授权** | Claude/Codex 账号、浏览器资料和下载按身份分开；项目可显式授权只读或读写，默认共享模式兼容旧资料 |
 | **固定线路＋落地代理** | 将加密线路与 SOCKS5 / HTTP / HTTPS 落地串联；软件内双跳不配置 DIRECT 或自动回退，也支持外部 v2ray 客户端接入 |
 | **双出口核验与异常停止** | 分别检查线路出口和落地出口，由你确认后启用；运行期间检测连接、出口和拓扑变化，发现异常后停止本环境 |
 
@@ -42,7 +43,7 @@ AI 服务账号、线路和落地代理由你提供。软件只管理这套工�
 
 ```mermaid
 flowchart LR
-    W["Windows 桌面控制端"] -. "选择并读写共享项目" .-> T
+    W["Windows 桌面控制端"] -. "选择项目及只读/读写授权" .-> T
     subgraph C["Docker Linux 工作区"]
         T["Claude Code / Codex / Linux 终端"]
         B["工作区 Chromium"]
@@ -55,7 +56,7 @@ flowchart LR
     P --> S["目标服务"]
 ```
 
-图示为推荐的 **软件内双跳**。Windows 运行控制界面和终端窗口，Linux 容器运行工具与浏览器；浏览器不挂载项目目录或工具账号卷。项目容器读写你选择的真实项目，其他本机目录不主动共享。
+图示为推荐的 **软件内双跳**。Windows 运行控制界面和终端窗口，Linux 容器运行工具与浏览器；浏览器不挂载项目目录或工具账号卷。项目容器按授权访问你选择的真实目录，其他本机目录不主动共享。
 
 <details>
 <summary>查看一键准备界面</summary>
@@ -68,15 +69,15 @@ flowchart LR
 
 ## 下载并开始使用
 
-当前版本为 **[0.10.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
+当前版本为 **[0.11.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-**0.10.0 Preview** 增加资源占用面板、正常/低资源模式、容器与单项目 CPU/内存预算，以及浏览器独立启动/停止。保留 0.9.0 的 Reality、WS/gRPC、Hysteria2、Clash/Mihomo 节点、网络迁移与托盘。沙箱、DPAPI、双出口和异常停机保持启用。见 [资源使用说明](docs/resources.zh-CN.md)和 [第三批验证记录](docs/validation-resources.zh-CN.md)。
+**0.11.0 Preview** 增加独立工作区身份、项目只读/读写授权和按需网络环境检查。新身份从空白账号和浏览器资料开始，切换前停止并核验本实例，切回时复用自己的数据。保留默认共享、资源预算、全部既有协议、沙箱、DPAPI、双出口和异常停机。见 [身份与迁移](docs/workspaces.zh-CN.md)、[网络检查](docs/network-diagnostics.zh-CN.md)和 [第四批验证记录](docs/validation-workspaces.zh-CN.md)。
 
 | 下载方式 | 适合谁 |
 | --- | --- |
-| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
-| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
-| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
+| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.11.0-windows/ENGE-SPX-Windows-x64-0.11.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
+| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.11.0-windows/ENGE-SPX-Windows-x64-0.11.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
+| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
 
 1. **安装一次 Docker Desktop**：按 [官方安装说明](https://docs.docker.com/desktop/setup/install/windows-install/)完成许可、WSL 和 Linux 引擎初始化。
 2. **点击“一键准备环境”**：软件自动启动已安装的 Docker，等待引擎就绪，再复用已有运行环境，或下载、校验并导入。
@@ -106,8 +107,8 @@ flowchart LR
 
 | 层面 | ENGE SPX 的做法 | 需要了解的边界 |
 | --- | --- | --- |
-| **文件与进程** | 工具在 Linux 容器中运行，按需挂载项目；不挂载 Docker 管理接口，移除 capabilities 并禁止新增权限 | 选中项目是读写共享，工具仍能读取项目密钥、修改代码或删除文件 |
-| **浏览器资料** | Chromium 使用独立持久 profile，不自动继承日常浏览器登录态，也不挂载项目或工具账号卷 | 工作区浏览器资料和工具账号在项目间共享，切换项目不等于切换身份 |
+| **文件与进程** | 工具在 Linux 容器中运行，按需挂载项目；不挂载 Docker 管理接口，移除 capabilities 并禁止新增权限 | 默认共享模式为读写，可显式只读；只读仍能读取项目密钥，读写允许修改或删除 |
+| **浏览器资料** | Chromium 使用独立持久 profile，不自动继承日常浏览器登录态，也不挂载项目或工具账号卷 | 同一身份内共享资料；需要不同账号时创建并绑定不同身份，切换项目不自动切身份 |
 | **网络路径** | 工作容器使用内部网络和受控网关；软件内双跳固定线路与落地，诊断入口只在网关回环监听 | 外部 v2ray 兼容模式仍依赖客户端分流；代理服务商是信任边界 |
 | **连接确认** | 启用前核验出口，运行后持续监测，检测到异常时停止环境 | 监测有周期和请求超时，不能承诺瞬间发现出口变化 |
 
@@ -133,7 +134,7 @@ flowchart LR
 
 ## 常见问题与文档
 
-Windows 负责桌面控制，工作区实际是 Linux 容器。项目按目录挂载，工具账号和工作区浏览器 profile 共享；需要分开这些资料时，请使用独立数据目录。
+Windows 负责桌面控制，工作区实际是 Linux 容器。项目按只读/读写授权挂载；可在项目工作区创建独立身份，分别保存工具账号和浏览器资料。默认共享兼容旧版，同一身份内仍共享账号。独立数据目录适合进一步分开节点、时区及整个实例。
 
 X 隐藏到托盘，已确认的环境与监测继续运行；真正“退出软件”（Ctrl+Q）默认先停止本实例工作区。明确保留工作区退出界面的选项位于托盘“更多”，需要确认。[退出流程](docs/exit.zh-CN.md)说明任务收尾和失败重试；[常见问题](docs/faq.zh-CN.md)解释代理、共享和迁移范围。
 
