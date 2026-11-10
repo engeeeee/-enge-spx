@@ -1382,6 +1382,13 @@
         }
       ],
       "comment": "ENGE SPX: create an unprivileged user namespace"
+    },
+    {
+      "names": [
+        "chroot"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "comment": "ENGE SPX: Chromium chroot inside its unprivileged user namespace; outer capabilities remain empty"
     }
   ]
 }

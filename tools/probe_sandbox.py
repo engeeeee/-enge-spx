@@ -35,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    report = {"cases": [], "security_changes": ["restricted clone namespace masks", "unshare(CLONE_NEWUSER)"], "host_security_settings_changed": False}
+    report = {"cases": [], "security_changes": ["restricted clone namespace masks", "unshare(CLONE_NEWUSER)", "chroot in the unprivileged namespace"], "host_security_settings_changed": False}
     try:
         with tempfile.TemporaryDirectory() as folder:
             dockerfile = Path(folder) / "Dockerfile"
