@@ -59,8 +59,8 @@ BROWSER_FIXTURE = '''from http.server import BaseHTTPRequestHandler,ThreadingHTT
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*a):pass
  def do_GET(self):
-  data=b"<canvas id='c' width='800' height='600'></canvas><script>const x=c.getContext('2d'),end=Date.now()+15000;fetch('/ready',{method:'POST'});let n=0;function draw(){x.fillStyle='hsl('+(n++%360)+',60%,40%)';x.fillRect(0,0,800,600);if(Date.now()<end)requestAnimationFrame(draw)}draw()</script>"
-  self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+  data=b"<!doctype html><meta charset='utf-8'><canvas id='c' width='800' height='600'></canvas><script>const x=document.getElementById('c').getContext('2d'),end=Date.now()+15000;let n=0;function draw(){x.fillStyle='hsl('+(n++%360)+',60%,40%)';x.fillRect(0,0,800,600);if(n===1)fetch('/ready',{method:'POST'});if(Date.now()<end)requestAnimationFrame(draw)}draw()</script>"
+  self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
  def do_POST(self):
   from pathlib import Path
   Path('/tmp/spx-benchmark-page').write_text('ready')
