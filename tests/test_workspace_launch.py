@@ -25,6 +25,7 @@ class WorkspaceLaunchTests(unittest.TestCase):
     def engine(self):
         engine = Engine(self.store)
         engine.docker = Mock()
+        engine.docker.executable = None
         engine.docker.secret_env = {}
         engine.docker.command.side_effect = lambda *args: ["docker.exe", *args]
         engine.ready = Mock(return_value={"session": "session", "browser_token": "a" * 64})
@@ -80,6 +81,8 @@ class WorkspaceLaunchTests(unittest.TestCase):
                     with patch("enge_spx.engine.os", SimpleNamespace(name="nt")), patch("enge_spx.terminal.resolve"), patch("enge_spx.terminal.launch", side_effect=launched) as launch, patch("enge_spx.engine.webbrowser.open") as viewer:
                         engine.terminal(str(self.project), tool)
                     launch.assert_called_once()
+                    self.assertNotIn("a" * 64, repr(launch.call_args))
+                    self.assertNotIn("SPX_BROWSER_TOKEN", launch.call_args.args[4])
                     viewer.assert_called_once_with(engine._browser.return_value)
                     engine.ready.assert_called_once()
                     engine._browser.assert_called_once()
