@@ -1,6 +1,6 @@
 # Changes
 
-## 0.8.3 P0 security preview — 2026-11-10 (development branch)
+## 0.8.3 P0 security preview — 2026-11-10
 
 - Require non-root Chromium namespace/PID/network and Seccomp-BPF sandbox
   evidence, including the real display renderer's additional kernel filter and

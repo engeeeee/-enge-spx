@@ -1,7 +1,7 @@
 # 0.8.3 P0 安全改造交付与验证
 
 日期：2026-11-10。审计起点为 `c08beb1f3224150d95dbc1c5fb05e1283ff9c5ff`（0.8.2）。
-工作分支为 `security/p0-hardening`，[PR #1](https://github.com/engeeeee/ENGE-SPX/pull/1)。本记录不是独立第三方审计，也不代表已经发布正式安装包。
+工作分支为 `security/p0-hardening`，[PR #1](https://github.com/engeeeee/ENGE-SPX/pull/1)。本记录不是独立第三方审计；安装包发布状态以 Releases 为准。
 
 ## 1. 修改概述
 
@@ -110,7 +110,7 @@ Linux x64 / Docker 29.4.2 / Python 3.12.16：每个版本 3 次新浏览器容�
 - 登录测试为实际 Chromium + 本地合成 Cookie/Storage/OAuth 回调，未登录真实 Claude/Codex 账号；不能承诺云服务准入、匿名或不可识别。
 - DPAPI 不保护同账户恶意程序、管理员或 Docker 管理者。工具账号和浏览器资料卷仍需私有保存，多项目身份默认共享。Linux 仍是文件权限保护。显示链接携带会话能力，不要分享完整链接。
 - 旧 work 容器为保留可写层可能残留已失效的历史令牌元数据；有效令牌只在必要 exec 中传入。显式旧格式回滚会输出明文，用户需妥善保管并清理。
-- 当前新包和运行时为 CI 预览工件，未替换公开 Release；发布前一键下载仍指向对应待发布版本，源码构建可用。升级需同时更换新网关和浏览器镜像。
+- 0.8.3 通过正式 CI 发布配套安装包和运行时，软件按同版本清单下载和校验；也保留源码构建路径。升级需同时更换新网关和浏览器镜像。
 - Reality、WS/gRPC、完整 Hysteria2/QUIC、DNS/UDP/IPv6 故障注入、多 Profile 和资源设置未在本批声称完成。
 
 ## 8. 下一批

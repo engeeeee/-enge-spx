@@ -54,14 +54,9 @@ module.exports = async ({github, context, core}) => {
     '',
     '### 这个版本',
     '',
-    '- 修复 Windows 后台续期因 WinError 5 文件替换失败而退出的问题：新网关读取追加式租约记录，不再反复替换正在被 Docker 读取的同名文件。未写完的记录不延长租约，明确撤销和到期仍断开网关。',
-    '- 短暂 Windows 文件占用有界重试；后台监测遇到 I/O 错误后继续尝试，不依赖 Shell 输入。持续失败不续期；即使撤销文件写入失败，也继续调用 Docker 停止本环境。',
-    '- 减少网络监测开销：复用既有隔离会话，不再每轮创建临时容器；并行核对双来源和直连阻断，运行中省去重复地理信息查询。保持出口变化、拓扑变化与连接失败的停止机制。',
-    '- 本机代理转发增加每连接背压窗口，避免慢连接阻塞其它连接；浏览器显示支持短暂断线重连、较宽松的 Pong 等待和本机 VNC 小数据低延迟传输。不承诺固定提速比例。',
-    '- 新浏览器镜像移除预装 CJK 字体包，保留常用西文和 Emoji。终端 UTF-8 与项目镜像不变，继续支持中文输入输出；部分中文网页可能缺字。字体精简不代表网站无法识别环境。',
-    '- 增加真实 Windows 文件共享锁、续期日志截断与撤销、慢连接隔离、字体清单、中文 PTY 往返及超过一个租约周期的 190 秒无 Shell 输入测试。此次需获取新网关和浏览器镜像，匹配的项目镜像、账号卷和浏览器 profile 保留。',
-    '',
-    '升级前请停止环境并退出旧窗口；安装后重新检查并确认出口。项目目录仍然读写共享，工具账号在项目间共享；Chromium 当前使用 --no-sandbox。此预览版未代码签名，未经过独立安全审计，也不提供匿名或完全宿主机隔离保证。',
+    fs.existsSync(path.join('docs', 'releases', `${version}.zh-CN.md`))
+      ? fs.readFileSync(path.join('docs', 'releases', `${version}.zh-CN.md`), 'utf8').trim()
+      : `本版本改动见 [CHANGELOG](https://github.com/${owner}/${repo}/blob/${tag}/CHANGELOG.md)。`,
     '',
     '本次发布要求同一 CI 的 Windows / Linux、真实文件共享锁、Qt 多档缩放、打包 GUI 手动启动、安装卸载、实际 Linux 长时续期、字体与中文 PTY、双跳故障阻断和两种镜像存储导入检查通过。Windows 界面结果保存在该次 CI 的 UI Artifact。假 Desktop 与 Linux Docker 测试不能代替用户真实 Docker Desktop / WSL、v2ray、Pebrel 和显示器组合验收。Qt / PySide6 / Shiboken6 的许可、上游声明与对应源码链接随包提供。',
     '',
