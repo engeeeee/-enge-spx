@@ -25,21 +25,35 @@ class BrowserShutdownTests(unittest.TestCase):
         self.process.mkdir()
         self.command = self.process / "cmdline"
         self.command.write_bytes(b"/usr/lib/chromium/chromium\0--user-data-dir=/home/workspace/.config/chromium-spx\0")
-        self.status.write_text(json.dumps({"renderer": {"browser_pid": 123}}))
+        self.status.write_text(json.dumps({"schema": 1, "renderer": {key: True for key in ("non_root", "no_new_privileges", "no_capabilities", "seccomp", "additional_seccomp_filter", "nested_pid_namespace")}}))
 
     def test_only_verified_main_gets_graceful_signal_and_waits_for_exit(self):
         with patch.object(self.module.os, "getuid", return_value=self.process.stat().st_uid, create=True), patch.object(self.module.os, "kill", side_effect=lambda pid, signum: shutil.rmtree(self.process)) as kill:
             self.assertEqual(self.module.close(self.status, self.root), {"requested": True, "exited": True})
         kill.assert_called_once_with(123, signal.SIGINT)
 
-    def test_pid_one_renderer_foreign_command_and_bad_record_never_receive_signal(self):
-        for pid, command in ((1, b"/usr/lib/chromium/chromium\0--user-data-dir=/home/workspace/.config/chromium-spx\0"), (123, b"python3\0"), (123, self.command.read_bytes() + b"--type=renderer\0"), (True, b"chromium\0")):
-            with self.subTest(pid=pid, command=command):
-                self.status.write_text(json.dumps({"renderer": {"browser_pid": pid}}))
+    def test_pid_one_renderer_foreign_command_and_ipc_launch_never_receive_signal(self):
+        original = self.command.read_bytes()
+        self.assertFalse(self.module.main_process(self.root, 1))
+        self.assertFalse(self.module.main_process(self.root, True))
+        for command in (b"python3\0", original + b"--type=renderer\0", original + b"--new-tab\0", original + b"--headless\0", original + b"--no-sandbox\0"):
+            with self.subTest(command=command):
                 self.command.write_bytes(command)
                 with patch.object(self.module.os, "getuid", return_value=self.process.stat().st_uid, create=True), patch.object(self.module.os, "kill") as kill:
                     self.assertEqual(self.module.close(self.status, self.root)["requested"], False)
                 kill.assert_not_called()
+
+    def test_ambiguous_main_process_or_unverified_report_never_gets_signal(self):
+        second = self.root / "124"
+        second.mkdir()
+        (second / "cmdline").write_bytes(self.command.read_bytes())
+        with patch.object(self.module.os, "getuid", return_value=self.process.stat().st_uid, create=True), patch.object(self.module.os, "kill") as kill:
+            self.assertFalse(self.module.close(self.status, self.root)["requested"])
+            kill.assert_not_called()
+            shutil.rmtree(second)
+            self.status.write_text(json.dumps({"schema": 1, "renderer": {"non_root": True}}))
+            self.assertFalse(self.module.close(self.status, self.root)["requested"])
+            kill.assert_not_called()
 
     def test_failed_preclose_never_prevents_owned_browser_stop(self):
         engine = Engine(Store(self.root / "data"))

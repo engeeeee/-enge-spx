@@ -278,7 +278,7 @@ print('DISPLAY_ISOLATED')'''
             # Share a localhost callback listener between the actual two containers.
             first_identity = login_fixture(engine, worker["Id"], browser["Id"], state)
             assert first_identity == {"cookie": False, "storage": False}, first_identity
-            value = execute(engine, browser["Id"], "import urllib.request; print(urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:1455',timeout=5).status)")
+            value = execute(engine, browser["Id"], "import urllib.request; print(urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:1455/?fixture=00000000000000000000000000000000',timeout=5).status)")
             assert value == "200", value
             passed("browser can reach the tool's localhost OAuth callback")
             fonts = engine.docker.run("exec", browser["Id"], "fc-list", ":lang=zh", "family")
