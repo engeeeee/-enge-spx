@@ -3,6 +3,7 @@ from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import time
@@ -57,6 +58,13 @@ def read_status(pid):
     return {key: value.strip() for key, value in (line.split(":", 1) for line in Path(f"/proc/{pid}/status").read_text().splitlines() if ":" in line)}
 
 
+def process_type(command):
+    # Chromium's Linux process-title rewrite may combine argv into one string.
+    # Accept either NUL-separated argv or that title, with exact flag boundaries.
+    match = re.search(rb"(?:^|[\x00\s])--type=(renderer|zygote|utility|gpu-process|broker)(?=[\x00\s]|$)", command)
+    return match.group(1).decode("ascii") if match else "browser"
+
+
 def verify_renderer(browser_pid, timeout=12):
     base = read_status(browser_pid)
     base_filters = int(base.get("Seccomp_filters", "0"))
@@ -73,14 +81,15 @@ def verify_renderer(browser_pid, timeout=12):
                     pass
         for pid, status in records.items():
             try:
-                command = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+                command = Path(f"/proc/{pid}/cmdline").read_bytes()
             except OSError:
                 continue
             if "chrom" in status.get("Name", "").lower():
-                kind = next((arg.decode("ascii", errors="replace") for arg in command if arg.startswith(b"--type=")), "browser")
-                entry = {"pid": pid, "parent": status.get("PPid"), "type": kind[:50], "filter_count": status.get("Seccomp_filters"), "pid_depth": len(status.get("NSpid", "").split())}
-                observed.setdefault("processes", {})[str(pid)] = entry
-            if b"--type=renderer" not in command:
+                kind = process_type(command)
+                entry = {"pid": pid, "parent": status.get("PPid"), "type": kind, "filter_count": status.get("Seccomp_filters"), "pid_depth": len(status.get("NSpid", "").split())}
+                if len(observed.setdefault("processes", {})) < 32:
+                    observed["processes"][str(pid)] = entry
+            if process_type(command) != "renderer":
                 continue
             observed["renderers"] += 1
             ancestor, visited = pid, set()

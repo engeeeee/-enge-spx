@@ -25,6 +25,12 @@ def resource(name):
 
 
 class SandboxTests(unittest.TestCase):
+    def test_renderer_detection_accepts_linux_rewritten_process_titles(self):
+        status = resource("sandbox_status")
+        for command in (b"/usr/lib/chromium/chromium\0--type=renderer\0--flag\0", b"/usr/lib/chromium/chromium --type=renderer --flag\0", b"chromium --type=renderer"):
+            self.assertEqual(status.process_type(command), "renderer")
+        for command in (b"chromium\0--type=renderer-other\0", b"chromium https://example/--type=renderer", b"chromium\0--type=zygote\0"):
+            self.assertNotEqual(status.process_type(command), "renderer")
     def test_chromium_reports_both_supported_table_formats_and_rejects_partial_sandbox(self):
         status = resource("sandbox_status")
         for label, value in (("Namespace sandbox", "Yes"), ("Layer 1 Sandbox", "Namespace")):

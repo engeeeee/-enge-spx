@@ -53,6 +53,16 @@ def main():
     chromium = ["chromium", "--disable-setuid-sandbox", "--no-first-run", "--disable-dev-shm-usage", "--disable-quic", "--disable-background-networking", "--password-store=basic", "--user-data-dir=" + profile, "--proxy-server=" + proxy]
     verified = verify_chromium(chromium)
     children = []
+    def close_children():
+        # Flush Chromium's persistent profile while its display is still alive.
+        for child in reversed(children):
+            if child.poll() is None:
+                child.terminate()
+            try:
+                child.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
     def spawn(args):
         child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         children.append(child)
@@ -83,8 +93,7 @@ def main():
     try:
         verified["renderer"] = verify_renderer(browser.pid)
     except Exception:
-        for child in reversed(children):
-            child.terminate()
+        close_children()
         raise
     Path("/tmp/spx-sandbox-status.json").write_text(json.dumps({"schema": 1, **verified}))
 
@@ -125,14 +134,7 @@ def main():
                 break
     finally:
         server.shutdown()
-        for child in reversed(children):
-            if child.poll() is None:
-                child.terminate()
-        for child in children:
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
+        close_children()
 
 
 if __name__ == "__main__":
