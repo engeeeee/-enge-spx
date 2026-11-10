@@ -21,3 +21,10 @@ The project retains its PolyForm Noncommercial license. The following independen
 - Chromium, TigerVNC, noVNC, websockify, Openbox, Debian/Alpine packages and fonts: their upstream and installed package copyright notices apply; Linux package notices are retained in the images.
 
 The Windows setup and portable ZIP contain the host application and container recipes. A separate, versioned Linux runtime archive contains the verified gateway, tools and browser images, including their installed license notices. Tool/browser dependencies are fetched during a source build, or the archive is downloaded and verified during normal installation. The application does not redistribute the original macOS release package or claim affiliation with its author or the third-party providers.
+# Browser seccomp policy
+
+The browser-specific seccomp policy derives from Moby profiles, Apache-2.0,
+at the exact commit recorded in `licenses/Moby-profiles-SOURCE.md`. The upstream
+license is in `licenses/Moby-profiles-Apache-2.0.txt`. This policy resource adds
+no binary or Python package dependency and does not change the application's
+PolyForm Noncommercial license.

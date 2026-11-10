@@ -1,0 +1,28 @@
+name: ENGE SPX P0 Security
+on:
+  workflow_dispatch:
+  push:
+    branches: [security/p0-hardening]
+    paths: ['src/**', 'tests/**', 'tools/**', 'packaging/**', 'pyproject.toml', '.github/workflows/security-p0.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-security-p0-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sandbox-feasibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test unprivileged Chromium under the restricted policy
+        run: python -u tools/probe_sandbox.py --output "$RUNNER_TEMP/p0-sandbox-probe.json"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P0-sandbox-feasibility
+          path: ${{ runner.temp }}/p0-sandbox-probe.json
+          if-no-files-found: error
