@@ -1,0 +1,137 @@
+[
+  {
+    "uri": "socks5://user:p%40ss@192.0.2.1:1080#old",
+    "expected": {
+      "id": "c91947071039effdab6a65b5",
+      "label": "old",
+      "outbound": {
+        "type": "socks",
+        "tag": "selected",
+        "server": "192.0.2.1",
+        "server_port": 1080,
+        "network": "tcp",
+        "version": "5",
+        "username": "user",
+        "password": "p@ss"
+      }
+    }
+  },
+  {
+    "uri": "http://u:p@proxy.example:8080",
+    "expected": {
+      "id": "e5fe83acffa524213bdf1ddf",
+      "label": "http · proxy.example:8080",
+      "outbound": {
+        "type": "http",
+        "tag": "selected",
+        "server": "proxy.example",
+        "server_port": 8080,
+        "username": "u",
+        "password": "p"
+      }
+    }
+  },
+  {
+    "uri": "https://u:p@proxy.example:443?sni=secure.example",
+    "expected": {
+      "id": "43c9abb1e2a23bcd152b7f09",
+      "label": "http · proxy.example:443",
+      "outbound": {
+        "type": "http",
+        "tag": "selected",
+        "server": "proxy.example",
+        "server_port": 443,
+        "username": "u",
+        "password": "p",
+        "tls": {
+          "enabled": true,
+          "server_name": "secure.example"
+        }
+      }
+    }
+  },
+  {
+    "uri": "trojan://secret@203.0.113.1:443?sni=cdn.example",
+    "expected": {
+      "id": "f0f13336cf5815203d9f3020",
+      "label": "trojan · 203.0.113.1:443",
+      "outbound": {
+        "type": "trojan",
+        "tag": "selected",
+        "server": "203.0.113.1",
+        "server_port": 443,
+        "network": "tcp",
+        "password": "secret",
+        "tls": {
+          "enabled": true,
+          "server_name": "cdn.example"
+        }
+      }
+    }
+  },
+  {
+    "uri": "vless://12345678-1234-1234-1234-123456789abc@203.0.113.2:443?sni=cdn.example",
+    "expected": {
+      "id": "c00a7be3b9d3b88ae9a0e1ff",
+      "label": "vless · 203.0.113.2:443",
+      "outbound": {
+        "type": "vless",
+        "tag": "selected",
+        "server": "203.0.113.2",
+        "server_port": 443,
+        "network": "tcp",
+        "uuid": "12345678-1234-1234-1234-123456789abc",
+        "tls": {
+          "enabled": true,
+          "server_name": "cdn.example"
+        }
+      }
+    }
+  },
+  {
+    "uri": "ss://YWVzLTEyOC1nY206c2VjcmV0@203.0.113.3:8388",
+    "expected": {
+      "id": "c6452c331b4ea48e3402d594",
+      "label": "shadowsocks · 203.0.113.3:8388",
+      "outbound": {
+        "type": "shadowsocks",
+        "tag": "selected",
+        "server": "203.0.113.3",
+        "server_port": 8388,
+        "network": "tcp",
+        "password": "secret",
+        "method": "aes-128-gcm"
+      }
+    }
+  },
+  {
+    "json": {
+      "type": "vmess",
+      "server": "203.0.113.4",
+      "server_port": 443,
+      "uuid": "12345678-1234-1234-1234-123456789abc",
+      "security": "auto",
+      "tls": {
+        "enabled": true,
+        "server_name": "cdn.example"
+      }
+    },
+    "expected": {
+      "id": "1f5310c83bd7eacc5e7a7693",
+      "label": "vmess · 203.0.113.4:443",
+      "outbound": {
+        "type": "vmess",
+        "tag": "selected",
+        "server": "203.0.113.4",
+        "server_port": 443,
+        "network": "tcp",
+        "uuid": "12345678-1234-1234-1234-123456789abc",
+        "security": "auto",
+        "tls": {
+          "enabled": true,
+          "server_name": "cdn.example"
+        }
+      }
+    }
+  }
+]

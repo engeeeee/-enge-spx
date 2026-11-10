@@ -30,7 +30,7 @@ class NodeTests(unittest.TestCase):
             uri_node("vless://bad-uuid@example.com")
 
     def test_unsupported_transport_is_rejected(self):
-        for query in ("type=ws", "type=grpc", "security=reality", "flow=xtls-rprx-vision", "fp=chrome", "allowInsecure=1"):
+        for query in ("type=mkcp", "type=xhttp", "security=reality", "flow=xtls-rprx-vision", "fp=unverified-client", "allowInsecure=1"):
             with self.subTest(query=query), self.assertRaises(ValueError):
                 uri_node("trojan://secret@example.com:443?" + query)
 
@@ -55,7 +55,7 @@ class NodeTests(unittest.TestCase):
 
     def test_subscription_deduplicates_and_reports_partial_import(self):
         line = "trojan://password@example.com:443"
-        nodes, errors = parse_nodes(base64.b64encode((line + "\n" + line + "\ntrojan://password@example.com?type=ws").encode()).decode())
+        nodes, errors = parse_nodes(base64.b64encode((line + "\n" + line + "\ntrojan://password@example.com?type=mkcp").encode()).decode())
         self.assertEqual(len(nodes), 1)
         self.assertEqual(len(errors), 1)
         self.assertNotIn("password", errors[0])

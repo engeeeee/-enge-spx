@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from enge_spx.brand import CONTAINERS, DATA_DIRECTORY, LEGACY_DATA_DIRECTORY, LEGACY_LABEL_ROOT
 from enge_spx.compat import LEGACY_RECIPES, LEGACY_BROWSER_TOKEN
 from enge_spx.engine import Engine, OWNER, RECIPE
-from enge_spx.state import Store, SPXError, atomic_json, default_home
+from enge_spx.state import Store, SPXError, atomic_json, default_home, fingerprint
 
 
 class MigrationTests(unittest.TestCase):
@@ -97,6 +97,71 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual((new / "Cookies.fixture").read_text(), "preserved")
         self.assertFalse(old.exists())
         self.assertEqual(browser.browser_profile(self.base), str(new))
+
+    def test_stopped_pre_sandbox_browser_does_not_block_upgrade_confirmation(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                store = self.legacy_store() if legacy else Store(self.base / "fresh")
+                engine = Engine(store)
+                store.write("gateway/config.json", {"fixture": "configuration"})
+                state = {"session": "session", "gateway": "gateway", "config_hash": fingerprint(store.read("gateway/config.json"))}
+                def container(role, running=True):
+                    networks = {engine.internal: {}}
+                    if role == "gateway":
+                        networks[engine.external] = {}
+                    return {"Id": role, "State": {"Running": running}, "Config": {"Labels": {engine.owner: store.instance, engine.role: role}}, "NetworkSettings": {"Networks": networks}, "HostConfig": {"NetworkMode": "container:session", "Dns": ["127.0.0.1"]}}
+                objects = {engine.prefix + "-" + role: container(role, role != "browser") for role in ("gateway", "session", "project", "browser")}
+                # The old stopped browser intentionally has no readonly rootfs,
+                # non-root image user, or application seccomp profile.
+                old_browser = objects[engine.prefix + "-browser"]
+                old_browser["Mounts"] = [{"Type": "volume", "Name": engine.prefix + "-browser-home", "Destination": "/home/workspace"}]
+                engine.docker = Mock()
+                def inspect(kind, name):
+                    if kind == "network":
+                        return {"Internal": name == engine.internal, "Driver": "bridge", "EnableIPv6": False, "Options": {"com.docker.network.bridge.gateway_mode_ipv4": "isolated"} if name == engine.internal else {}, "Labels": {engine.owner: store.instance}}
+                    return objects.get(name) or next((item for item in objects.values() if item["Id"] == name), None)
+                engine.docker.inspect.side_effect = inspect
+                def run(*args, **kwargs):
+                    self.assertEqual(args, ("rm", "browser"))
+                    del objects[engine.prefix + "-browser"]
+                    return "browser"
+                engine.docker.run.side_effect = run
+                engine.managed = lambda: list(objects)
+                engine.doctor = Mock()
+                engine._stop = Mock()
+                engine.take_over_legacy_guard = Mock()
+                engine.setup = Mock(return_value=state)
+                engine.ensure_forward = Mock()
+                engine.wait_line_listener = Mock()
+                engine.policy = Mock(return_value="policy")
+                engine.probe_chain = Mock(return_value={"ip": "203.0.113.1", "direct_blocked": True})
+                engine.set_lease = Mock()
+                engine.start_guard = Mock()
+                engine.check()
+                engine.confirm()
+                self.assertEqual(store.read("runtime.json")["phase"], "ready")
+                self.assertNotIn(engine.prefix + "-browser", objects)
+                self.assertIn(engine.prefix + "-project", objects)
+                engine.docker.run.assert_called_once_with("rm", "browser")
+
+    def test_browser_retirement_refuses_foreign_ownership_and_never_forces_a_running_browser(self):
+        store = Store(self.base / "fresh")
+        engine = Engine(store)
+        engine.docker = Mock()
+        obj = {"Id": "running-browser", "State": {"Running": True}, "Config": {"Labels": {engine.owner: store.instance, engine.role: "browser"}}}
+        engine.docker.inspect.return_value = obj
+        self.assertEqual(engine._retire_stopped_browser(), obj)
+        engine.docker.run.assert_not_called()
+        # A running unsafe browser is still rejected by the unchanged audit.
+        from enge_spx.browser_security import validate_container
+        with self.assertRaises(SPXError):
+            validate_container(obj)
+        obj["State"]["Running"] = False
+        obj["Config"]["Labels"][engine.owner] = "another-instance"
+        with self.assertRaisesRegex(SPXError, "资源归属"):
+            engine._retire_stopped_browser()
+        engine.docker.run.assert_not_called()
+
 
     def test_legacy_guard_handoff_waits_for_the_previous_controller(self):
         store = self.legacy_store()

@@ -150,6 +150,24 @@ def exercise_entry_point(command, base, cli, mode):
         result = ctypes.c_size_t()
         assert user.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 1500, ctypes.byref(result)), "GUI stopped responding after the read-only check"
         user.PostMessageW(hwnd, 0x0010, 0, 0)
+        if "gui-tray-enabled" in text:
+            deadline = time.monotonic() + 3
+            while process.poll() is None and user.IsWindowVisible(hwnd) and time.monotonic() < deadline:
+                time.sleep(.05)
+            assert process.poll() is None and not user.IsWindowVisible(hwnd), "Close did not preserve the GUI in the tray"
+            duplicate = subprocess.run([*command, "--data", str(data), "gui"], env=environment(base, cli, mode), capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+            assert duplicate.returncode == 0, "Duplicate GUI could not restore the background instance"
+            deadline = time.monotonic() + 3
+            while not user.IsWindowVisible(hwnd) and time.monotonic() < deadline:
+                time.sleep(.05)
+            assert user.IsWindowVisible(hwnd), "Original GUI stayed hidden after reopening"
+            assert not (base / "launches").exists(), "Tray restore launched Desktop"
+            print(f"Real entry point: {Path(command[0]).name} / {mode}; close-to-tray and duplicate-instance restore passed", flush=True)
+            # This isolated fixture never starts a workspace. Explicit tray exit
+            # is exercised in Qt tests; do not add a production shutdown backdoor.
+            process.kill()
+            process.communicate(timeout=6)
+            return
         stdout, stderr = process.communicate(timeout=6)
         assert process.returncode == 0, f"GUI close failed: {process.returncode}\n{stdout}\n{stderr}"
         text = log_path.read_text(encoding="utf-8")

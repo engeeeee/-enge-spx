@@ -12,6 +12,24 @@ concurrency:
 env:
   PYTHONPATH: src
 jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -v
+      - if: runner.os == 'Windows'
+        run: python tools/smoke_gui.py
   network-feasibility:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -27,4 +45,27 @@ jobs:
         with:
           name: P1-network-feasibility
           path: ${{ runner.temp }}/p1-network-probe.json
+          if-no-files-found: error
+  protocol-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f tools/Dockerfile.proxy-test -t spx-proxy-test .
+      - name: Actual native Docker TLS, Reality, gRPC, QUIC, UDP and fixed chains
+        run: docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 512m spx-proxy-test
+  network-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -u tests/integration_network_policy.py --context default --output "$RUNNER_TEMP/p1-network-policy.json"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P1-network-policy
+          path: ${{ runner.temp }}/p1-network-policy.json
           if-no-files-found: error

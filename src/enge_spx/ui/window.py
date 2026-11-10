@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 import webbrowser
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon, QFont
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
                              QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget,
                              QPushButton, QPlainTextEdit, QFileDialog, QLineEdit,
-                             QSizePolicy, QSizeGrip, QBoxLayout)
+                             QSizePolicy, QSizeGrip, QBoxLayout, QSystemTrayIcon, QMenu)
 
 from .. import __version__, terminal
 from ..brand import APP_NAME, ICONS, PROJECT_URL
@@ -37,6 +37,8 @@ class ResizeEdge(QWidget):
 
 
 class Window(QMainWindow):
+    closed = Signal()
+
     def __init__(self, controller):
         super().__init__(None, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.c = controller
@@ -50,6 +52,8 @@ class Window(QMainWindow):
         self.log_view = None
         self._last_view = None
         self._force_close = False
+        self._explicit_exit = False
+        self.tray = None
         self.compact = None
         self.minimized_by_user = False
         self.resize_edges = []
@@ -425,7 +429,7 @@ class Window(QMainWindow):
         panel = page.panel("启动行为")
         panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
         panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。退出软件不会关闭 Docker Desktop。", "Caption", True))
-        panel = page.panel("工作区终端", "Pebrel、Windows Terminal、PowerShell 或你选择的命令行程序。")
+        panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
         panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
         row = QHBoxLayout()
         self.terminal_path = entry(self.c.terminal_exe, "预设可自动寻找，或选择便携版 exe")
@@ -433,7 +437,8 @@ class Window(QMainWindow):
         row.addWidget(self.action("选择 exe", self.choose_terminal))
         panel.layout.addWidget(label("终端程序", "Muted"))
         panel.layout.addLayout(row)
-        self.terminal_args = panel.field("自定义启动参数", entry(self.c.terminal_args, "仅自定义程序需要填写"), "{project} 为项目目录，{title} 为标题，独立的 {command} 插入工作区命令。")
+        self.terminal_args = panel.field("自定义启动参数", entry(self.c.terminal_args, "按所选终端的说明填写"), "{project} 为项目目录，{title} 为标题，独立的 {command} 插入工作区命令。")
+        panel.layout.addWidget(label("自定义终端请关闭会自动输入命令的欢迎页，避免欢迎指令进入工具输入框。", "Caption", True))
         self.c.terminal_kind.changed.connect(lambda unused: self.terminal_fields())
         self.terminal_fields()
         row = panel.row()
@@ -551,7 +556,7 @@ class Window(QMainWindow):
         if path:
             self.c.terminal_exe.set(path)
             if self.c.terminal_kind.get() == "auto":
-                self.c.terminal_kind.set("pebrel" if Path(path).stem.lower() == "pebrel" else "custom")
+                self.c.terminal_kind.set("custom")
 
     def export_v2ray(self):
         path, unused = QFileDialog.getSaveFileName(self, "保存 v2rayN 路由规则", "ENGE-SPX-v2rayN-rules.json", "JSON (*.json)")
@@ -651,13 +656,54 @@ class Window(QMainWindow):
         self._force_close = True
         self.close()
 
+    def install_tray(self):
+        if self.tray is not None or not QSystemTrayIcon.isSystemTrayAvailable():
+            return self.tray is not None
+        self.tray = QSystemTrayIcon(self.windowIcon(), self)
+        self.tray.setToolTip(APP_NAME + " · 工作区控制台")
+        self.tray_menu = QMenu(self)
+        self.tray_show = self.tray_menu.addAction("显示主窗口", self.reveal)
+        self.tray_menu.addSeparator()
+        self.tray_stop_exit = self.tray_menu.addAction("停止工作区并退出", self.stop_and_exit)
+        self.tray_exit = self.tray_menu.addAction("退出界面（保留工作区）", self.exit_interface)
+        self.tray.setContextMenu(self.tray_menu)
+        self.tray.activated.connect(self.tray_activated)
+        self.c.changed.connect(lambda unused: self.tray_stop_exit.setEnabled(not self.c.busy))
+        self.tray_stop_exit.setEnabled(not self.c.busy)
+        self.tray.show()
+        return True
+
+    def tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.reveal()
+
+    def exit_interface(self):
+        self._explicit_exit = True
+        self.reveal()
+        self.close()
+
+    def stop_and_exit(self):
+        if self.c.busy:
+            return
+        self.reveal()
+        self.c.run(lambda engine: engine.stop(), lambda unused: self.finish_close(), description="正在停止本工作区并退出…")
+
     def closeEvent(self, event):
+        if not self._force_close and not self._explicit_exit and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():
+            self.minimized_by_user = True
+            self.hide()
+            event.ignore()
+            return
         if self._force_close or self.c.request_close():
             self.c.delivery.stop()
             self.c.status_timer.stop()
             self.c.refresh_timer.stop()
+            if self.tray is not None:
+                self.tray.hide()
             event.accept()
+            self.closed.emit()
         else:
+            self._explicit_exit = False
             event.ignore()
 
     def _create_edges(self):

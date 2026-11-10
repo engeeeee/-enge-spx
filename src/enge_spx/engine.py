@@ -24,12 +24,13 @@ from .compat import LEGACY_RECIPES, LEGACY_RUNTIME_DIRECTORY, LEGACY_BROWSER_TOK
 from .docker_env import environment as docker_environment
 from .line_security import LineSecurityError
 from .startup import DockerUnavailable, DockerContextUnavailable, DockerConfigurationError
+from .backends import DEFAULT_BACKEND, get_backend
 
 OWNER = "io.enge.spx.instance"
 ROLE = "io.enge.spx.role"
 STORAGE = "io.enge.spx.storage"
 RECIPE = "io.enge.spx.recipe"
-GATEWAY_IMAGE = "ghcr.io/sagernet/sing-box:v1.14.3"
+GATEWAY_IMAGE = DEFAULT_BACKEND.image
 RESOURCES = CONTAINERS
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 TOOLS = {"claude": ["claude"], "codex": ["codex"], "shell": ["bash", "-l"], "login-claude": ["claude", "auth", "login"], "login-codex": ["codex", "login"]}
@@ -141,6 +142,7 @@ class Engine:
     def __init__(self, store: Store, log=lambda message: None, stop_context=None):
         self.store, self.log = store, log
         self.settings = {"context": stop_context} if stop_context else store.settings()
+        self.backend = get_backend(self.settings.get("proxy_backend"))
         self.docker = Docker(self.settings["context"])
         from .redaction import redact, values
         self.secret_values = set() if stop_context else values(self.settings) | values(store.read("nodes.json", [])) | values(store.read("runtime.json", {})) | values(store.read("relay.json", {}))
@@ -383,23 +385,11 @@ class Engine:
         from .proxy import route_config
         relay = route_config(settings["relay"])
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
-        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2})
+        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2, "network_policy": 1, "proxy_backend": self.backend.name})
 
     def networks(self):
-        for name, internal in ((self.internal, True), (self.external, False)):
-            obj = self.docker.inspect("network", name)
-            if not obj:
-                args = ["network", "create", "--label", self.owner + "=" + self.store.instance]
-                if internal:
-                    args.append("--internal")
-                self.docker.run(*args, name)
-                obj = self.docker.inspect("network", name)
-            self.owned(obj)
-            if obj.get("Internal") != internal or obj.get("Driver") != "bridge" or obj.get("EnableIPv6"):
-                raise SPXError("容器网络的隔离配置不一致。")
-        config = self.docker.inspect("network", self.internal)["IPAM"]["Config"]
-        subnet = next(ipaddress.ip_network(x["Subnet"]) for x in config if ":" not in x["Subnet"])
-        return str(subnet[2]), str(subnet[3])
+        from .network_policy import ensure
+        return ensure(self)
 
     def ensure_container(self, role, image, arguments, command=(), name=None):
         name = name or self.prefix + "-" + role
@@ -427,7 +417,7 @@ class Engine:
         ids = self.image_ids()
         gateway_ip, session_ip = self.networks()
         from .proxy import loopback, validate_relay
-        from .line_security import chain_outbounds, LINE_CHECK, LINE_PROXY, line_rules
+        from .line_security import chain_outbounds, LINE_PROXY
         relay = validate_relay(self.store.settings()["relay"])
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
         outbounds, forward_target = chain_outbounds(self.node(), relay, line)
@@ -445,11 +435,7 @@ class Engine:
                 raise SPXError("本机无法解析节点的 IPv4 地址。") from error
         directory = self.store.home / "gateway"
         directory.mkdir(exist_ok=True)
-        config = {"log": {"level": "warn"}, "inbounds": [{"type": "mixed", "tag": "clients", "listen": gateway_ip, "listen_port": 2080}], "outbounds": outbounds, "route": {"final": "selected"}}
-        if relay["enabled"]:
-            # Work containers must not reach the line-only diagnostic listener.
-            config["inbounds"].append({"type": "mixed", "tag": LINE_CHECK, "listen": "127.0.0.1", "listen_port": 2082})
-            config["route"]["rules"] = line_rules(outbounds)
+        config = self.backend.gateway_config(outbounds, gateway_ip, relay["enabled"])
         self.store.write("gateway/config.json", config)
         journal = self._image_abis.get("gateway") != "legacy"
         self.set_lease(time.time() + 300, {"lease_journal": journal}, reset=True)
@@ -532,6 +518,11 @@ class Engine:
             self.doctor()
             self._stop("正在检查连接。")
             try:
+                # A pre-sandbox browser remains stopped after an upgrade. It
+                # must be retired before confirm/guard audits every owned
+                # container. Keep the named Profile/download volumes; the next
+                # browser launch still validates the replacement and renderer.
+                self._retire_stopped_browser()
                 self.take_over_legacy_guard()
                 state = self.setup()
                 state.update({"phase": "checking", "policy": self.policy()})
@@ -571,8 +562,11 @@ class Engine:
             raise SPXError("容器已停止或重新创建，请重新检查和确认连接。")
         if set(session["NetworkSettings"]["Networks"]) != {self.internal} or set(gateway["NetworkSettings"]["Networks"]) != {self.internal, self.external}:
             raise SPXError("检测到容器网络发生变化。")
-        if not self.owned(self.docker.inspect("network", self.internal)).get("Internal"):
-            raise SPXError("内部网络隔离已改变。")
+        if session.get("HostConfig", {}).get("Dns") != ["127.0.0.1"]:
+            raise SPXError("工作区 DNS 配置已改变，环境已拒绝继续连接。")
+        from .network_policy import validate as validate_network
+        validate_network(self, self.docker.inspect("network", self.internal), True)
+        validate_network(self, self.docker.inspect("network", self.external), False)
         config = self.store.read("gateway/config.json")
         if fingerprint(config) != state["config_hash"] or self.policy() != state["policy"]:
             raise SPXError("节点或运行配置已改变，请重新检查。")
@@ -753,14 +747,18 @@ class Engine:
         code = (RESOURCES / "runtime_secret.py").read_text(encoding="utf-8")
         self.docker.run("exec", "-i", container, "python3", "-c", code, role, input_data=json.dumps(value, separators=(",", ":")))
 
+    def _retire_stopped_browser(self):
+        old = self.inspect("browser")
+        if old and not old["State"]["Running"]:
+            self.docker.run("rm", old["Id"])
+        return old
+
     def _browser(self, state):
         from .browser_security import arguments, validate_container, validate_status
         ids = self.image_ids()
         # A stopped browser may contain an old one-time display token. Replace its
         # container, keeping its profile and downloads in dedicated persistent volumes.
-        old = self.inspect("browser")
-        if old and not old["State"]["Running"]:
-            self.docker.run("rm", old["Id"])
+        old = self._retire_stopped_browser()
         obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", "--memory", "2g", *arguments(), "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
         validate_container(obj)
         if not old or not old["State"]["Running"]:
