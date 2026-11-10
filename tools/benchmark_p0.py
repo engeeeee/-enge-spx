@@ -154,6 +154,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--context", default="default")
     parser.add_argument("--baseline", default=BASELINE)
+    parser.add_argument("--candidate-first", action="store_true", help="Reverse source order to expose warm/cold-order effects")
     parser.add_argument("--worker", action="store_true")
     args = parser.parse_args()
     if args.worker:
@@ -171,7 +172,9 @@ def main():
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             archive.extractall(baseline)
         report = {"schema": 1, "platform": platform.platform(), "python": sys.version.split()[0], "baseline_commit": revision, "candidate_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "kind": args.kind, "results": {}}
-        for label, source in (("baseline", baseline), ("candidate", root)):
+        order = (("candidate", root), ("baseline", baseline)) if args.candidate_first else (("baseline", baseline), ("candidate", root))
+        report["measurement_order"] = [label for label, _ in order]
+        for label, source in order:
             output = baseline / (label + ".json")
             env = {**os.environ, "PYTHONPATH": str(source / "src"), "PYTHONIOENCODING": "utf-8"}
             if os.name != "nt":

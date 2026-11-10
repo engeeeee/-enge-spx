@@ -752,6 +752,8 @@ class Engine:
 
     def save_resources(self, config):
         from .resource_limits import validate
+        if not isinstance(config, dict):
+            raise SPXError("请提供完整的 schema=1 资源设置对象。")
         config = validate(config)
         with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前操作完成后保存资源预算…")):
             settings = self.store.settings()
@@ -770,7 +772,7 @@ class Engine:
 
     def restore_resources(self):
         previous = self.store.read("resources-previous.json", {})
-        if previous.get("schema") != 1 or "resources" not in previous:
+        if not isinstance(previous, dict) or set(previous) != {"schema", "resources"} or type(previous.get("schema")) is not int or previous["schema"] != 1 or not isinstance(previous["resources"], dict):
             raise SPXError("没有可恢复的上次资源设置。")
         return self.save_resources(previous["resources"])
 

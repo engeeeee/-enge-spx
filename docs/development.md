@@ -120,7 +120,7 @@ cancellation, context restrictions, existing-image reuse and explicit exit
 review. Windows CI compiles an isolated fake Desktop/CLI pair to exercise real
 process launching from a custom path with spaces; it never launches the runner's
 actual Docker Desktop. This is not a substitute for first-install WSL/permission
-dialogs or a physical Windows + Docker Desktop + v2ray + Pebrel acceptance run.
+dialogs or a physical Windows + Docker Desktop + v2ray + custom terminal acceptance run.
 
 `tests/test_gui_startup.py` also exercises the real application entry point,
 and CI repeats it against `dist/ENGE-SPX/ENGE-SPX.exe` with `--packaged` after
@@ -132,3 +132,14 @@ normally. Fake-Desktop tests do not claim real Desktop/WSL acceptance.
 records, including fatal stacks without stderr. It omits exception messages
 and frame locals and closes its handles during data migration. Source GUI
 checks have a bounded fatal-stack timer so a broken modal cannot hang CI.
+
+The resource batch adds `resource_limits.py`, `process_metrics.py` and
+`resource_monitor.py`: validated stopped-container budgets, read-only OS counters,
+and scoped Docker stats. The resource page samples only while its overview is
+visible. It does not replace guard or reduce security checks. See the
+[resource guide](resources.zh-CN.md) and [validation record](validation-resources.zh-CN.md).
+`resources-p1.yml` keeps three alternating-order host pairs; formal CI adds real
+cgroup checks and `tools/benchmark_resources.py` after verified runtime tests.
+The Docker fixture compares 0.9.0 normal, candidate normal and candidate low using
+the same images. It labels tool startup, synthetic load and Chromium activity
+separately and does not claim real AI account/noVNC/physical WSL acceptance.

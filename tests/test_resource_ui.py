@@ -79,6 +79,10 @@ class ResourceUITests(unittest.TestCase):
         with patch.object(self.controller, "sample_resources"):
             self.window.show_page("resources")
             self.assertTrue(self.controller.resource_timer.isActive())
+            self.window.select_resource_view("budget")
+            self.assertFalse(self.controller.resource_timer.isActive())
+            self.window.select_resource_view("usage")
+            self.assertTrue(self.controller.resource_timer.isActive())
             self.window.show_page("overview")
             self.assertFalse(self.controller.resource_timer.isActive())
             self.window.show_page("resources")

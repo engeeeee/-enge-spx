@@ -74,6 +74,7 @@ QPushButton { background: #3B3730; border: 1px solid #514A3F; border-radius: 7px
 QPushButton:hover { background: #484137; border-color: #6C5C4A; }
 QPushButton:pressed { background: #302B25; }
 QPushButton:focus { border-color: #D69778; }
+QPushButton:checked { background: #514035; border-color: #8B6650; color: #F1D5C4; }
 QPushButton:disabled { background: #302D27; color: #7F796E; border-color: #3D3830; }
 QPushButton#Primary { background: #D69778; color: #241A15; border-color: #D69778; font-weight: 600; }
 QPushButton#Primary:hover { background: #E1A88B; border-color: #E1A88B; }

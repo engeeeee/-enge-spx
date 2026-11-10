@@ -58,7 +58,7 @@ module.exports = async ({github, context, core}) => {
       ? fs.readFileSync(path.join('docs', 'releases', `${version}.zh-CN.md`), 'utf8').trim()
       : `本版本改动见 [CHANGELOG](https://github.com/${owner}/${repo}/blob/${tag}/CHANGELOG.md)。`,
     '',
-    '本次发布要求同一 CI 的 Windows / Linux、真实文件共享锁、Qt 多档缩放、打包 GUI 手动启动、安装卸载、实际 Linux 长时续期、字体与中文 PTY、双跳故障阻断和两种镜像存储导入检查通过。Windows 界面结果保存在该次 CI 的 UI Artifact。假 Desktop 与 Linux Docker 测试不能代替用户真实 Docker Desktop / WSL、v2ray、Pebrel 和显示器组合验收。Qt / PySide6 / Shiboken6 的许可、上游声明与对应源码链接随包提供。',
+    '本次发布要求同一 CI 的 Windows / Linux、真实文件共享锁、Qt 多档缩放、打包 GUI 手动启动、安装卸载、实际 Linux 长时续期、字体与中文 PTY、双跳故障阻断和两种镜像存储导入检查通过。Windows 界面结果保存在该次 CI 的 UI Artifact。假 Desktop 与 Linux Docker 测试不能代替用户真实 Docker Desktop / WSL、v2ray、自定义终端 和显示器组合验收。Qt / PySide6 / Shiboken6 的许可、上游声明与对应源码链接随包提供。',
     '',
     `[使用说明](https://github.com/${owner}/${repo}/blob/${tag}/README.md) · [线路保护](https://github.com/${owner}/${repo}/blob/${tag}/docs/line-protection.zh-CN.md) · [来源与许可](https://github.com/${owner}/${repo}/blob/${tag}/NOTICE.md) · [本次构建](https://github.com/${owner}/${repo}/actions/runs/${context.runId})`,
   ].join('\n');

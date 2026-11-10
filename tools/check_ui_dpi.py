@@ -9,7 +9,7 @@ if os.name != "nt":
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QAbstractSpinBox
 from enge_spx.state import Store
 from enge_spx.ui import style
 from enge_spx.ui.controller import Controller
@@ -38,6 +38,23 @@ with tempfile.TemporaryDirectory() as directory:
         path.mkdir(parents=True, exist_ok=True)
         name = "dpi-" + os.environ.get("QT_SCALE_FACTOR", "native")
         window.grab().save(str(path / (name + ".png")))
+        (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    window.show_page("resources")
+    window.select_resource_view("budget")
+    QTest.qWait(80)
+    page = window.pages["resources"]
+    viewport = page.viewport()
+    action = QRect(window.resource_save_button.mapTo(viewport, QPoint()), window.resource_save_button.size())
+    assert viewport.rect().contains(action), f"Resource save action is clipped: {action} / {viewport.rect()}"
+    for widget in page.findChildren(QAbstractSpinBox):
+        page.ensureWidgetVisible(widget)
+        QTest.qWait(10)
+        rect = QRect(widget.mapTo(viewport, QPoint()), widget.size())
+        assert rect.left() >= 0 and rect.right() <= viewport.width(), f"Resource input is horizontally clipped: {rect} / {viewport.rect()}"
+    page.verticalScrollBar().setValue(0)
+    report["resource_budget_controls_visible"] = True
+    if target:
+        window.grab().save(str(path / (name + "-resources.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report), flush=True)
     window.finish_close()

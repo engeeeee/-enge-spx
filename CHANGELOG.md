@@ -1,5 +1,25 @@
 # Changes
 
+## 0.10.0 resource management preview — 2026-11-10
+
+- Add schema-1 role/project CPU and memory budgets, normal/low/custom modes and
+  previous-settings restore. Missing settings preserve 0.9.0 defaults. Apply
+  changes while stopped and reuse project IDs/layers; failures never start an
+  unapplied budget. Replace only the data-free gateway to clear a memory limit,
+  because Docker update ignores memory=0. Do not change host/WSL global limits.
+- Add read-only Win32/Linux process counters and owner-scoped Docker stats with
+  explicit application, container, Desktop and WSL2 sources. Register only public
+  PID/creation metadata; telemetry failure cannot stop guard. Sample only when
+  the resource overview is visible, never overlap samples or start Docker for it.
+- Add independent Chromium/display stop and optional browser startup with tools.
+  Explicit login still prepares the sandboxed browser. Preserve CLI processes,
+  Profile and protected networking; do not fall back to a host browser.
+- Reduce background UI polling and duplicate project-list writes without
+  reducing safety-check frequency. Keep tray lifecycle and manual Docker startup.
+- Add real cgroup/rollback/foreign-workload tests, native process-handle and UI
+  lifecycle checks, browser pause/restart regression and same-runner stage
+  measurements. No new production dependency, runtime image or capability.
+
 ## 0.9.0 proxy and network preview — 2026-11-10
 
 - Extract a Proxy Backend Adapter around the existing sing-box 1.14.3 core;

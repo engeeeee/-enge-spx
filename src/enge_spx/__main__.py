@@ -107,8 +107,11 @@ def main():
         elif args.action == "resources":
             from .resource_limits import validate
             if args.apply:
-                with args.apply.open("r", encoding="utf-8-sig") as stream:
-                    content = stream.read(512 * 1024 + 1)
+                try:
+                    with args.apply.open("r", encoding="utf-8-sig") as stream:
+                        content = stream.read(512 * 1024 + 1)
+                except UnicodeError as error:
+                    raise SPXError("资源设置文件必须使用 UTF-8 JSON。") from error
                 if len(content) > 512 * 1024:
                     raise SPXError("资源设置文件不能超过 512 KiB。")
                 try:

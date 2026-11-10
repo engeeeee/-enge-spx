@@ -270,7 +270,11 @@ class Controller(QObject):
             if not row["running"]:
                 lines.append(title + (" · 已停止（内存不足 OOM）" if row["oom"] else " · 已停止"))
                 continue
-            limit = "共享 Docker/WSL2 上限" if not row["memory_limit"] else size_text(row["memory_limit"])
+            configured = row["memory_limit"]
+            reported = row.get("reported_memory_limit", 0)
+            limit = size_text(reported) if reported else size_text(configured) if configured else "共享 Docker/WSL2 上限"
+            if configured and reported and reported != configured:
+                limit += f"（配置 {size_text(configured)}）"
             if row["sample_available"]:
                 lines.append(f"{title} · CPU {cpu(row['cpu_percent'])} · 内存 {size_text(row['memory_bytes'])} / {limit}\n累计磁盘读 {size_text(row['read_bytes'])} / 写 {size_text(row['write_bytes'])} · CPU 上限 {str(row['cpu_limit']) + ' 核' if row['cpu_limit'] else '不限'}")
             else:

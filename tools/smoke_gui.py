@@ -86,8 +86,13 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"LOCALA
         window.show_page(name)
         QTest.qWait(30)
         assert window.pages[name].isVisible()
-        if name in ("connection", "workspace"):
+        if name in ("connection", "workspace", "resources"):
             capture(window, name)
+        if name == "resources":
+            window.select_resource_view("budget")
+            QTest.qWait(30)
+            capture(window, "resources-budget")
+            window.select_resource_view("usage")
     window.c.terminal_kind.set("unknown-preset")
     assert not window.terminal_args.isEnabled()
     window.c.terminal_kind.set("custom")
