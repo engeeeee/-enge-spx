@@ -80,6 +80,23 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(self.store.read("nodes.json"), node)
         self.assertFalse((self.store.home / "credentials-state.json").exists())
 
+    def test_running_legacy_writer_must_stop_before_any_migration_write(self):
+        atomic_json(self.store.home / "nodes.json", [{"id": "preserve", "password": "legacy-private"}])
+        before = (self.store.home / "nodes.json").read_bytes()
+        for phase in ("checking", "review", "ready"):
+            atomic_json(self.store.home / "runtime.json", {"phase": phase})
+            runtime = (self.store.home / "runtime.json").read_bytes()
+            with patch("enge_spx.storage._private_directory") as permissions:
+                with self.assertRaises(SPXError):
+                    self.store.migrate_credentials()
+            permissions.assert_not_called()
+            self.assertEqual((self.store.home / "nodes.json").read_bytes(), before)
+            self.assertEqual((self.store.home / "runtime.json").read_bytes(), runtime)
+        atomic_json(self.store.home / "runtime.json", {"phase": "stopped"})
+        with patch("enge_spx.storage._private_directory"):
+            self.assertTrue(self.store.migrate_credentials()["encrypted"])
+        self.assertEqual(self.store.read("nodes.json")[0]["id"], "preserve")
+
     def test_partial_migration_can_resume_and_remains_readable(self):
         atomic_json(self.store.home / "nodes.json", [{"id": "keep", "password": "keep-secret"}])
         atomic_json(self.store.home / "settings.json", {"selected": "keep"})

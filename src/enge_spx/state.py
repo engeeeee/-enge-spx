@@ -165,6 +165,8 @@ class Store:
             return {"schema": 1, "mode": "private-files", "encrypted": False, "migrated": []}
         with self.lock(timeout=30):
             pending = self.credentials.pending(self.home)
+            if pending and self.read("runtime.json", {}).get("phase", "stopped") != "stopped":
+                raise SPXError("旧环境仍处于活动状态，凭据迁移尚未开始。请先在旧版停止环境，或使用新版本 spx.exe --data 原数据目录 stop，再重新打开。")
             from .storage import _private_directory
             _private_directory(self.home)
             # Protect and round-trip every record before changing any file.

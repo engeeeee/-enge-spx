@@ -44,10 +44,11 @@ PyYAML 与 tzdata。界面与 CLI 分离，CLI 和监测入口不导入 Qt。
 
 - `resources/containers/browser.py`：移除关闭沙箱参数，非 root 启动；启动前后检查沙箱，失败明确退出，不进行降级重试。
 - `resources/containers/Dockerfile.browser`：保留既有浏览器资料卷和字体选择，补齐安全启动所需资源。
-- 新增浏览器专用 seccomp 资源与宿主验证模块：从固定版本 Docker/Moby 默认 allowlist 派生，只加入已验证需要的 namespace 调用，保留其它拒绝项；不授予 SYS_ADMIN，不使用 privileged 或 unconfined。
+- 新增浏览器专用 seccomp 资源与宿主验证模块：从固定版本 Docker/Moby 默认 allowlist 派生，只加入已验证需要的 clone namespace 组合、unshare(CLONE_NEWUSER) 和 namespace 内 chroot 调用，保留其它拒绝项；不授予 SYS_ADMIN，不使用 privileged 或 unconfined。
 - `engine.py`：只对浏览器使用该配置，审查用户、capabilities、seccomp、只读根文件系统及挂载；不接受旧的无沙箱浏览器作为安全运行时。
 - `tests/` 与独立 CI 探针：读取 Chromium 实际沙箱状态及 renderer 内核状态，覆盖初始化失败、登录回调、VNC 和 Profile 保留。
 - 不支持的内核或 LSM 明确禁用容器浏览器；设计显式 CLI-only 路径，不自动换成本机浏览器或无沙箱模式。
+- 实施时补查共享网络 namespace：OAuth 回调需要保留共享回环，但原 VNC TCP 和 X11 abstract socket 需额外隔离。VNC 改私有 Unix socket，X11 禁止 TCP 并使用私有 cookie；文件系统、PID 与资料卷不合并。
 
 ### B：凭据与迁移
 
@@ -68,11 +69,11 @@ Linux 没有 DPAPI，本批继续使用明确标示的私有目录 / 文件权�
 
 性能对比使用同一 CI 主机、相同项目与浏览器负载：记录 0.8.2 与新版本的进程数、RSS、Docker stats、浏览器首次就绪时间、凭据读写耗时和持久化字节数。区分 Linux CI、Windows 原生进程及无法在此环境实测的 Docker Desktop / WSL 整体，不提供预设提速百分比。
 
-本批验证结束后更新 README、SECURITY、CHANGELOG、开发说明和验证记录；P1/P2 的协议、资源、Profile 与诊断按后续批次推进。
+升级与恢复操作见 [P0 说明](security-hardening.zh-CN.md)，包含封套版本、失败处理、权限范围与显式回滚。P1/P2 的协议、资源、Profile 与诊断按后续批次推进。
 
 ## 主要依据
 
-- [Chromium Linux Sandboxing](https://chromium.googlesource.com/chromium/src/+/main/docs/linux_sandboxing.md)
+- [Chromium Linux Sandboxing](https://chromium.googlesource.com/chromium/src/+show/9a2c4b7730a398293bdda2af079a76686ab06038/docs/linux/sandboxing.md)
 - [Chromium AppArmor userns 限制](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)
 - [Docker seccomp](https://docs.docker.com/engine/security/seccomp/)
 - [Microsoft CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
