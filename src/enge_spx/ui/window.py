@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 import webbrowser
 
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtCore import Qt, QSize, Signal, QEvent, QTimer
+from PySide6.QtGui import QIcon, QFont, QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
                              QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget,
                              QPushButton, QPlainTextEdit, QFileDialog, QLineEdit,
@@ -14,15 +14,17 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
 from .. import __version__, terminal
 from ..brand import APP_NAME, ICONS, PROJECT_URL
 from ..line_security import LINE_MODES
+from ..platform_ui import restore_message
 from ..proxy import protocol
+from ..resource_limits import ROLES, MIN_MEMORY
 from ..state import SPXError
 from ..storage import DOCKER_STORAGE_DOC
 from . import style
 from .controller import Value
 from .widgets import (Page, Panel, TitleBar, Dialog, Combo, label, bind_text,
-                      button, entry, combo, check, progress, confirm, notice)
+                      button, entry, combo, check, progress, confirm, notice, budget_number)
 
-NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "logs": "运行日志", "settings": "偏好设置"}
+NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "resources": "资源与性能", "logs": "运行日志", "settings": "偏好设置"}
 
 
 class ResizeEdge(QWidget):
@@ -48,12 +50,20 @@ class Window(QMainWindow):
         self.resize(1220, 860)
         self.pages, self.nav, self.action_widgets, self.node_boxes = {}, {}, [], []
         self.current_page = None
+        self.resource_view = "usage"
+        self.resource_panels, self.resource_view_buttons = {}, {}
         self.render_count = 0
         self.log_view = None
         self._last_view = None
         self._force_close = False
-        self._explicit_exit = False
         self.tray = None
+        self.tray_hint_shown = False
+        self._restore_message = restore_message()
+        self.exit_buttons = []
+        self.exit_action = QAction("退出软件（停止工作区）", self)
+        self.exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        self.exit_action.triggered.connect(self.stop_and_exit)
+        self.addAction(self.exit_action)
         self.compact = None
         self.minimized_by_user = False
         self.resize_edges = []
@@ -140,6 +150,8 @@ class Window(QMainWindow):
         self.c.ask = lambda title, text: confirm(self, title, text)
         self.c.notice.connect(lambda title, text, error: notice(self, title, text, error))
         self.c.changed.connect(self.render)
+        self.c.changed.connect(self.update_exit_actions)
+        self.c.exit_failed.connect(self.show_exit_error)
         self.c.nodes_changed.connect(self.refresh_node_boxes)
         self.c.logs_added.connect(self.append_logs)
         self.c.page_requested.connect(self.show_page)
@@ -169,6 +181,7 @@ class Window(QMainWindow):
         for key, widget in self.nav.items():
             widget.setChecked(key == name)
         self.current_page = name
+        self.update_resource_activity()
         self.titlebar.caption.setText((APP_NAME if self.compact else "本机工作空间") + "  /  " + NAMES[name])
         self.render(self.c.view, force=True)
 
@@ -374,8 +387,127 @@ class Window(QMainWindow):
         row.addWidget(self.action("登录 Codex", lambda: self.open_tool("login-codex"), ready=True))
         row.addStretch()
         row.addWidget(self.action("打开 Chromium ↗", lambda: self.c.run(lambda engine: engine.browser()), ready=True))
+        row = panel.row()
+        row.addWidget(self.action("停止浏览器 · 保留 CLI", lambda: self.c.run(lambda engine: engine.stop_browser()), ghost=True))
+        row.addWidget(self.action("资源与浏览器启动设置", lambda: self.show_page("resources"), ghost=True))
+        row.addStretch()
         page.finish()
         return page
+
+    def build_resources(self):
+        page = Page("资源与性能", "查看占用来源，为工作区安排预算；安全监测始终独立运行。")
+        self.resource_panels = {"usage": [], "budget": []}
+        row = QHBoxLayout()
+        for key, title in (("usage", "占用概览"), ("budget", "预算设置")):
+            item = button(title, lambda value=key: self.select_resource_view(value))
+            item.setCheckable(True)
+            self.resource_view_buttons[key] = item
+            row.addWidget(item)
+        row.addStretch()
+        page.layout.addLayout(row)
+        def section(group, *args):
+            result = page.panel(*args)
+            self.resource_panels[group].append(result)
+            return result
+        panel = section("budget")
+        row = panel.row()
+        budget_actions = row
+        self.resource_save_button = self.action("保存资源设置", self.c.save_resources, True)
+        row.addWidget(self.resource_save_button)
+        row.addWidget(self.action("恢复上次设置", lambda: self.c.save_resources(True)))
+        row.addStretch()
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.resource_status))
+        panel = section("budget", "资源预算", "正常模式沿用原有上限；低资源模式限制 CPU、减少内存，并默认按需打开浏览器。")
+        panel.field("工作模式", combo(self.c.resource_mode, [("正常 · 沿用现有预算", "normal"), ("低资源", "low"), ("自定义", "custom")]))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        budget_headers, budget_rows = [], []
+        for column, text in enumerate(("工作环境", "CPU 上限", "内存上限")):
+            heading = label(text, "Muted")
+            budget_headers.append(heading)
+            grid.addWidget(heading, 0, column)
+        for index, (role, title) in enumerate(ROLES.items(), 1):
+            title_widget = label(title)
+            grid.addWidget(title_widget, index, 0)
+            fields = []
+            for column, suffix, cpu in ((1, "_cpu", True), (2, "_memory", False)):
+                widget = budget_number(self.c.values["budget_" + role + suffix], cpu, 0 if role == "gateway" else MIN_MEMORY[role])
+                widget.setAccessibleName(title + (" CPU 上限" if cpu else "内存上限"))
+                grid.addWidget(widget, index, column)
+                fields.append(widget)
+            budget_rows.append((title_widget, *fields, label("CPU 上限", "Muted"), label("内存上限", "Muted")))
+        panel.layout.addLayout(grid)
+        panel.layout.addWidget(label("CPU 0 表示不限；网关内存可设为不限，其它容器使用有效内存上限。上限不是预留量，多项目预算会累加。内存与交换合计最多为所设内存的两倍（内核支持时）。", "Caption", True))
+        panel.layout.addWidget(check("随工具启动浏览器", self.c.auto_browser))
+        panel.layout.addWidget(label("关闭此项后仍可单独打开 Chromium；显式点击登录会准备浏览器，不会回退到本机浏览器。", "Caption", True))
+        panel = section("budget", "当前项目的独立预算", "先在项目工作区选择目录；未单独设置的项目沿用上方 CLI 预算。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.project))
+        panel.layout.addWidget(check("启用独立项目预算", self.c.project_budget_enabled))
+        row = panel.row()
+        project_inputs = row
+        for value, cpu, title in ((self.c.project_budget_cpu, True, "项目 CPU 上限"), (self.c.project_budget_memory, False, "项目内存上限")):
+            widget = budget_number(value, cpu, MIN_MEMORY["project"])
+            widget.setAccessibleName(title)
+            widget.setEnabled(self.c.project_budget_enabled.get())
+            self.c.project_budget_enabled.changed.connect(widget.setEnabled)
+            row.addWidget(widget)
+        row.addStretch()
+        panel = section("usage", "应用进程", "界面和已登记的后台服务，工作集可能包含共享页；短时 Docker CLI 不列入此处。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.resource_app_text))
+        panel = section("usage", "本实例的 Linux 容器", "Docker CLI 内存读数已扣除部分文件缓存；磁盘 I/O 是累计值，不是实时带宽。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.resource_container_text))
+        panel = section("usage", "主机与虚拟机", "Docker Desktop 与 WSL2 分别展示。WSL2 包含容器和其它发行版，不能与容器内存相加。停止环境不等于 WSL2 立即归还所有缓存。")
+        panel.layout.addWidget(bind_text(label(wrap=True), self.c.resource_system_text))
+        panel.layout.addWidget(bind_text(label(kind="Caption", wrap=True), self.c.resource_caption))
+        row = panel.row()
+        monitor_actions = row
+        row.addWidget(button("立即采样", self.c.sample_resources))
+        row.addWidget(self.action("停止本工作区", lambda: self.c.run(lambda engine: engine.stop()), ghost=True))
+        row.addStretch()
+        previous_narrow = None
+        def adapt(width, height):
+            nonlocal previous_narrow
+            narrow = width < 550
+            if narrow == previous_narrow:
+                return
+            previous_narrow = narrow
+            for layout in (budget_actions, project_inputs, monitor_actions):
+                layout.setDirection(QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight)
+            for widget in [*budget_headers, *(item for row in budget_rows for item in row)]:
+                grid.removeWidget(widget)
+            for column, widget in enumerate(budget_headers):
+                widget.setVisible(not narrow)
+                if not narrow:
+                    grid.addWidget(widget, 0, column)
+            for index, (title, cpu, memory, cpu_label, memory_label) in enumerate(budget_rows):
+                cpu_label.setVisible(narrow)
+                memory_label.setVisible(narrow)
+                if narrow:
+                    row = index * 3
+                    grid.addWidget(title, row, 0, 1, 2)
+                    grid.addWidget(cpu_label, row + 1, 0)
+                    grid.addWidget(cpu, row + 1, 1)
+                    grid.addWidget(memory_label, row + 2, 0)
+                    grid.addWidget(memory, row + 2, 1)
+                else:
+                    for column, widget in enumerate((title, cpu, memory)):
+                        grid.addWidget(widget, index + 1, column)
+        page.resized.connect(adapt)
+        adapt(page.viewport().width(), page.viewport().height())
+        page.finish()
+        self.select_resource_view("usage")
+        return page
+
+    def select_resource_view(self, view):
+        self.resource_view = view
+        for key, panels in self.resource_panels.items():
+            for panel in panels:
+                panel.setVisible(key == view)
+            self.resource_view_buttons[key].setChecked(key == view)
+        if "resources" in self.pages:
+            self.pages["resources"].verticalScrollBar().setValue(0)
+        self.update_resource_activity()
 
     def build_downloads(self):
         page = Page("下载与安装", "自动准备依赖，查看进度，保留已经完成的下载。")
@@ -430,6 +562,11 @@ class Window(QMainWindow):
         panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
         panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。退出软件不会关闭 Docker Desktop。", "Caption", True))
         panel.layout.addWidget(label("关闭窗口后隐藏到系统托盘。托盘右键可恢复窗口、保留工作区退出界面，或停止工作区并退出。", "Caption", True))
+        panel.layout.addWidget(label("退出软件（Ctrl+Q）会先停止本实例的 CLI、浏览器、网关与后台服务；Docker Desktop 保持运行。", "Caption", True))
+        for text, action in (("退出软件（停止工作区）", self.stop_and_exit), ("保留工作区退出界面…", self.exit_interface)):
+            item = button(text, action, ghost=True)
+            self.exit_buttons.append(item)
+            panel.layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
         panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
         row = QHBoxLayout()
@@ -534,7 +671,7 @@ class Window(QMainWindow):
 
     def update_terminal_hint(self):
         kind = self.c.terminal_kind.get()
-        self.terminal_hint.setText("当前终端：" + next(name for name, key in terminal.PRESETS.items() if key == kind))
+        self.terminal_hint.setText("当前终端：" + next((name for name, key in terminal.PRESETS.items() if key == kind), "自定义终端"))
 
     def choose_project(self):
         value = QFileDialog.getExistingDirectory(self, "选择具体项目文件夹", self.c.project.get())
@@ -649,6 +786,17 @@ class Window(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def nativeEvent(self, event_type, message):
+        if self._restore_message and event_type == b"windows_generic_MSG":
+            from ctypes import wintypes
+            event = wintypes.MSG.from_address(int(message))
+            if event.message == self._restore_message:
+                # Defer widget changes until the native sender receives its
+                # acknowledgement; keep all GUI state changes in Qt's loop.
+                QTimer.singleShot(0, self.reveal)
+                return True, 1
+        return super().nativeEvent(event_type, message)
+
     def return_from_desktop(self):
         if not self.minimized_by_user:
             self.reveal()
@@ -663,15 +811,19 @@ class Window(QMainWindow):
         self.tray = QSystemTrayIcon(self.windowIcon(), self)
         self.tray.setToolTip(APP_NAME + " · 工作区控制台")
         self.tray_menu = QMenu(self)
+        self.tray_status = self.tray_menu.addAction("工作区状态")
+        self.tray_status.setEnabled(False)
+        self.tray_menu.addSeparator()
         self.tray_show = self.tray_menu.addAction("显示主窗口", self.reveal)
         self.tray_menu.addSeparator()
-        self.tray_stop_exit = self.tray_menu.addAction("停止工作区并退出", self.stop_and_exit)
-        self.tray_exit = self.tray_menu.addAction("退出界面（保留工作区）", self.exit_interface)
+        self.tray_stop_exit = self.exit_action
+        self.tray_menu.addAction(self.exit_action)
+        more = self.tray_menu.addMenu("更多")
+        self.tray_exit = more.addAction("保留工作区，仅退出界面…", self.exit_interface)
         self.tray.setContextMenu(self.tray_menu)
-        self.titlebar.controls["close"].setToolTip("隐藏到系统托盘")
+        self.titlebar.controls["close"].setToolTip("隐藏到托盘，工作区继续运行")
         self.tray.activated.connect(self.tray_activated)
-        self.c.changed.connect(lambda unused: self.tray_stop_exit.setEnabled(not self.c.busy))
-        self.tray_stop_exit.setEnabled(not self.c.busy)
+        self.update_exit_actions(self.c.view)
         self.tray.show()
         return True
 
@@ -680,23 +832,41 @@ class Window(QMainWindow):
             self.reveal()
 
     def exit_interface(self):
-        self._explicit_exit = True
         self.reveal()
-        self.close()
+        self.c.request_exit("keep")
 
     def stop_and_exit(self):
-        if self.c.busy:
-            return
         self.reveal()
-        self.c.run(lambda engine: engine.stop(), lambda unused: self.finish_close(), description="正在停止本工作区并退出…")
+        self.show_page("overview")
+        self.c.request_exit("stop")
+
+    def update_exit_actions(self, view):
+        pending = self.c.exit_mode is not None
+        self.exit_action.setEnabled(not pending)
+        for item in self.exit_buttons:
+            item.setEnabled(not pending)
+        if self.tray is not None:
+            self.tray_exit.setEnabled(not pending)
+            status = view.get("badge", "尚未启用")
+            self.tray_status.setText(status)
+            self.tray.setToolTip(APP_NAME + " · " + status)
+
+    def show_exit_error(self, message):
+        self.reveal()
+        self.update_resource_activity()
+        self.c.notify("退出尚未完成", message + "\n\n未能确认停止，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。", True)
 
     def closeEvent(self, event):
-        if not self._force_close and not self._explicit_exit and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():
+        if not self._force_close and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():
             self.minimized_by_user = True
             self.hide()
+            if not self.tray_hint_shown and QSystemTrayIcon.supportsMessages():
+                self.tray_hint_shown = True
+                self.tray.showMessage(APP_NAME, "工作区继续在后台运行。托盘右键“退出软件”会停止工作区并退出。", QSystemTrayIcon.MessageIcon.Information, 4000)
             event.ignore()
             return
         if self._force_close or self.c.request_close():
+            self.c.stop_resource_monitor()
             self.c.delivery.stop()
             self.c.status_timer.stop()
             self.c.refresh_timer.stop()
@@ -705,8 +875,27 @@ class Window(QMainWindow):
             event.accept()
             self.closed.emit()
         else:
-            self._explicit_exit = False
             event.ignore()
+
+    def update_resource_activity(self):
+        if not hasattr(self, "c"):
+            return
+        background = not self.isVisible() or self.isMinimized()
+        self.c.set_background(background)
+        self.c.set_resource_visible(self.current_page == "resources" and self.resource_view == "usage" and not background)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.update_resource_activity()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.update_resource_activity()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self.update_resource_activity()
 
     def _create_edges(self):
         for edges, cursor in ((Qt.Edge.LeftEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.RightEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.TopEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.BottomEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.LeftEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeFDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.LeftEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeFDiagCursor)):

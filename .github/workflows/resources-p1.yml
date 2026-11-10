@@ -1,0 +1,62 @@
+name: ENGE SPX Resource Management
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/resource-management-p1]
+    paths: ['src/**', 'tests/**', 'tools/**', '.github/workflows/resources-p1.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-resources-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -v
+      - run: python tools/smoke_gui.py
+      - name: Three same-runner 0.9.0 and candidate pairs with alternating source order
+        shell: python
+        run: |
+          import subprocess, sys
+          for index in range(3):
+              command = [sys.executable, 'tools/benchmark_p0.py', '--kind', 'host', '--baseline', '1de64dd76a61ac4fa5f86e28f5bae10a964aced9', '--output', f'host-resources-{index}.json']
+              if index % 2:
+                  command.append('--candidate-first')
+              subprocess.run(command, check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Host-resources-${{ runner.os }}
+          path: host-resources-*.json
+          if-no-files-found: error
+  cgroups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -u tests/integration_resources.py --context default --output resource-results.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resource-cgroups
+          path: resource-results.json
+          if-no-files-found: error

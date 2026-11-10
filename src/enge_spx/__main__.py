@@ -21,6 +21,12 @@ def main():
     sub = parser.add_subparsers(dest="action")
     for action in ("gui", "doctor", "diagnostics", "check", "confirm", "browser", "stop", "status", "guard", "relay", "forward", "shell"):
         sub.add_parser(action)
+    sub.add_parser("stop-browser", help="停止浏览器及显示服务，保留 CLI、网关和持久资料")
+    resources = sub.add_parser("resources", help="只读资源采样，或停止工作区后保存/恢复预算")
+    resource_action = resources.add_mutually_exclusive_group()
+    resource_action.add_argument("--apply", type=Path, help="保存 schema=1 JSON 预算；会停止本工作区，下次启动应用")
+    resource_action.add_argument("--restore", action="store_true", help="恢复上次预算，会停止本工作区")
+    resource_action.add_argument("--show-settings", action="store_true", help="输出有效预算，不启动 Docker")
     installer = sub.add_parser("install")
     installer.add_argument("--from-source", action="store_true", help="从源码构建，不下载预构建环境")
     starter = sub.add_parser("start", help="自动准备 Docker、运行环境和连接检查，等待出口确认")
@@ -96,6 +102,30 @@ def main():
         elif args.action == "diagnostics":
             from .startup import diagnostics
             result = diagnostics(store)
+        elif args.action == "stop-browser":
+            result = engine.stop_browser()
+        elif args.action == "resources":
+            from .resource_limits import validate
+            if args.apply:
+                try:
+                    with args.apply.open("r", encoding="utf-8-sig") as stream:
+                        content = stream.read(512 * 1024 + 1)
+                except UnicodeError as error:
+                    raise SPXError("资源设置文件必须使用 UTF-8 JSON。") from error
+                if len(content) > 512 * 1024:
+                    raise SPXError("资源设置文件不能超过 512 KiB。")
+                try:
+                    config = json.loads(content)
+                except ValueError as error:
+                    raise SPXError("资源设置必须是有效的 schema=1 JSON。") from error
+                result = engine.save_resources(config)
+            elif args.restore:
+                result = engine.restore_resources()
+            elif args.show_settings:
+                result = validate(store.settings().get("resources"))
+            else:
+                from .resource_monitor import Monitor
+                result = Monitor().snapshot(engine, docker_ready=bool(engine.docker.executable))
         elif args.action == "credentials":
             if args.operation == "status":
                 result = {"schema": 1, "mode": "dpapi-current-user" if store.credentials.enabled else "private-files", "pending": store.credentials.pending(store.home)}
@@ -137,7 +167,7 @@ def main():
             if not command:
                 raise SPXError("请在 exec 后填写 Linux 命令。")
             attached = bool(sys.stdin and sys.stdin.isatty())
-            cmd = engine.tool_command(args.project, command, interactive=attached, browser=not args.without_browser)
+            cmd = engine.tool_command(args.project, command, interactive=attached, browser=False if args.without_browser else None)
             return subprocess.call(cmd, env=engine.docker.environment())
         else:
             result = getattr(engine, args.action)()

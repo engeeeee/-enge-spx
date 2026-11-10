@@ -2,7 +2,8 @@
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import (QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout,
                              QPushButton, QLineEdit, QComboBox, QCheckBox,
-                             QProgressBar, QScrollArea, QDialog, QDialogButtonBox)
+                             QProgressBar, QScrollArea, QDialog, QDialogButtonBox,
+                             QDoubleSpinBox, QSpinBox, QAbstractSpinBox)
 
 
 def label(text="", kind="", wrap=False):
@@ -70,6 +71,29 @@ def check(text, value, action=None):
     if action:
         widget.clicked.connect(lambda unused: action())
     value.changed.connect(lambda state: widget.setChecked(bool(state)) if widget.isChecked() != bool(state) else None)
+    return widget
+
+
+def budget_number(value, cpu=False, minimum=0):
+    widget = QDoubleSpinBox() if cpu else QSpinBox()
+    widget.setRange(0 if cpu else minimum, 128 if cpu else 131072)
+    widget.setSingleStep(.25 if cpu else 128)
+    if cpu:
+        widget.setDecimals(2)
+    if cpu or minimum == 0:
+        widget.setSpecialValueText("不限")
+    widget.setSuffix(" 核" if cpu else " MiB")
+    widget.setKeyboardTracking(False)
+    widget.setMinimumWidth(105)
+    widget.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
+    widget.setValue(value.get())
+    widget.valueChanged.connect(value.set)
+    def update(number):
+        if widget.value() != number:
+            widget.blockSignals(True)
+            widget.setValue(number)
+            widget.blockSignals(False)
+    value.changed.connect(update)
     return widget
 
 

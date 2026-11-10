@@ -8,6 +8,16 @@ import time
 from .brand import APP_ID, ICONS as ASSETS, LEGACY_APP_ID
 
 
+def restore_message():
+    """A show-only request handled by Qt in the owning GUI process."""
+    if os.name != "nt":
+        return 0
+    user = ctypes.windll.user32
+    user.RegisterWindowMessageW.argtypes = [ctypes.c_wchar_p]
+    user.RegisterWindowMessageW.restype = ctypes.c_uint
+    return user.RegisterWindowMessageW(APP_ID + ".RestoreWindow")
+
+
 def prepare_windows(dpi=True):
     if os.name != "nt":
         return
@@ -49,12 +59,21 @@ class WindowInstance:
         user.GetPropW.restype = ctypes.c_void_p
         user.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
         user.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+        user.SendMessageTimeoutW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t, ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_size_t)]
+        user.SendMessageTimeoutW.restype = ctypes.c_void_p
+        message = restore_message()
         callback = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         found = []
         def visit(hwnd, _):
             if user.GetPropW(hwnd, self.key):
                 found.append(hwnd)
-                user.ShowWindow(hwnd, 9)
+                result = ctypes.c_size_t()
+                acknowledged = message and user.SendMessageTimeoutW(hwnd, message, 0, 0, 2, 1000, ctypes.byref(result)) and result.value == 1
+                if not acknowledged:
+                    # Compatibility with an already running pre-0.10 GUI. New
+                    # versions restore through QWidget, including its internal
+                    # visibility state and resource/shortcut event handling.
+                    user.ShowWindow(hwnd, 9)
                 user.SetForegroundWindow(hwnd)
                 return False
             return True

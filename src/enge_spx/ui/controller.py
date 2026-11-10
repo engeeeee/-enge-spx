@@ -1,5 +1,6 @@
 """Desktop state and bounded worker delivery, independent of widget layouts."""
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ from ..gui_diagnostics import log
 from ..line_security import LINE_MODES, v2ray_rules
 from ..nodes import fetch_subscription, normalize, parse_nodes
 from ..proxy import detect_system_proxy, download_proxy, protocol, proxy_url, relay_config, route_config
+from ..resource_limits import ROLES, preset as resource_preset, validate as validate_resources, validate_budget
 from ..startup import DOCKER_INSTALL_URL, StartupIssue, diagnostics, prepare_workspace
 from ..state import SPXError, Store, atomic_json, status_snapshot
 from ..storage import desktop_storage, plan_migration, prepare_docker_move, verify_docker_move
@@ -53,12 +55,15 @@ class Controller(QObject):
     proxy_requested = Signal()
     close_requested = Signal()
     activation_requested = Signal()
+    exit_failed = Signal(str)
 
     def __init__(self, store, report=None, on_relocated=None):
         super().__init__()
         self.store, self.report, self.on_relocated = store, report, on_relocated
         self.ask = lambda title, text: False
         self.busy = self.cancelable = self.close_pending = False
+        self.exit_mode = None
+        self.exit_stage = "idle"
         self.compatible = self.docker_ready = self.startup_active = False
         self.desktop_launch_pending = False
         self.runtime_ok = len(store.read("images.json", {})) == 3
@@ -69,6 +74,19 @@ class Controller(QObject):
         self.log_lines = []
         self.view = {}
         settings = store.settings()
+        try:
+            self.resource_config = validate_resources(settings.get("resources"))
+            resource_message = "预算保存后在下次启动应用；不会重建项目容器。"
+        except SPXError:
+            self.resource_config = resource_preset()
+            resource_message = "保存的资源设置无效，请选择正常模式并保存以恢复。"
+        self._loading_resources = False
+        self.resource_visible = self.resource_inflight = self.ui_background = False
+        self.resource_closed = False
+        self.resource_epoch = 0
+        self.resource_monitor = None
+        self.resource_cancel = threading.Event()
+        self.resource_projects = dict(self.resource_config["projects"])
         relay, term = settings["relay"], terminal.validate(settings["terminal"])
         defaults = {
             "selected": settings["selected"], "line_selected": relay.get("line_id", ""),
@@ -87,13 +105,26 @@ class Controller(QObject):
             "docker_text": "尚未检测 Docker", "runtime_text": "等待核验已有环境" if self.runtime_ok else "尚未安装运行环境",
             "download_title": "获取运行环境", "download_detail": "支持暂停与断点续传，导入前校验完整性。",
             "download_progress": 0, "startup_progress": 0, "storage_progress": 0,
+            "resource_mode": self.resource_config["mode"], "auto_browser": self.resource_config["auto_browser"],
+            "resource_status": resource_message, "resource_caption": "仅此页可见时采样；不会自动启动 Docker。",
+            "resource_app_text": "等待采样。", "resource_system_text": "等待采样。", "resource_container_text": "等待采样。",
+            "project_budget_enabled": False, "project_budget_cpu": 0, "project_budget_memory": 4096,
         }
+        for role in ROLES:
+            defaults["budget_" + role + "_cpu"] = self.resource_config["budgets"][role]["cpus"]
+            defaults["budget_" + role + "_memory"] = self.resource_config["budgets"][role]["memory_mb"]
         self.values = {name: Value(value, self) for name, value in defaults.items()}
         for name, value in self.values.items():
             setattr(self, name, value)
         self.steps = ["等待检测", "等待核验", "等待配置", "由你确认"]
         for name in ("selected", "line_selected", "timezone", "context", "relay_enabled", "relay_url", "relay_downloads", "line_mode", "line_server_ip", "line_expected_ip"):
             self.values[name].changed.connect(lambda unused: self.schedule_refresh())
+        self.resource_mode.changed.connect(self.resource_preset_changed)
+        for name, value in self.values.items():
+            if name.startswith("budget_") or name == "auto_browser":
+                value.changed.connect(self.mark_resource_custom)
+        self.project.changed.connect(lambda unused: self.load_project_budget())
+        self.load_project_budget()
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setSingleShot(True)
         self.refresh_timer.setInterval(40)
@@ -102,10 +133,169 @@ class Controller(QObject):
         self.delivery.setInterval(40)
         self.delivery.timeout.connect(self.drain)
         self.status_timer = QTimer(self)
-        self.status_timer.setInterval(1500)
+        self.status_timer.setInterval(5000 if self.resource_config["mode"] == "low" else 3000)
         self.status_timer.timeout.connect(self.refresh)
         self.status_timer.start()
+        self.resource_timer = QTimer(self)
+        self.resource_timer.setInterval(15000 if self.resource_config["mode"] == "low" else 10000)
+        self.resource_timer.timeout.connect(self.sample_resources)
         self.refresh_nodes()
+
+    def mark_resource_custom(self, unused):
+        if not self._loading_resources:
+            self.resource_mode.set("custom")
+
+    def resource_preset_changed(self, mode):
+        if self._loading_resources or mode == "custom":
+            return
+        config = resource_preset(mode)
+        self._loading_resources = True
+        try:
+            for role, limit in config["budgets"].items():
+                self.values["budget_" + role + "_cpu"].set(limit["cpus"])
+                self.values["budget_" + role + "_memory"].set(limit["memory_mb"])
+            self.auto_browser.set(config["auto_browser"])
+        finally:
+            self._loading_resources = False
+
+    def load_project_budget(self):
+        value = self.resource_projects.get(self.project_budget_key())
+        self.project_budget_enabled.set(value is not None)
+        self.project_budget_cpu.set(value["cpus"] if value else self.resource_config["budgets"]["project"]["cpus"])
+        self.project_budget_memory.set(value["memory_mb"] if value else self.resource_config["budgets"]["project"]["memory_mb"])
+
+    def project_budget_key(self):
+        path = self.project.get().strip()
+        # No network-share stat/resolve on each GUI keystroke. A newly enabled
+        # override is resolved and validated by the operation worker at save.
+        return hashlib.sha256(os.path.normcase(os.path.abspath(os.path.expanduser(path))).encode()).hexdigest()[:16] if path else None
+
+    def captured_resources(self):
+        projects = dict(self.resource_projects)
+        if not self.project.get().strip() and self.project_budget_enabled.get():
+            raise SPXError("请先在项目工作区选择项目，再设置独立预算。")
+        if not self.project_budget_enabled.get():
+            projects.pop(self.project_budget_key(), None)
+        return validate_resources({"schema": 1, "mode": self.resource_mode.get(), "budgets": {role: {"cpus": self.values["budget_" + role + "_cpu"].get(), "memory_mb": self.values["budget_" + role + "_memory"].get()} for role in ROLES}, "projects": projects, "auto_browser": self.auto_browser.get()})
+
+    def resource_saved(self, config):
+        self.resource_config = config
+        self.resource_projects = dict(config["projects"])
+        self._loading_resources = True
+        try:
+            self.resource_mode.set(config["mode"])
+            self.auto_browser.set(config["auto_browser"])
+            for role, value in config["budgets"].items():
+                self.values["budget_" + role + "_cpu"].set(value["cpus"])
+                self.values["budget_" + role + "_memory"].set(value["memory_mb"])
+        finally:
+            self._loading_resources = False
+        self.load_project_budget()
+        self.set_background(self.ui_background)
+        self.resource_timer.setInterval(15000 if config["mode"] == "low" else 10000)
+        self.resource_status.set("资源设置已保存。重新检查连接后应用；项目、账号和浏览器资料保留。")
+
+    def save_resources(self, restore=False):
+        try:
+            config = self.captured_resources() if not restore else None
+            project = self.project.get().strip()
+            override = validate_budget({"cpus": self.project_budget_cpu.get(), "memory_mb": self.project_budget_memory.get()}, "project") if self.project_budget_enabled.get() and not restore else None
+        except (SPXError, OSError) as error:
+            self.notify("检查资源设置", error)
+            return
+        if status_snapshot(self.store)["phase"] in ("ready", "review") and not self.ask("应用资源预算", "变更资源预算会停止本工作区。请先保存终端和浏览器中的工作，再重新检查连接。较低的内存上限可能使工具内存不足。继续？"):
+            return
+        def action(engine):
+            canonical = None
+            if restore:
+                return engine.restore_resources(), canonical
+            if override is not None:
+                directory, key = engine.store.project(project)
+                config["projects"][key] = override
+                canonical = str(directory)
+            return engine.save_resources(config), canonical
+        def done(result):
+            if result[1]:
+                self.project.set(result[1])
+            self.resource_saved(result[0])
+        self.run(action, done, description="保存资源预算，保留原有容器与数据…")
+
+    def set_background(self, background):
+        self.ui_background = background
+        self.status_timer.setInterval(10000 if background else 5000 if self.resource_config["mode"] == "low" else 3000)
+
+    def set_resource_visible(self, visible):
+        visible = visible and self.exit_mode is None
+        if self.resource_closed or self.resource_visible == visible:
+            return
+        self.resource_visible = visible
+        self.resource_epoch += 1
+        if visible:
+            self.resource_timer.start()
+            self.sample_resources()
+        else:
+            self.resource_timer.stop()
+            self.resource_cancel.set()
+
+    def sample_resources(self):
+        if self.resource_closed or not self.resource_visible or self.resource_inflight or self.busy:
+            return
+        self.resource_inflight = True
+        self.resource_cancel.clear()
+        epoch, store, ready = self.resource_epoch, self.store, self.docker_ready
+        def worker():
+            try:
+                from ..resource_monitor import Monitor
+                if self.resource_monitor is None:
+                    self.resource_monitor = Monitor()
+                value = self.resource_monitor.snapshot(Engine(store), ready, self.resource_cancel)
+            except Exception:
+                value = None
+            self.events.put(("resources", (epoch, value)))
+        self.delivery.start()
+        threading.Thread(target=worker, name="spx-resource-sample", daemon=True).start()
+
+    def resources_received(self, evidence):
+        if evidence is None:
+            self.resource_caption.set("资源采样暂不可用；安全监测继续独立运行。")
+            return
+        def cpu(value):
+            return "采样中" if value is None else f"{value:.2f}%"
+        def process_line(row):
+            return row["name"] + (f" · CPU {cpu(row.get('cpu_percent'))} · 工作集 {size_text(row['memory_bytes'])}" if row.get("available") else " · 无法读取，进程可能已退出或权限不足")
+        self.resource_app_text.set("\n".join(process_line(row) for row in evidence["app"]) + ("\n部分后台进程未能读取或已退出。" if evidence["background_unavailable"] else ""))
+        host = evidence["host"]
+        lines = [f"主机整体 · CPU {cpu(host.get('cpu_percent'))} · 内存 {size_text(host['memory_used'])} / {size_text(host['memory_total'])}" if host.get("available") else "主机整体计数不可用。"]
+        lines += [process_line(row) for row in evidence["desktop"]]
+        if not evidence["desktop"]:
+            lines.append("未检测到可读的 Docker Desktop / WSL2 进程。" if evidence["windows"] else "当前为 Linux；不显示 Windows Desktop / WSL2 进程计数。")
+        self.resource_system_text.set("\n".join(lines))
+        data = evidence["containers"]
+        lines = []
+        for row in data["rows"]:
+            title = ROLES[row["role"]] + (" · " + row["name"].rsplit("-", 1)[-1][:8] if row["role"] == "project" else "")
+            if not row["running"]:
+                lines.append(title + (" · 已停止（内存不足 OOM）" if row["oom"] else " · 已停止"))
+                continue
+            configured = row["memory_limit"]
+            reported = row.get("reported_memory_limit", 0)
+            limit = size_text(reported) if reported else size_text(configured) if configured else "共享 Docker/WSL2 上限"
+            if configured and reported and reported != configured:
+                limit += f"（配置 {size_text(configured)}）"
+            if row["sample_available"]:
+                lines.append(f"{title} · CPU {cpu(row['cpu_percent'])} · 内存 {size_text(row['memory_bytes'])} / {limit}\n累计磁盘读 {size_text(row['read_bytes'])} / 写 {size_text(row['write_bytes'])} · CPU 上限 {str(row['cpu_limit']) + ' 核' if row['cpu_limit'] else '不限'}")
+            else:
+                lines.append(title + " · 运行中，本次计数不可用")
+        self.resource_container_text.set("\n\n".join(lines) if lines else "本实例没有容器。" if data["available"] else data["reason"])
+        sampled = datetime.fromtimestamp(evidence["sampled"]).strftime("%H:%M:%S")
+        self.resource_caption.set(f"采样 {sampled} · 仅资源页可见时每 {self.resource_timer.interval() // 1000} 秒刷新；进程/容器 CPU 以单核 100% 计。" + (" 容器过多，仅展示前 256 个。" if data.get("truncated") else ""))
+
+    def stop_resource_monitor(self):
+        self.resource_closed = True
+        self.resource_visible = False
+        self.resource_epoch += 1
+        self.resource_timer.stop()
+        self.resource_cancel.set()
 
     def schedule_refresh(self):
         self.refresh_timer.start()
@@ -149,8 +339,8 @@ class Controller(QObject):
         except SPXError:
             return False
 
-    def run(self, action, done=None, cancelable=False, description="正在处理…"):
-        if self.busy:
+    def run(self, action, done=None, cancelable=False, description="正在处理…", done_on_exit=False):
+        if self.busy or self.exit_mode is not None:
             return False
         self.busy, self.cancelable = True, cancelable
         self.cancel.clear()
@@ -163,7 +353,7 @@ class Controller(QObject):
                 result = action(engine)
                 state = self.store.read("runtime.json", {})
                 compatible = state.get("phase") != "ready" or state.get("policy") == engine.policy()
-                self.events.put(("done", (result, done, compatible)))
+                self.events.put(("done", (result, done, compatible, done_on_exit)))
             except DownloadPaused as error:
                 self.events.put(("paused", self.clean_message(error)))
             except StartupIssue as error:
@@ -197,13 +387,35 @@ class Controller(QObject):
                 self.storage_status.set(value["message"])
                 if value.get("total"):
                     self.storage_progress.set(min(95, value["bytes"] / value["total"] * 95))
+            elif kind == "resources":
+                self.resource_inflight = False
+                epoch, evidence = value
+                if epoch == self.resource_epoch and self.resource_visible and not self.resource_closed:
+                    self.resources_received(evidence)
+                if self.exit_mode is not None and self.exit_stage == "finalizing":
+                    self.finish_exit_when_quiet()
+            elif kind == "exit_progress":
+                self.operation.set(value)
+                self.startup_detail.set(value)
+            elif kind == "exit_done":
+                self.busy = self.cancelable = False
+                self.exit_stage = "finalizing"
+                log.info("gui-exit-workspace-stopped background=stopped desktop-kept=True")
+                self.finish_exit_when_quiet()
+            elif kind == "exit_error":
+                self.busy = self.cancelable = self.close_pending = False
+                self.exit_mode = None
+                self.exit_stage = "failed"
+                self.startup_active = self.desktop_launch_pending = False
+                self.operation.set("未能确认工作区已停止；界面保留，可以重试退出。")
+                self.exit_failed.emit(value)
             else:
                 self.busy = self.cancelable = False
                 self.startup_progress.set(max(0, self.startup_progress.get()))
                 if kind == "done":
-                    result, done, self.compatible = value
+                    result, done, self.compatible, done_on_exit = value
                     self.operation.set("操作完成")
-                    if done:
+                    if done and (self.exit_mode is None or done_on_exit):
                         done(result)
                 else:
                     self.startup_active = False
@@ -219,13 +431,14 @@ class Controller(QObject):
                         self.download_title.set("已暂停，可继续")
                     else:
                         self.startup_title.set("操作未完成，可以重试")
-                        self.notify("操作未完成", value, True)
+                        if self.exit_mode is None:
+                            self.notify("操作未完成", value, True)
                     self.operation.set(value)
                     self.startup_detail.set(value)
                     self.download_detail.set(value)
                     lines.append(str(value))
-                if self.close_pending:
-                    self.close_requested.emit()
+                if self.exit_mode is not None and self.exit_stage == "waiting":
+                    self.advance_exit()
             changed = True
         if progress:
             self.update_progress(progress)
@@ -235,7 +448,7 @@ class Controller(QObject):
             self.logs_added.emit("\n".join(lines))
         if changed:
             self.refresh()
-        if not self.busy and self.events.empty():
+        if not self.busy and not self.resource_inflight and self.events.empty():
             self.delivery.stop()
 
     def preparation_progress(self, value):
@@ -259,7 +472,7 @@ class Controller(QObject):
         elif stage == "docker_ready":
             self.steps[0] = "已就绪"
             self.docker_ready = True
-            if self.desktop_launch_pending:
+            if self.desktop_launch_pending and self.exit_mode is None:
                 self.desktop_launch_pending = False
                 self.activation_requested.emit()
                 log.info("gui-restored-after-desktop")
@@ -287,7 +500,7 @@ class Controller(QObject):
             self.download_detail.set({"manifest": "通过所选下载代理读取环境清单。", "verify": "导入前检查 SHA-256 与文件大小。", "import": "下载已完成，正在导入 Docker。", "build": "构建输出显示在运行日志中。", "done": "运行环境已核验，可以继续。", "retry": "保留已有进度，正在重连。"}.get(stage, "正在处理…"))
 
     def check_docker(self, auto_start=False):
-        if self.busy:
+        if self.busy or self.exit_mode is not None:
             return
         self.startup_active, self.startup_error = True, None
         log.info("docker-check-start auto-start=%s", auto_start)
@@ -312,7 +525,7 @@ class Controller(QObject):
         return status_snapshot(self.store)["phase"] != "ready" or self.ask("更新连接", "此操作会停止当前环境，请先保存项目。继续？")
 
     def prepare(self, install=True, check=True, source=False):
-        if self.busy or not self.consent_stop():
+        if self.busy or self.exit_mode is not None or not self.consent_stop():
             return
         try:
             values = self.captured_settings()
@@ -443,6 +656,8 @@ class Controller(QObject):
                 return action()
             def done(result):
                 self.store = Store(Path(result["target"]))
+                self.resource_epoch += 1
+                self.resource_monitor = None
                 if self.on_relocated and self.on_relocated(self.store) is False:
                     self.close_requested.emit()
                     return
@@ -454,7 +669,7 @@ class Controller(QObject):
                 if result["leftovers"]:
                     self.notify("数据已迁移", "新位置已生效。原位置有少量文件未清理，详情见 storage-migration.json。")
                 self.check_docker()
-            self.run(move, done)
+            self.run(move, done, done_on_exit=True)
         self.run(lambda engine: plan_migration(engine.store, target), reviewed)
 
     def detect_storage(self):
@@ -514,14 +729,78 @@ class Controller(QObject):
 
     def request_close(self):
         log.info("gui-close-requested busy=%s", self.busy)
-        if not self.busy:
-            return True
-        if self.cancelable and self.ask("取消并退出", "取消当前准备并退出？已下载内容会保留，Docker Desktop 继续运行。"):
-            self.close_pending = True
-            self.pause()
-        elif not self.cancelable:
-            self.notify("操作进行中", "请等待当前操作安全完成后再退出。")
+        self.request_exit("stop")
         return False
+
+    def request_exit(self, mode="stop"):
+        if mode not in ("stop", "keep") or self.exit_mode is not None:
+            return False
+        if mode == "keep" and not self.ask("仅退出界面", "工作区和安全监测若正在运行，将继续留在后台并占用资源，托盘图标也会关闭。需要重新打开软件才能管理。\n\n确认保留工作区，仅退出界面？"):
+            return False
+        self.exit_mode, self.exit_stage = mode, "waiting"
+        self.startup_active = self.desktop_launch_pending = False
+        self.close_pending = True
+        self.set_resource_visible(False)
+        self.resource_cancel.set()
+        log.info("gui-exit-requested mode=%s busy=%s cancelable=%s", mode, self.busy, self.cancelable)
+        if self.busy:
+            if self.cancelable:
+                self.cancel.set()
+                self.operation.set("正在安全取消当前准备，已有进度会保留，随后退出…")
+            else:
+                self.operation.set("等待当前操作安全完成，随后退出…")
+        else:
+            self.advance_exit()
+        self.refresh()
+        return True
+
+    def advance_exit(self):
+        if self.busy or self.exit_mode is None:
+            return
+        if self.exit_mode == "keep":
+            self.exit_stage = "finalizing"
+            self.finish_exit_when_quiet()
+            return
+        self.exit_stage = "stopping"
+        self.busy, self.cancelable = True, False
+        self.operation.set("正在停止本实例工作区并退出…")
+        def worker():
+            def progress(text):
+                cleaned = self.clean_message(text)
+                log.info("gui-exit-progress %s", cleaned)
+                self.events.put(("exit_progress", cleaned))
+            try:
+                log.info("gui-exit-worker-start")
+                try:
+                    engine = Engine(self.store, progress)
+                except SPXError:
+                    context = self.store.read("controller-context.json", {})
+                    if context.get("instance") != self.store.instance or not context.get("context"):
+                        raise
+                    engine = Engine(self.store, progress, stop_context=context["context"])
+                    engine.doctor()
+                log.info("gui-exit-engine-ready")
+                result = engine.shutdown()
+                if not isinstance(result, dict) or result.get("workspace_stopped") is not True or result.get("background_stopped") is not True:
+                    raise SPXError("未能取得完整的工作区与后台停止结果，界面会保留。")
+                self.events.put(("exit_done", result))
+            except Exception as error:
+                if self.report:
+                    self.report.capture("gui-exit-error", type(error), error, error.__traceback__)
+                self.events.put(("exit_error", self.clean_message(error)))
+        self.delivery.start()
+        threading.Thread(target=worker, name="spx-shutdown", daemon=True).start()
+        self.refresh()
+
+    def finish_exit_when_quiet(self):
+        if self.resource_inflight:
+            self.operation.set("正在结束资源采样，随后关闭界面…")
+            self.delivery.start()
+            return
+        if self.exit_stage != "closing":
+            self.exit_stage = "closing"
+            log.info("gui-exit-complete mode=%s", self.exit_mode)
+            self.close_requested.emit()
 
     def refresh(self):
         try:
@@ -542,6 +821,10 @@ class Controller(QObject):
                 title, detail = self.startup_title.get(), self.startup_detail.get()
             elif self.startup_error:
                 title, detail = "完成 Docker 准备后继续", self.startup_detail.get()
+            if self.exit_mode is not None:
+                ready = False
+                title = "正在停止工作区并退出" if self.exit_mode == "stop" else "正在退出界面，保留工作区"
+                detail = self.operation.get()
             evidence = state.get("evidence") or {}
             if ready:
                 self.steps[2:] = ["检查通过", "已确认"]
@@ -558,9 +841,10 @@ class Controller(QObject):
                 prefix = ("加密线路  →  " if mode == "managed" else "本机 v2ray  →  ") if self.relay_enabled.get() else ""
                 route = prefix + f"{protocol(node)} 落地  {value['server']}:{value['server_port']}  →  目标服务"
             next_text = "一键准备环境" if not self.runtime_ok or not self.docker_ready else "添加落地代理" if not self.nodes else "打开工作区" if ready else "核对并确认" if state["phase"] == "review" and matching else "启动并检查连接"
-            view = dict(title=title, detail=detail, ready=ready, matching=matching, busy=self.busy, cancelable=self.cancelable and not self.cancel.is_set(), next_text=next_text, steps=tuple(self.steps), route=route, line_status=line_status,
+            exiting = self.exit_mode is not None
+            view = dict(title=title, detail=detail, ready=ready, matching=matching, busy=self.busy or exiting, cancelable=self.cancelable and not self.cancel.is_set() and not exiting, next_text=next_text, steps=tuple(self.steps), route=route, line_status=line_status,
                         ip=evidence.get("ip", "—"), line_ip=evidence.get("line_ip", "—"), region=evidence.get("country", "—") + " / " + evidence.get("city", "—"), timezone=self.timezone.get(),
-                        badge="工作区已就绪" if ready else "正在准备" if self.busy else "等待确认" if state["phase"] == "review" else "尚未启用",
+                        badge="正在退出" if exiting else "工作区已就绪" if ready else "正在准备" if self.busy else "等待确认" if state["phase"] == "review" else "尚未启用",
                         can_confirm=not self.busy and self.docker_ready and state["phase"] == "review" and matching)
             if view != self.view:
                 self.view = view

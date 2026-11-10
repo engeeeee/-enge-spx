@@ -3,15 +3,15 @@
 <p align="center"><strong>Windows 上的 AI 编程隔离工作台</strong></p>
 <p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
 <p align="center">
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows">下载 Windows 版</a> ·
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows">下载 Windows 版</a> ·
   <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
   <a href="docs/security-model.zh-CN.md">隔离与安全</a> ·
   <a href="README.en.md">English</a>
 </p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml"><img src="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml/badge.svg" alt="Windows / Linux CI"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows"><img src="https://img.shields.io/badge/0.9.0-Preview-D49A33" alt="0.9.0 Preview"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows"><img src="https://img.shields.io/badge/0.10.0-Preview-D49A33" alt="0.10.0 Preview"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-6D5BD0" alt="PolyForm Noncommercial"></a>
 </p>
 
@@ -68,15 +68,15 @@ flowchart LR
 
 ## 下载并开始使用
 
-当前版本为 **[0.9.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
+当前版本为 **[0.10.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-**0.9.0 Preview** 增加 VLESS Reality、WS/gRPC 与 Hysteria2/QUIC，支持常见 Clash/Mihomo 节点导入，升级内部网络隔离，并支持关闭窗口后驻留托盘。保留沙箱、DPAPI、固定双跳与异常停机。见 [协议与迁移说明](docs/proxy-p1.zh-CN.md)和 [实际验证记录](docs/validation-p1.zh-CN.md)。
+**0.10.0 Preview** 增加资源占用面板、正常/低资源模式、容器与单项目 CPU/内存预算，以及浏览器独立启动/停止。保留 0.9.0 的 Reality、WS/gRPC、Hysteria2、Clash/Mihomo 节点、网络迁移与托盘。沙箱、DPAPI、双出口和异常停机保持启用。见 [资源使用说明](docs/resources.zh-CN.md)和 [第三批验证记录](docs/validation-resources.zh-CN.md)。
 
 | 下载方式 | 适合谁 |
 | --- | --- |
-| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.9.0-windows/ENGE-SPX-Windows-x64-0.9.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
-| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.9.0-windows/ENGE-SPX-Windows-x64-0.9.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
-| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
+| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
+| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
+| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
 
 1. **安装一次 Docker Desktop**：按 [官方安装说明](https://docs.docker.com/desktop/setup/install/windows-install/)完成许可、WSL 和 Linux 引擎初始化。
 2. **点击“一键准备环境”**：软件自动启动已安装的 Docker，等待引擎就绪，再复用已有运行环境，或下载、校验并导入。
@@ -127,6 +127,7 @@ flowchart LR
 | **应用数据跨盘迁移** | 将配置、日志和下载缓存迁到 D 盘等自选目录，复制后校验，保留安装标识与部分下载 |
 | **Docker 数据盘迁移助手** | 记录资源，指导你在 Docker Desktop 迁移数据盘，恢复后核验原镜像、容器和数据卷 |
 | **已有数据与命令行** | 复用匹配镜像和原有项目、账号、浏览器数据；可用 `spx start` 准备与检查，再用 `spx confirm` 确认 |
+| **资源预算与占用来源** | 区分应用、Linux 容器、Docker Desktop 与 WSL2；按容器/项目设置 CPU、内存上限，低资源模式可延迟启动浏览器，浏览器可单独停止 |
 
 应用数据迁移与 Docker 数据盘迁移是两项独立操作，项目原目录也各自保留。操作与恢复见 [存储与终端设置](docs/storage-terminal.zh-CN.md)，旧版接管见 [升级说明](docs/migration.zh-CN.md)。
 
@@ -134,7 +135,7 @@ flowchart LR
 
 Windows 负责桌面控制，工作区实际是 Linux 容器。项目按目录挂载，工具账号和工作区浏览器 profile 共享；需要分开这些资料时，请使用独立数据目录。
 
-关闭窗口后，已确认的环境与监测进程继续运行，结束工作请点击“停止环境”或执行 `spx stop`。[常见问题](docs/faq.zh-CN.md)进一步解释了本机代理、宿主机直连、账号共享和迁移范围。
+X 隐藏到托盘，已确认的环境与监测继续运行；真正“退出软件”（Ctrl+Q）默认先停止本实例工作区。明确保留工作区退出界面的选项位于托盘“更多”，需要确认。[退出流程](docs/exit.zh-CN.md)说明任务收尾和失败重试；[常见问题](docs/faq.zh-CN.md)解释代理、共享和迁移范围。
 
 | 你要做什么 | 对应文档 |
 | --- | --- |
@@ -147,7 +148,7 @@ Windows 负责桌面控制，工作区实际是 Linux 容器。项目按目录�
 
 ## 项目状态与开发
 
-由 [engeeeee](https://github.com/engeeeee) 个人维护，当前重点是 Windows x64、受控代理路径和已有数据兼容。当前未提供 Windows ARM64 安装包或自动更新器；WS / gRPC / Reality / XTLS / uTLS 等不能作为软件内线路导入，具体范围以协议说明为准。
+由 [engeeeee](https://github.com/engeeeee) 个人维护，当前重点是 Windows x64、受控代理路径和已有数据兼容。当前未提供 Windows ARM64 安装包或自动更新器；XHTTP/KCP、gRPC multi-mode、插件和跳端口等尚未支持，具体范围以[协议说明](docs/proxy-p1.zh-CN.md)为准。
 
 源码需要 Python 3.12+，界面依赖 PySide6 / Qt：
 

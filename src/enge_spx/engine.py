@@ -395,7 +395,10 @@ class Engine:
         from .network_policy import ensure
         return ensure(self)
 
-    def ensure_container(self, role, image, arguments, command=(), name=None):
+    def ensure_container(self, role, image, arguments, command=(), name=None, resource_key=None):
+        from .resource_limits import validate, budget, arguments as resource_arguments, apply_stopped, ROLES
+        settings = self.store.settings()
+        limits = budget(validate(settings.get("resources")), role, resource_key) if role in ROLES else None
         name = name or self.prefix + "-" + role
         storage = fingerprint(os.path.normcase(str(self.store.home)))[:24]
         obj = self.inspect(role, name)
@@ -408,12 +411,25 @@ class Engine:
                 else:
                     raise SPXError("已有容器的镜像与本版本不同。请保留数据，使用新的专用数据目录。")
         if obj:
+            if limits is not None and settings.get("resources") is not None:
+                # Docker update ignores memory=0. Only the data-free gateway
+                # can be replaced to remove an existing hard memory limit;
+                # project/session limits always stay finite and preserve IDs.
+                reset_gateway = role == "gateway" and limits["memory_mb"] == 0 and obj.get("HostConfig", {}).get("Memory", 0) > 0
+                if reset_gateway and not obj["State"]["Running"]:
+                    self.docker.run("rm", obj["Id"])
+                    obj = None
+                else:
+                    obj = apply_stopped(self, obj, limits)
+        if obj:
             if not obj["State"]["Running"]:
                 self.docker.run("start", name)
             return self.inspect(role, name)
         common = ["run", "-d", "--name", name, "--label", self.owner + "=" + self.store.instance, "--label", self.role + "=" + role, "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "512", "--env", "TZ=" + self.store.settings()["timezone"]]
         if role == "gateway":
             common += ["--label", STORAGE + "=" + storage]
+        if limits is not None:
+            common += resource_arguments(limits)
         self.docker.run(*common, *arguments, image, *command)
         return self.inspect(role, name)
 
@@ -447,7 +463,7 @@ class Engine:
         self.deliver_secret(gateway["Id"], "gateway", config)
         if self.external not in gateway["NetworkSettings"]["Networks"]:
             self.docker.run("network", "connect", "--gw-priority", "1", self.external, gateway["Id"])
-        session = self.ensure_container("session", ids["work"], ["--network", self.internal, "--ip", session_ip, "--dns", "127.0.0.1", "--read-only", "--tmpfs", "/tmp", "--memory", "128m"], ["sleep", "infinity"])
+        session = self.ensure_container("session", ids["work"], ["--network", self.internal, "--ip", session_ip, "--dns", "127.0.0.1", "--read-only", "--tmpfs", "/tmp"], ["sleep", "infinity"])
         self.store.write("environment.json", {"timezone": self.store.settings()["timezone"]})
         return {"gateway": gateway["Id"], "session": session["Id"], "proxy": f"http://{gateway_ip}:2080", "config_hash": fingerprint(config), "forward_target": forward_target, "line_proxy": LINE_PROXY if relay["enabled"] else None, "line_mode": relay.get("mode"), "lease_journal": journal}
 
@@ -646,8 +662,9 @@ class Engine:
             raise
 
     def guard(self):
+        from .process_metrics import tracked
         try:
-            with self.store.lock("guard"):
+            with self.store.lock("guard"), tracked(self.store, "guard"):
                 stop_signal = self.store.home / "guard-stop.json"
                 while not stop_signal.is_file() and self.store.read("runtime.json", {}).get("phase") == "ready":
                     try:
@@ -733,6 +750,70 @@ class Engine:
         with self.store.lock(timeout=45, on_wait=lambda: self.log("正在等待当前安全检查完成后停止工作区…")):
             self._stop()
 
+    def shutdown(self):
+        """Verified user exit: own workspace/services only; never quits Desktop."""
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前安全检查完成，随后停止工作区并退出…")):
+            installed = bool(self.store.read("images.json", {}))
+            self.log("正在撤销连接授权并停止本实例工作区…")
+            self._stop()
+            if installed and not self.docker.executable:
+                raise SPXError("未找到 Docker 命令行工具，已撤销本实例连接授权，但无法核验容器是否停止。界面会保留。")
+            deadline = time.monotonic() + 45
+            self.log("正在等待安全监测、中转和浏览器显示服务安全退出…")
+            for name in ("guard", "forward", "relay"):
+                with self.store.lock(name, timeout=max(0, deadline - time.monotonic())):
+                    pass
+            if self.docker.executable and self.store.read("images.json", {}):
+                for identifier in self.managed():
+                    obj = self.owned(self.docker.inspect("container", identifier))
+                    if obj["State"]["Running"]:
+                        raise SPXError("仍检测到本实例的运行容器，界面会保留，请重试退出。")
+            self.log("工作区与后台服务已停止，项目和账号数据保留。")
+            return {"workspace_stopped": True, "background_stopped": True, "docker_desktop_kept": True}
+
+    def save_resources(self, config):
+        from .resource_limits import validate
+        if not isinstance(config, dict):
+            raise SPXError("请提供完整的 schema=1 资源设置对象。")
+        config = validate(config)
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前操作完成后保存资源预算…")):
+            settings = self.store.settings()
+            try:
+                previous = validate(settings.get("resources"))
+            except SPXError:
+                previous = None  # Never copy unknown/unvalidated data to a public backup.
+            if previous != config:
+                self._stop("资源预算已保存，工作区保持停止。重新检查连接后应用，账号和项目数据保留。")
+                if previous is not None:
+                    self.store.write("resources-previous.json", {"schema": 1, "resources": previous})
+            if settings.get("resources") != config:
+                settings["resources"] = config
+                self.store.write("settings.json", settings)
+            return config
+
+    def restore_resources(self):
+        previous = self.store.read("resources-previous.json", {})
+        if not isinstance(previous, dict) or set(previous) != {"schema", "resources"} or type(previous.get("schema")) is not int or previous["schema"] != 1 or not isinstance(previous["resources"], dict):
+            raise SPXError("没有可恢复的上次资源设置。")
+        return self.save_resources(previous["resources"])
+
+    def stop_browser(self):
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前操作完成后停止浏览器…")):
+            obj = self.inspect("browser")
+            write_error = None
+            try:
+                self.store.write("browser-state.json", {"schema": 1, "id": obj["Id"] if obj else "", "phase": "stopped"})
+            except (SPXError, OSError) as error:
+                write_error = error
+            if obj and obj["State"]["Running"]:
+                try:
+                    self.docker.run("stop", "--time", "8", obj["Id"], timeout=25)
+                except SPXError:
+                    self.docker.run("kill", obj["Id"], timeout=15)
+            if write_error:
+                raise write_error
+            return {"browser": "stopped", "workspace_kept": True, "profile_kept": True}
+
     def save_terminal(self, config):
         from .terminal import validate, resolve
         config = validate(config)
@@ -780,9 +861,10 @@ class Engine:
         # A stopped browser may contain an old one-time display token. Replace its
         # container, keeping its profile and downloads in dedicated persistent volumes.
         old = self._retire_stopped_browser()
-        obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", "--memory", "2g", *arguments(), "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
+        obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", *arguments(), "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
         validate_container(obj)
         if not old or not old["State"]["Running"]:
+            self.store.write("browser-state.json", {"schema": 1, "id": obj["Id"], "phase": "running"})
             self.deliver_secret(obj["Id"], "browser", {"token": state["browser_token"], "proxy": state["proxy"], "legacy": self.store.legacy})
         for _ in range(40):
             try:
@@ -859,21 +941,26 @@ class Engine:
         directory, key = self.store.project(path)
         name = self.prefix + "-project-" + key
         ids = self.image_ids()
-        obj = self.ensure_container("project", ids["work"], ["--network", "container:" + state["session"], "--memory", "4g", "--mount", f"type=bind,source={directory},target=/workspace/{key}", "--volume", self.prefix + "-tools-home:/home/workspace", "--workdir", "/workspace/" + key, *self.proxy_env(state)], name=name)
+        obj = self.ensure_container("project", ids["work"], ["--network", "container:" + state["session"], "--mount", f"type=bind,source={directory},target=/workspace/{key}", "--volume", self.prefix + "-tools-home:/home/workspace", "--workdir", "/workspace/" + key, *self.proxy_env(state)], name=name, resource_key=key)
         settings = self.store.settings()
-        settings["projects"] = list(dict.fromkeys([*settings["projects"], str(directory)]))
-        self.store.write("settings.json", settings)
+        projects = list(dict.fromkeys([*settings["projects"], str(directory)]))
+        if projects != settings["projects"]:
+            settings["projects"] = projects
+            self.store.write("settings.json", settings)
         return obj, key
 
-    def tool_command(self, path, command, interactive=True, browser=True):
+    def tool_command(self, path, command, interactive=True, browser=None):
         argv, _ = self._tool_session(path, command, interactive, browser)
         return argv
 
-    def _tool_session(self, path, command, interactive=True, browser=True):
+    def _tool_session(self, path, command, interactive=True, browser=None):
         # The guard checks immediately after confirmation and every 30 seconds.
         # Wait for its lock before executing anything; never retry the launch.
         with self.store.lock(timeout=30, on_wait=lambda: self.log("等待后台连接检查完成，随后自动启动工作区…")):
             state = self.ready()
+            if browser is None:
+                from .resource_limits import validate
+                browser = validate(self.store.settings().get("resources"))["auto_browser"]
             url = self._browser(state) if browser else None
             obj, key = self._project(path, state)
             self.prepared_session, self.prepared_container = state["session"], obj["Id"]
@@ -889,13 +976,14 @@ class Engine:
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
         config = self.store.settings()["terminal"]
         resolve(config)
-        _, url = self._tool_session(path, TOOLS[tool])
+        _, url = self._tool_session(path, TOOLS[tool], browser=True if tool.startswith("login-") else None)
         directory, _ = self.store.project(path)
         command = [*console_entry(), "--data", str(self.store.home), "--project", str(directory), "attach", tool, "--session", self.prepared_session, "--container", self.prepared_container]
         # The terminal gets a public CLI invocation, never the token environment.
         launch(config, command, str(directory), "ENGE SPX · " + tool, docker_environment(self.docker.executable))
         # Open the viewer so any account authorization URL stays in Chromium.
-        webbrowser.open(url)
+        if url:
+            webbrowser.open(url)
 
     def attach_command(self, path, tool, session, container, interactive=True):
         if tool not in TOOLS:

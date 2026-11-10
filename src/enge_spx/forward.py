@@ -55,5 +55,6 @@ async def run(store):
 
 
 def main(store):
-    with store.lock("forward"):
+    from .process_metrics import tracked
+    with store.lock("forward"), tracked(store, "forward"):
         asyncio.run(run(store))

@@ -62,8 +62,9 @@ ThreadingHTTPServer(('127.0.0.1',1455),Handler).serve_forever()
 '''
 
 
-def login_fixture(engine, worker, browser, state):
-    engine.docker.run("exec", "-d", worker, "python3", "-c", LOGIN_FIXTURE)
+def login_fixture(engine, worker, browser, state, start_server=True):
+    if start_server:
+        engine.docker.run("exec", "-d", worker, "python3", "-c", LOGIN_FIXTURE)
     for _ in range(40):
         try:
             execute(engine, browser, "import socket; socket.create_connection(('127.0.0.1',1455),.2).close()")
@@ -344,6 +345,35 @@ finally:
             restored_identity = login_fixture(engine, resumed["Id"], engine.inspect("browser")["Id"], state)
             assert restored_identity == {"cookie": True, "storage": True}, restored_identity
             passed("real Chromium Cookie and Local Storage survive container stop/recreation; localhost login callback works")
+            previous_browser = engine.inspect("browser")["Id"]
+            engine.stop_browser()
+            assert store.read("runtime.json")["phase"] == "ready"
+            assert all(engine.inspect(role)["State"]["Running"] for role in ("gateway", "session"))
+            assert engine.docker.inspect("container", resumed["Id"])["State"]["Running"]
+            assert not engine.inspect("browser")["State"]["Running"]
+            for _ in range(40):
+                if not store.read("relay.json", {}):
+                    break
+                time.sleep(.1)
+            else:
+                raise AssertionError("Paused browser left its display relay running")
+            import subprocess
+            for tool in ("claude", "codex"):
+                command = engine.tool_command(str(project), [tool, "--version"], interactive=False, browser=False)
+                result = subprocess.run(command, capture_output=True, text=True, env=engine.docker.environment(), timeout=30)
+                assert result.returncode == 0 and result.stdout.strip(), "CLI startup failed with browser paused"
+                assert not engine.inspect("browser")["State"]["Running"]
+            passed("stopping only Chromium releases its display relay while both real CLI binaries and the protected network remain usable")
+            lock = wait_lock(store)
+            try:
+                state = engine.ready()
+                engine._browser(state)
+            finally:
+                lock.__exit__(None, None, None)
+            reopened = engine.inspect("browser")
+            assert reopened["Id"] != previous_browser
+            assert login_fixture(engine, resumed["Id"], reopened["Id"], state, start_server=False) == {"cookie": True, "storage": True}
+            passed("explicit browser restart validates its sandbox again and preserves real Cookie/Local Storage without restarting CLI")
             # Exercise the actual data-directory migration against stopped Docker
             # resources. A gateway bind mount must follow the new path, while the
             # project container (including its writable layer) must stay intact.
@@ -380,7 +410,10 @@ finally:
             assert execute(engine, migrated["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
             assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
             passed("data relocation preserves project container, layer, accounts and browser; gateway uses new bind mount")
-            engine.stop()
+            stopped = engine.shutdown()
+            assert stopped["workspace_stopped"] and stopped["background_stopped"]
+            assert not list((store.home / "processes").glob("*.json"))
+            passed("genuine shutdown verifies all owned containers and detached guard/display services stopped after data relocation")
             rejected_sandbox(engine, base)
             passed("namespace initialization failure terminates the browser without a no-sandbox retry")
             report = {"passed": records, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}

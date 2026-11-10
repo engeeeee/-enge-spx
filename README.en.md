@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows">Download</a></p>
 
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
@@ -42,16 +42,16 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 ## Download and start
 
-Current release: **[0.9.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.9.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.10.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-**0.9.0 Preview** adds VLESS Reality, WS/gRPC and Hysteria2/QUIC,
-common Clash/Mihomo node imports, isolated bridge upgrades and close-to-tray.
-Sandbox enforcement, current-user DPAPI, fixed chains and fail-closed monitoring
-remain required. See [protocols and migration](docs/proxy-p1.zh-CN.md) and the
-[validation record](docs/validation-p1.zh-CN.md).
+**0.10.0 Preview** adds on-demand resource monitoring, normal/low-resource modes,
+per-container and per-project CPU/memory budgets, and independent browser startup
+and stop. It retains 0.9.0 protocols, isolated network migration, tray behavior,
+sandbox enforcement, DPAPI, fixed chains and fail-closed monitoring. See
+[resource settings](docs/resources.zh-CN.md) and [validation](docs/validation-resources.zh-CN.md).
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.9.0-windows/ENGE-SPX-Windows-x64-0.9.0-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.9.0-windows/ENGE-SPX-Windows-x64-0.9.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.
@@ -92,7 +92,7 @@ Runtime and subscription downloads use a separate local download proxy. Selectin
 
 Starting with 0.8.3, ENGE SPX requires Chromium namespace and Seccomp-BPF sandbox evidence, and protect application proxy settings with Windows current-user DPAPI. Existing 0.8.2 packages and images require upgrading to receive these changes. See [sandbox, credentials, migration and explicit rollback](docs/security-hardening.zh-CN.md).
 
-Containers depend on the host, Docker and WSL. DPAPI does not protect against malicious code running as the same user, host administrators or Docker administrators; tool-account and browser-profile volumes still need private storage and backups. The preview has not had an independent security audit or full acceptance testing on the user's Windows + Docker Desktop + v2ray + Pebrel combination. It does not guarantee anonymity, speed or account acceptance. Read the [security model](docs/security-model.zh-CN.md) for the full scope.
+Containers depend on the host, Docker and WSL. DPAPI does not protect against malicious code running as the same user, host administrators or Docker administrators; tool-account and browser-profile volumes still need private storage and backups. The preview has not had an independent security audit or full acceptance testing on the user's Windows + Docker Desktop + v2ray + custom terminal combination. It does not guarantee anonymity, speed or account acceptance. Read the [security model](docs/security-model.zh-CN.md) for the full scope.
 
 ## Terminal, downloads and storage
 
@@ -106,7 +106,7 @@ Automatic selection uses Windows Terminal, PowerShell 7, then Windows PowerShell
 
 Downloads support pause, resume, speed/progress display, SHA-256 and exact image-recipe validation. App configuration, logs and download caches can move to another drive. Docker's images, containers and volumes use a separate disk-migration assistant and require applying the move in Docker Desktop. Project and program directories remain separate. See [storage and terminal settings](docs/storage-terminal.zh-CN.md).
 
-Closing the window leaves the confirmed environment and monitor running. Use **停止环境** or `spx stop` to finish. Stopping or uninstalling does not intentionally delete project files or Docker volumes; backups remain the user's responsibility.
+X hides the window to the tray. Genuine **退出软件** / Ctrl+Q first stops this workspace and waits for background services; failed shutdown keeps the interface available for retry. Keeping the workspace while exiting the interface is an explicit, confirmed option under the tray's More menu. See the [exit guide](docs/exit.zh-CN.md). Stopping or uninstalling does not intentionally delete project files or Docker volumes; backups remain the user's responsibility.
 
 ## Documentation and community
 
@@ -124,7 +124,7 @@ Most detailed guides are in Chinese:
 
 Maintained by [engeeeee](https://github.com/engeeeee). Source use requires Python 3.12+ with PySide6 / Qt. Install with `python -m pip install -e .` and launch `spx`, or use `Start-Windows.cmd` on Windows. Windows packaging uses PyInstaller and Inno Setup. See [development instructions](docs/development.md), [0.8.2 lease, proxy, font and download validation](docs/validation-0.8.2.zh-CN.md) and [CHANGELOG](CHANGELOG.md).
 
-The current focus is Windows x64, controlled proxy paths and existing-data compatibility. There is no Windows ARM64 package or automatic updater. Unsupported WS / gRPC / Reality / XTLS / uTLS parameters cannot be imported as managed lines.
+The current focus is Windows x64, controlled proxy paths and existing-data compatibility. There is no Windows ARM64 package or automatic updater. XHTTP/KCP, gRPC multi-mode, plugins and port hopping remain unsupported; see the [protocol matrix](docs/proxy-p1.zh-CN.md).
 
 ## License and attribution
 

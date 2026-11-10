@@ -107,7 +107,8 @@ async def run(store: Store):
         try:
             while True:
                 current = store.read("runtime.json", {})
-                if current.get("phase") != "ready" or current.get("browser_token") != token:
+                display = store.read("browser-state.json", {})
+                if current.get("phase") != "ready" or current.get("browser_token") != token or display and (display.get("id") != browser_id or display.get("phase") == "stopped"):
                     break
                 await asyncio.sleep(2)
         finally:
@@ -116,5 +117,6 @@ async def run(store: Store):
 
 
 def main(store):
-    with store.lock("relay"):
+    from .process_metrics import tracked
+    with store.lock("relay"), tracked(store, "relay"):
         asyncio.run(run(store))

@@ -119,6 +119,46 @@ def find_window(user, pid):
     return found[0] if found else None
 
 
+def quit_shortcut(user, hwnd):
+    """Exercise the public Ctrl+Q action; no production test-only exit hook."""
+    from ctypes import wintypes as w
+    class Keyboard(ctypes.Structure):
+        _fields_ = [("key", w.WORD), ("scan", w.WORD), ("flags", w.DWORD), ("time", w.DWORD), ("extra", ctypes.c_size_t)]
+    class Mouse(ctypes.Structure):
+        _fields_ = [("x", w.LONG), ("y", w.LONG), ("data", w.DWORD), ("flags", w.DWORD), ("time", w.DWORD), ("extra", ctypes.c_size_t)]
+    class Payload(ctypes.Union):
+        _fields_ = [("keyboard", Keyboard), ("mouse", Mouse)]
+    class Input(ctypes.Structure):
+        _fields_ = [("type", w.DWORD), ("payload", Payload)]
+    user.SetForegroundWindow.argtypes = [w.HWND]
+    user.GetForegroundWindow.restype = w.HWND
+    user.SetForegroundWindow(hwnd)
+    deadline = time.monotonic() + 2
+    while user.GetForegroundWindow() != hwnd and time.monotonic() < deadline:
+        user.SetForegroundWindow(hwnd)
+        time.sleep(.05)
+    assert user.GetForegroundWindow() == hwnd, "Could not focus the isolated GUI to verify genuine exit"
+    time.sleep(.15)  # Let the target consume native activation/focus messages.
+    user.SendInput.argtypes = [w.UINT, ctypes.POINTER(Input), ctypes.c_int]
+    user.SendInput.restype = w.UINT
+    def send(keys):
+        events = (Input * len(keys))()
+        for event, (key, flags) in zip(events, keys):
+            event.type = 1
+            event.payload.keyboard.key = key
+            event.payload.keyboard.flags = flags
+        assert user.SendInput(len(keys), events, ctypes.sizeof(Input)) == len(keys), "Windows rejected the isolated Ctrl+Q input"
+    # Hold the modifier while Qt consumes Q, as with physical keyboard input;
+    # a zero-duration four-event burst can race Windows focus/key-state updates.
+    send([(0xA2, 0)])
+    try:
+        time.sleep(.08)
+        send([(ord('Q'), 0)])
+        time.sleep(.15)
+    finally:
+        send([(ord('Q'), 2), (0xA2, 2)])
+
+
 def exercise_entry_point(command, base, cli, mode):
     data = base / ("entry-" + mode)
     data.mkdir(exist_ok=True)
@@ -162,22 +202,23 @@ def exercise_entry_point(command, base, cli, mode):
                 time.sleep(.05)
             assert user.IsWindowVisible(hwnd), "Original GUI stayed hidden after reopening"
             assert not (base / "launches").exists(), "Tray restore launched Desktop"
+            # Verify the restored widget also handles input. A native-only
+            # ShowWindow can paint a window that Qt still considers hidden.
             print(f"Real entry point: {Path(command[0]).name} / {mode}; close-to-tray and duplicate-instance restore passed", flush=True)
-            # This isolated fixture never starts a workspace. Explicit tray exit
-            # is exercised in Qt tests; do not add a production shutdown backdoor.
-            process.kill()
-            process.communicate(timeout=6)
-            return
+            quit_shortcut(user, hwnd)
         stdout, stderr = process.communicate(timeout=6)
         assert process.returncode == 0, f"GUI close failed: {process.returncode}\n{stdout}\n{stderr}"
         text = log_path.read_text(encoding="utf-8")
         assert "gui-stop normal" in text and "-error" not in text, text
+        assert "gui-exit-complete mode=stop" in text, "Real exit did not complete the default stopped-workspace flow"
         assert not (base / "launches").exists(), "Desktop started without a user action"
-        print(f"Real entry point: {Path(command[0]).name} / {mode}; manual-only Docker startup, responsive window and normal close passed", flush=True)
+        print(f"Real entry point: {Path(command[0]).name} / {mode}; default verified shutdown without starting Desktop passed", flush=True)
     except BaseException as error:
         if process.poll() is None:
             process.kill()
         stdout, stderr = process.communicate(timeout=6)
+        if log_path.is_file():
+            text = log_path.read_text(encoding="utf-8")
         fault = data / "logs/gui-fault.log"
         details = fault.read_text(encoding="utf-8") if fault.is_file() else "No native fault file"
         raise AssertionError(f"{error}\n{text}\n{details}\n{stdout}\n{stderr}") from error
