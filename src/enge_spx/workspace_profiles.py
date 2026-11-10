@@ -130,7 +130,24 @@ def same_source(actual, expected):
         if ntpath.normcase(ntpath.normpath(actual)) == logical:
             return True
         translated = "/" + drive[0].lower() + "/" + tail.replace("\\", "/").lstrip("/")
-        return actual.replace("\\", "/").casefold().rstrip("/") in {(root + translated).casefold().rstrip("/") for root in ("/run/desktop/mnt/host", "/host_mnt")}
+        if actual.replace("\\", "/").casefold().rstrip("/") in {(root + translated).casefold().rstrip("/") for root in ("/run/desktop/mnt/host", "/host_mnt")}:
+            return True
+        if os.name == "nt":
+            candidate = actual
+            for root in ("/run/desktop/mnt/host/", "/host_mnt/"):
+                normalized = actual.replace("\\", "/")
+                if normalized.casefold().startswith(root) and re.match(r"[A-Za-z]/", normalized[len(root):]):
+                    remainder = normalized[len(root):]
+                    candidate = remainder[0] + ":/" + remainder[2:]
+            candidate_drive, _ = ntpath.splitdrive(candidate)
+            if candidate_drive.casefold() == drive.casefold():
+                try:
+                    # Windows may return an 8.3 alias for the same directory.
+                    # File identity is stronger than accepting a path suffix.
+                    return Path(candidate).samefile(Path(expected))
+                except OSError:
+                    pass
+        return False
     return os.path.normcase(os.path.normpath(actual)) == os.path.normcase(os.path.normpath(expected))
 
 

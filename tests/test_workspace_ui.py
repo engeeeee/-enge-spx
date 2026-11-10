@@ -66,7 +66,7 @@ class WorkspaceUITests(unittest.TestCase):
             c.open_terminal("codex")
             engine = Mock()
             run.call_args.args[0](engine)
-        engine.terminal.assert_called_once_with(str(self.project), "codex", expected_workspace=(self.identity, "ro"))
+        engine.terminal.assert_called_once_with(str(self.project.resolve()), "codex", expected_workspace=(self.identity, "ro"))
 
     def test_another_project_requires_explicit_binding_and_never_inherits_accounts(self):
         c = self.controller
