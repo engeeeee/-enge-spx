@@ -527,8 +527,11 @@ class Engine:
                 # container. Keep the named Profile/download volumes; the next
                 # browser launch still validates the replacement and renderer.
                 self._retire_stopped_browser()
-                self.take_over_legacy_guard()
                 state = self.setup()
+                # Network migration inside setup can stop again. Clear its
+                # signal only after setup, while runtime is still stopped, and
+                # before either an old or a new guard can observe a new policy.
+                self.take_over_legacy_guard()
                 state.update({"phase": "checking", "policy": self.policy()})
                 self.store.write("runtime.json", state)
                 self.ensure_forward(state)

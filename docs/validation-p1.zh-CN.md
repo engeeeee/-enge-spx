@@ -57,7 +57,7 @@ PYTHONPATH=src python tests/integration_network_policy.py --context default --ou
 PYTHONPATH=src python tests/integration_chain.py --context default
 ```
 
-同版本 [P1 CI](https://github.com/engeeeee/ENGE-SPX/actions/workflows/proxy-p1.yml) 在 Windows/Linux Python 3.12 发现 201 项单元测试；按平台跳过对应专属项。旧规范节点和 ID 的黄金样例使用明确 UTF-8 读取，修复了 Windows 测试读取编码差异。Linux ARM64 本地同样发现 201 项，191 通过、10 项 Windows 检查跳过。
+同版本 [P1 CI](https://github.com/engeeeee/ENGE-SPX/actions/workflows/proxy-p1.yml) 在 Windows/Linux Python 3.12 发现 202 项单元测试；按平台跳过对应专属项。旧规范节点和 ID 的黄金样例使用明确 UTF-8 读取，修复了 Windows 测试读取编码差异。Linux ARM64 本地同样发现 202 项，192 通过、10 项 Windows 检查跳过。后台交接覆盖网络迁移内部再次停止，保证新监测不会因遗留停止标记直接退出。
 
 协议集成使用真实官方 1.14.3 核心与临时 TLS/Reality/QUIC 服务端，共 124 条通过记录，不接触真实用户账号、不禁用 TLS。Docker 版本在 `network=none`、非 root、只读根、全部 capabilities 移除和 no-new-privileges 下执行；只有夹具服务端允许 direct，客户端始终使用实际 Adapter。检查普通/WS/gRPC、Reality/Vision、Hysteria2、salamander、4 KiB UDP 分片、远程名称解析、SOCKS/HTTP(S) 固定落地及两个独立来源地址。错误 CA、名称、认证、Reality key/short ID、已建立 QUIC 丢包及第一跳断线都要求目标无新请求；断线时落地仍健康。完整 Engine 还实际确认 Hysteria2 第一跳与 SOCKS 落地的两个公网出口，切断 UDP 服务后保持落地健康，要求环境停机。
 

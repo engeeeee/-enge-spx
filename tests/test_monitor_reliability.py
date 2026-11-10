@@ -127,6 +127,33 @@ class MonitorReliabilityTests(unittest.TestCase):
         self.assertEqual(self.store.read("runtime.json")["phase"], "stopped")
         self.assertEqual(self.store.read("gateway/lease.json")["expires"], 0)
 
+    def test_network_migration_stop_signal_cannot_cancel_the_new_monitor(self):
+        engine = Engine(self.store)
+        engine.docker = Mock(executable=None)
+        engine.doctor = Mock()
+        engine._retire_stopped_browser = Mock()
+        def migrate_and_setup():
+            engine._stop("正在升级内部网络隔离策略")
+            return {}
+        engine.setup = Mock(side_effect=migrate_and_setup)
+        engine.policy = Mock(return_value="policy")
+        engine.ensure_forward = Mock()
+        engine.wait_line_listener = Mock()
+        engine.audit_topology = Mock()
+        engine.probe_chain = Mock(return_value={"ip": "8.8.8.8"})
+        engine.start_guard = Mock()
+        engine.check()
+        engine.confirm()
+        self.assertEqual(self.store.read("runtime.json")["phase"], "ready")
+        self.assertFalse((self.store.home / "guard-stop.json").exists())
+        # Run the actual loop: a stale migration marker would skip ready().
+        engine.ready = Mock()
+        def finish(delay):
+            self.store.write("guard-stop.json", {"schema": 1, "requested": True})
+        with patch("enge_spx.engine.time.sleep", side_effect=finish):
+            engine.guard()
+        engine.ready.assert_called_once_with()
+
     def test_stop_still_shuts_down_gateway_when_lease_write_is_denied(self):
         self.store.write("images.json", {"gateway": "image"})
         engine = Engine(self.store)

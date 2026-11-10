@@ -158,7 +158,15 @@ def run(context, output):
                 pass
             else:
                 raise AssertionError("The old browser fixture must fail the new sandbox policy")
+            # Exercise a normal 0.8.x bridge through the real check/confirm and
+            # detached guard path. Migration calls _stop() inside setup; its
+            # stop signal must not cancel the new 190-second monitor below.
+            engine.docker.run("network", "rm", engine.internal)
+            engine.docker.run("network", "create", "--internal", "--label", engine.owner + "=" + store.instance, engine.internal)
             evidence = engine.check()
+            assert engine.docker.inspect("network", engine.internal)["Options"]["com.docker.network.bridge.gateway_mode_ipv4"] == "isolated"
+            assert not (store.home / "guard-stop.json").exists()
+            passed("ordinary pre-upgrade internal network migrates before review without cancelling the new guard")
             assert engine.inspect("browser") is None, "Stopped pre-sandbox browser was not retired before review"
             assert evidence["direct_blocked"] is True
             passed("two exit sources agree; direct TCP egress blocked")
