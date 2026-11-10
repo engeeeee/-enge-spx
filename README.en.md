@@ -88,8 +88,8 @@ Runtime and subscription downloads use a separate local download proxy. Selectin
 
 ## Isolation and its boundaries
 
-- **Files and privileges**: selected projects are mounted read-write. Tools can read secrets, modify code and delete real files in those projects. Tool containers do not mount Docker's management interface; capabilities are dropped and `no-new-privileges` is enabled.
-- **Accounts and browser data**: the workspace browser profile is separate from the everyday host browser. Tool accounts and the workspace profile are shared between projects. Separate data directories create separate managed instances; changing projects alone does not change identity.
+- **Files and privileges**: projects use explicit read-only/read-write grants, with read-write preserved in legacy shared mode. Read-only still permits reading secrets; read-write permits changes and deletion. Tool containers do not mount Docker's management interface; capabilities are dropped and `no-new-privileges` is enabled.
+- **Accounts and browser data**: the workspace browser profile is separate from the everyday host browser. Accounts and browser data are separate per explicitly selected identity and shared within that identity. Legacy shared mode retains existing logins. Separate data directories create independent managed instances; changing projects alone does not change identity.
 - **Network paths**: tools use an internal network and gateway. Managed chaining has no direct fallback; local compatibility still depends on the external client's routing and the service providers.
 - **Monitoring**: changes stop the environment when detected. IP monitoring has an interval and request timeouts, so exit changes are not detected instantaneously.
 

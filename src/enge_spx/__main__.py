@@ -11,6 +11,11 @@ from .state import Store, SPXError
 
 
 def main():
+    # Frozen Windows CLI pipes may use a non-CJK code page. Keep machine JSON
+    # ASCII-escaped and human error messages printable instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if callable(getattr(stream, "reconfigure", None)):
+            stream.reconfigure(errors="backslashreplace")
     parser = argparse.ArgumentParser(prog="spx", description="ENGE SPX — 本机项目、共享工具与受控代理出口")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--data", type=Path, help="专用数据目录；默认跟随偏好设置中的迁移位置")
@@ -77,7 +82,7 @@ def main():
             assert tunnel_type() and (ASSETS / "app.ico").is_file() and (PACKAGE_RESOURCES / "checks/exit_probe.py").is_file()
             for name in ("browser-seccomp.json", "sandbox_status.py", "runtime_secret.py"):
                 assert (PACKAGE_RESOURCES / "containers" / name).is_file()
-            for name in ("environment_probe.py", "browser_probe.py"):
+            for name in ("environment_probe.py", "browser_probe.py", "browser_shutdown.py"):
                 assert (PACKAGE_RESOURCES / "checks" / name).is_file()
             codec = CredentialCodec("000000000000")
             fixture = [{"password": "synthetic-self-test-only"}]
@@ -136,7 +141,7 @@ def main():
             if args.output:
                 from .state import atomic_json
                 atomic_json(args.output, result)
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
             return 2 if result.get("status") in ("unsafe", "failed") else 0
         elif args.action == "resources":
             from .resource_limits import validate
@@ -206,7 +211,7 @@ def main():
         else:
             result = getattr(engine, args.action)()
         if result is not None:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
     except (SPXError, OSError) as error:
         if sys.stderr:

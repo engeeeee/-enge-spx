@@ -134,7 +134,8 @@ def run(context, runtime_report, output):
             state, resumed, resumed_browser = connect()
             assert resumed["Id"] == first["Id"]
             assert_account(resumed, "alpha")
-            assert login_fixture(engine, resumed["Id"], resumed_browser["Id"], state) == {"cookie": True, "storage": True}
+            restored_evidence = login_fixture(engine, resumed["Id"], resumed_browser["Id"], state)
+            assert restored_evidence == {"cookie": True, "storage": True}, restored_evidence
             assert execute(engine, resumed_browser["Id"], "from pathlib import Path; print(Path('/home/workspace/Downloads/spx-profile-download').read_text())") == "alpha"
             try:
                 engine.attach_command(str(project), "codex", state["session"], second["Id"], interactive=False)
@@ -170,7 +171,8 @@ def run(context, runtime_report, output):
             state, restored, restored_browser = connect()
             assert restored["Id"] == original_shared_id
             assert_account(restored, "shared")
-            assert login_fixture(engine, restored["Id"], restored_browser["Id"], state) == {"cookie": True, "storage": True}
+            restored_evidence = login_fixture(engine, restored["Id"], restored_browser["Id"], state)
+            assert restored_evidence == {"cookie": True, "storage": True}, restored_evidence
             assert execute(engine, restored_browser["Id"], "from pathlib import Path; print(Path('/home/workspace/Downloads/spx-profile-download').read_text())") == "shared"
             passed("explicit return to compatibility mode reuses original shared accounts, browser identity, download volume and project container")
 

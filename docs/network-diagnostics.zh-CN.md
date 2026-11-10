@@ -18,7 +18,7 @@ spx network-check --output D:\Reports\spx-network.json
 
 | 对象 | 读取或实测内容 | 能证明与不能证明 |
 | --- | --- | --- |
-| Windows 控制主机 | NoProfile PowerShell 的默认 IPv4/IPv6 路由及 DNS，系统语言和当前时区偏移 | 只读，不主动连接公网；主机存在默认路由属正常现象，不能用它判断容器泄漏。权限/组件不足时标明不可用 |
+| Windows 控制主机 | NoProfile PowerShell 的默认 IPv4/IPv6 路由及 DNS，用户区域语言（GetUserDefaultLocaleName）和当前时区偏移 | 只读，不主动连接公网；主机默认路由不能用于判断容器泄漏。区域语言不等于所有已安装 UI 语言；权限/组件不足时标明不可用 |
 | Linux 控制主机 | `/proc/net/route`、`ipv6_route`、`resolv.conf` 等只读信息 | 与容器分开，不当作 Windows/WSL2 整体测量 |
 | 受控 session | 实际路由、DNS 服务器、IPv6 接口、网络 namespace、LANG/LC_ALL、TZ/偏移；直连 IPv4/IPv6 TCP 与 UDP DNS 的有限探测 | TCP/UDP 成功即异常并停止；无响应或超时不能单独证明没有发包。拓扑审计和真实防泄漏集成测试为另外的证据 |
 | CLI | 拓扑审计核对其共享的 session 网络空间、身份及授权 | 不读取账号文件、项目内容或运行中的工具输入；共享 namespace 不冒充独立进程逐包抓包 |

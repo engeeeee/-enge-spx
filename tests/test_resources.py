@@ -121,7 +121,9 @@ class BudgetTests(unittest.TestCase):
         browser = {"Id": "owned-browser", "State": {"Running": True}}
         self.engine.inspect = Mock(return_value=browser)
         self.engine.docker = Mock()
+        self.engine._quiesce_browser = Mock()
         result = self.engine.stop_browser()
+        self.engine._quiesce_browser.assert_called_once_with(browser)
         self.assertTrue(result["workspace_kept"])
         self.engine.docker.run.assert_called_once_with("stop", "--time", "8", "owned-browser", timeout=25)
         self.assertEqual(self.store.read("runtime.json")["phase"], "ready")

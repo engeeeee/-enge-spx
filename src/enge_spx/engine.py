@@ -750,6 +750,8 @@ class Engine:
         failures = []
         for obj in objects:
             if obj["State"]["Running"]:
+                if obj["Config"]["Labels"][self.role] == "browser":
+                    self._quiesce_browser(obj)
                 try:
                     self.docker.run("stop", "--time", "8", obj["Id"], timeout=25)
                 except SPXError:
@@ -896,6 +898,17 @@ class Engine:
             raise SPXError("没有可恢复的上次资源设置。")
         return self.save_resources(previous["resources"])
 
+    def _quiesce_browser(self, obj):
+        # Callers have resolved an owned container. The gateway is already closed
+        # during workspace shutdown; failure here must never prevent Docker stop.
+        try:
+            code = (PACKAGE_RESOURCES / "checks/browser_shutdown.py").read_text(encoding="utf-8")
+            result = json.loads(self.docker.run("exec", obj["Id"], "python3", "-c", code, timeout=7))
+            if result.get("requested") is True and result.get("exited") is not True:
+                self.log("浏览器资料保存未能提前确认，将继续限时停止。")
+        except (SPXError, OSError, ValueError, TypeError, AttributeError):
+            self.log("浏览器未能完成提前收尾，将继续限时停止。")
+
     def stop_browser(self):
         with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前操作完成后停止浏览器…")):
             obj = self.inspect("browser")
@@ -905,6 +918,7 @@ class Engine:
             except (SPXError, OSError) as error:
                 write_error = error
             if obj and obj["State"]["Running"]:
+                self._quiesce_browser(obj)
                 try:
                     self.docker.run("stop", "--time", "8", obj["Id"], timeout=25)
                 except SPXError:

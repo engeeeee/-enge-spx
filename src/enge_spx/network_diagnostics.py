@@ -122,8 +122,9 @@ def environment_evidence(raw):
 
 HOST_ROUTES = '''$ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
-$v4=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.DestinationPrefix -eq '0.0.0.0/0'} | Select-Object -First 16 DestinationPrefix,NextHop)
-$v6=@(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object {$_.DestinationPrefix -eq '::/0'} | Select-Object -First 16 DestinationPrefix,NextHop)
+$routes=@(Get-NetRoute -ErrorAction Stop)
+$v4=@($routes | Where-Object {$_.DestinationPrefix -eq '0.0.0.0/0'} | Select-Object -First 16 DestinationPrefix,NextHop)
+$v6=@($routes | Where-Object {$_.DestinationPrefix -eq '::/0'} | Select-Object -First 16 DestinationPrefix,NextHop)
 $dns=@(Get-DnsClientServerAddress | ForEach-Object {$_.ServerAddresses} | Select-Object -Unique -First 8)
 [pscustomobject]@{ipv4=$v4;ipv6=$v6;dns=$dns} | ConvertTo-Json -Depth 4 -Compress
 '''
@@ -145,6 +146,7 @@ def host_facts():
         value = ctypes.create_unicode_buffer(85)
         if kernel.GetUserDefaultLocaleName(value, len(value)):
             result["preferred_language"] = _language(value.value)
+        result["language_source"] = "Windows user locale; GetUserDefaultLocaleName"
     except (OSError, AttributeError):
         result["preferred_language"] = "unavailable"
     result["timezone_offset_seconds"] = int(datetime.now().astimezone().utcoffset().total_seconds())

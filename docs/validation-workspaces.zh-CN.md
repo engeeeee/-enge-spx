@@ -13,7 +13,7 @@
 | `src/enge_spx/workspace_profiles.py` | schema=1、初始化标记、严格身份/路径/卷/权限检查 |
 | `engine.py`、`state.py`、`__main__.py` | 停止核验后应用/恢复、旧共享兼容、启动前审计、CLI 与安全导出 |
 | `network_diagnostics.py` | 受控按需采样、独立出口耗时、字段白名单和逐报告地址代号 |
-| `resources/checks/environment_probe.py`、`browser_probe.py`、`exit_probe.py` | 容器路由/有限阻断、真实浏览器回环观察、固定安全错误类别 |
+| `resources/checks/environment_probe.py`、`browser_probe.py`、`browser_shutdown.py`、`exit_probe.py` | 容器路由/有限阻断、真实浏览器回环观察、固定安全错误类别 |
 | `ui/controller.py`、`ui/window.py`、`ui/style.py` | 身份/授权面板、工作线程、过期选择校验和懒加载诊断页 |
 | `tests/test_workspace_*.py`、`test_network_*.py` | 旧版、配置损坏、串号、权限、UI/CLI、脱敏和故障覆盖 |
 | `tests/integration_workspace_data.py`、`integration_profiles.py` | 真实卷、递归只读、账号/Cookie/Storage、恢复复用及断线停止 |
@@ -39,9 +39,11 @@ flowchart LR
 
 诊断复用双出口和拓扑保护。浏览器经短期容器回环页面观察，不开 DevTools；授权令牌只经 stdin 传入。白名单报告不读取项目、账号、Cookie、Storage 或原始 SDP。语言与时区只读；出现证实直连、出口复核失败或权限变化时请求并核验停止。
 
+停止浏览器前向已核验的主进程请求 SIGINT，采用 [Chromium POSIX 的正常退出路径](https://chromium.googlesource.com/chromium/src/+/HEAD/chrome/browser/chrome_browser_main_posix.cc)，限时等待以便保存 Profile。只在已归属浏览器容器内核对当前 UID、主进程和固定 Profile 参数，不对 PID 1、renderer 或主机进程发信号。工作区停止仍先撤销网关；保存失败也继续容器限时停止，不以数据保存阻碍 Fail-Closed。
+
 ## 4. 已实现功能
 
-身份新建/选择/绑定/恢复、独立浏览器/工具账号/下载、显式递归只读、启动前拒绝串号、默认共享兼容。主动诊断展示主机与容器路由/DNS、IPv4/IPv6/UDP 有限探测、系统与浏览器语言/时区、本地 WebRTC、独立线路/最终出口耗时及脱敏导出。操作见 [身份](workspaces.zh-CN.md)与 [网络检查](network-diagnostics.zh-CN.md)。
+身份新建/选择/绑定/恢复、独立浏览器/工具账号/下载、显式递归只读、启动前拒绝串号、默认共享兼容。浏览器停止前限时请求正常退出，保留强制停机路径，覆盖快速切换时的资料保存；非中文 Windows 管道中的 CLI JSON 采用可还原转义，避免中文身份名造成编码退出。主动诊断展示主机与容器路由/DNS、IPv4/IPv6/UDP 有限探测、系统与浏览器语言/时区、本地 WebRTC、独立线路/最终出口耗时及脱敏导出。操作见 [身份](workspaces.zh-CN.md)与 [网络检查](network-diagnostics.zh-CN.md)。
 
 ## 5. 测试命令与实际结果
 
@@ -57,7 +59,7 @@ PYTHONPATH=src python tools/benchmark_resources.py --baseline 6168bf406d9d7d6254
 python tools/benchmark_p0.py --kind host --baseline 6168bf406d9d7d6254e5be102921445f5129db48 --output host.json
 ```
 
-当前本地 Linux ARM64：287 项单元测试，276 通过、11 项 Windows 专用跳过；真实无网络 Docker 数据测试 6 场景通过。初始核心 `1235249` 的 [跨平台专项 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42897634925) 已通过 Windows/Linux 268 项及真实数据测试，原生 Windows 路径别名问题已修正。网络诊断及最终候选的全量 CI、真实 Chromium 与打包结果待候选构建后记录；核心通过不代替这些门禁。
+当前本地 Linux ARM64：291 项单元测试，280 通过、11 项 Windows 专用跳过；真实无网络 Docker 数据测试 6 场景通过。初始核心 `1235249` 的 [跨平台专项 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42897634925) 已通过 Windows/Linux 268 项及真实数据测试，原生 Windows 路径别名问题已修正。网络诊断及最终候选的全量 CI、真实 Chromium 与打包结果待候选构建后记录；核心通过不代替这些门禁。
 
 ## 6. 性能前后对比
 

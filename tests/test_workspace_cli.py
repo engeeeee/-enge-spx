@@ -51,6 +51,26 @@ class WorkspaceCLITests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertNotIn("private-password", output + error)
 
+    def test_non_cjk_windows_pipe_preserves_json_names_and_prints_errors(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output, errors = io.BytesIO(), io.BytesIO()
+            stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
+            stderr = io.TextIOWrapper(errors, encoding="cp1252", errors="strict")
+            try:
+                with patch("sys.argv", ["spx", "--data", folder, "profiles", "create", "中文身份"]), redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(main(), 0)
+                stdout.flush()
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["config"]["profiles"][result["profile"]], "中文身份")
+                self.assertTrue(output.getvalue().isascii())
+                with patch("sys.argv", ["spx", "--data", folder, "profiles", "select", "unknown"]), redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(main(), 1)
+                stderr.flush()
+                self.assertIn(b"\\u", errors.getvalue())
+            finally:
+                stdout.detach()
+                stderr.detach()
+
 
 if __name__ == "__main__":
     unittest.main()

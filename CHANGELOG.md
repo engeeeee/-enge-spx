@@ -12,6 +12,10 @@
   IPv4/IPv6/UDP observations, real browser language/timezone/local WebRTC checks,
   first-hop/final-exit timings and per-report sanitized export. No debug ports,
   automatic browser startup, fingerprint changes or new production dependencies.
+- Request bounded graceful Chromium exit before container stop so rapid identity
+  switching can flush pending Profile data. Keep gateway revocation and forced
+  shutdown even if graceful close fails. Escape CLI JSON for non-CJK Windows
+  pipes; preserve Unicode names without encoding crashes.
 - Preserve sandbox, DPAPI, protocol backends, fail-closed guard, resource modes,
   manual Docker startup and X-to-tray/default verified-stop exit behavior.
   See docs/validation-workspaces.zh-CN.md for measured scope and remaining limits.
