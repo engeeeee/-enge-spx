@@ -103,10 +103,6 @@ class NativeWindowTests(unittest.TestCase):
             with patch.object(self.controller, "request_close") as close:
                 self.window.close()
                 QTest.qWait(20)
-                time.sleep(.005)  # Yield the Python GIL to the real filesystem worker.
-            if not closed.count():
-                import faulthandler
-                faulthandler.dump_traceback(all_threads=True)
                 self.assertFalse(self.window.isVisible())
                 self.assertTrue(self.window.tray.isVisible())
                 self.assertFalse(self.controller.cancel.is_set())
@@ -140,6 +136,10 @@ class NativeWindowTests(unittest.TestCase):
                 if closed.count():
                     break
                 QTest.qWait(20)
+                time.sleep(.005)  # Yield the Python GIL to the real filesystem worker.
+            if not closed.count():
+                import faulthandler
+                faulthandler.dump_traceback(all_threads=True)
             self.assertEqual(closed.count(), 1, f"stage={self.controller.exit_stage} busy={self.controller.busy} sample={self.controller.resource_inflight} timer={self.controller.delivery.isActive()} operation={self.controller.operation.get()}")
 
     def test_legacy_terminal_reopens_as_custom_and_exe_picker_has_no_brand_special_case(self):
