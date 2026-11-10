@@ -21,6 +21,7 @@ from ..line_security import LINE_MODES, v2ray_rules
 from ..nodes import fetch_subscription, normalize, parse_nodes
 from ..proxy import detect_system_proxy, download_proxy, protocol, proxy_url, relay_config, route_config
 from ..resource_limits import ROLES, preset as resource_preset, validate as validate_resources, validate_budget
+from ..workspace_profiles import load as load_workspace_profiles, display_name as workspace_display_name, SHARED
 from ..startup import DOCKER_INSTALL_URL, StartupIssue, diagnostics, prepare_workspace
 from ..state import SPXError, Store, atomic_json, status_snapshot
 from ..storage import desktop_storage, plan_migration, prepare_docker_move, verify_docker_move
@@ -56,6 +57,7 @@ class Controller(QObject):
     close_requested = Signal()
     activation_requested = Signal()
     exit_failed = Signal(str)
+    workspace_changed = Signal()
 
     def __init__(self, store, report=None, on_relocated=None):
         super().__init__()
@@ -74,6 +76,12 @@ class Controller(QObject):
         self.log_lines = []
         self.view = {}
         settings = store.settings()
+        try:
+            self.workspace_config = load_workspace_profiles(store)
+            workspace_message = "默认共享模式沿用旧账号与浏览器资料。新身份使用独立资料，需要重新登录。"
+        except SPXError as error:
+            self.workspace_config = None
+            workspace_message = str(error)
         try:
             self.resource_config = validate_resources(settings.get("resources"))
             resource_message = "预算保存后在下次启动应用；不会重建项目容器。"
@@ -109,6 +117,8 @@ class Controller(QObject):
             "resource_status": resource_message, "resource_caption": "仅此页可见时采样；不会自动启动 Docker。",
             "resource_app_text": "等待采样。", "resource_system_text": "等待采样。", "resource_container_text": "等待采样。",
             "project_budget_enabled": False, "project_budget_cpu": 0, "project_budget_memory": 4096,
+            "workspace_profile": self.workspace_config["selected"] if self.workspace_config else "",
+            "workspace_access": "rw", "workspace_status": workspace_message,
         }
         for role in ROLES:
             defaults["budget_" + role + "_cpu"] = self.resource_config["budgets"][role]["cpus"]
@@ -139,7 +149,89 @@ class Controller(QObject):
         self.resource_timer = QTimer(self)
         self.resource_timer.setInterval(15000 if self.resource_config["mode"] == "low" else 10000)
         self.resource_timer.timeout.connect(self.sample_resources)
+        self.project.changed.connect(lambda unused: self.load_workspace_project())
+        self.workspace_profile.changed.connect(lambda unused: self.workspace_selection_changed())
+        self.workspace_access.changed.connect(lambda unused: self.workspace_selection_changed())
+        self.load_workspace_project()
         self.refresh_nodes()
+
+    def load_workspace_project(self):
+        if not self.workspace_config:
+            return
+        binding = self.workspace_config["projects"].get(self.project_budget_key())
+        self.workspace_profile.set(binding["profile"] if binding else self.workspace_config["selected"])
+        self.workspace_access.set(binding["access"] if binding else "rw" if self.workspace_profile.get() == SHARED else "ro")
+        self.workspace_selection_changed()
+
+    def workspace_selection_matches(self, require_project=True):
+        config = self.workspace_config
+        if not config or self.workspace_profile.get() != config["selected"]:
+            return False
+        if not require_project:
+            return True
+        key = self.project_budget_key()
+        binding = config["projects"].get(key)
+        return bool(key) and ((binding is None and config["selected"] == SHARED and self.workspace_access.get() == "rw") or binding == {"profile": self.workspace_profile.get(), "access": self.workspace_access.get()})
+
+    def workspace_selection_changed(self):
+        config = self.workspace_config
+        if not config:
+            return
+        current = config["profiles"].get(config["selected"], "未知身份")
+        selected = config["profiles"].get(self.workspace_profile.get(), "未选择")
+        access = "只读" if self.workspace_access.get() == "ro" else "读写"
+        if self.workspace_selection_matches():
+            self.workspace_status.set(f"当前身份：{current} · 项目{access}。浏览器、Claude Code 和 Codex 资料仅在同一身份内共享。")
+        else:
+            self.workspace_status.set(f"当前运行身份：{current}。待应用：{selected} · 项目{access}；应用前不会启动所选身份的工具。")
+
+    def reload_workspaces(self, config):
+        self.workspace_config = config
+        self.load_workspace_project()
+        self.workspace_changed.emit()
+        self.refresh()
+
+    def create_workspace(self, name):
+        try:
+            name = workspace_display_name(name)
+        except SPXError as error:
+            self.notify("检查身份名称", error)
+            return False
+        def done(result):
+            self.reload_workspaces(result["config"])
+            self.workspace_profile.set(result["profile"])
+            self.workspace_access.set("ro")
+            self.operation.set("空白身份已创建。选择项目和目录权限后点击“应用身份与授权”。")
+        return self.run(lambda engine: engine.create_workspace_profile(name), done, description="创建空白身份，保留已有账号资料…")
+
+    def apply_workspace(self, restore=False):
+        if self.busy or self.exit_mode is not None:
+            return False
+        identity, access, path = self.workspace_profile.get(), self.workspace_access.get(), self.project.get().strip()
+        if not restore and self.workspace_selection_matches(require_project=bool(path)):
+            self.operation.set("当前身份与项目目录权限已应用。")
+            return False
+        if status_snapshot(self.store)["phase"] in ("review", "ready") and not self.ask("应用工作区身份", "这会停止当前工作区。请保存工具和浏览器中的工作，再重新检查并确认连接。新身份从空白账号资料开始，原资料保留。继续？"):
+            return False
+        def action(engine):
+            config = engine.restore_workspace_profiles() if restore else engine.configure_workspace(identity, path or None, access)
+            canonical = str(engine.store.project(path)[0]) if path else None
+            return config, canonical
+        def done(result):
+            self.workspace_config = result[0]
+            if result[1]:
+                self.project.set(result[1])
+            self.reload_workspaces(result[0])
+            self.operation.set("身份与目录权限已应用。重新检查并确认连接后开始工作。")
+        return self.run(action, done, description="停止当前工作区并应用身份与目录授权…")
+
+    def open_workspace_browser(self):
+        if not self.workspace_selection_matches(require_project=False):
+            self.page_requested.emit("workspace")
+            self.notify("先应用身份", "请先应用所选身份并重新确认连接，再打开该身份的浏览器。")
+            return False
+        identity = self.workspace_profile.get()
+        return self.run(lambda engine: engine.browser(expected_profile=identity))
 
     def mark_resource_custom(self, unused):
         if not self._loading_resources:
@@ -613,13 +705,18 @@ class Controller(QObject):
         return self.run(action, done)
 
     def open_terminal(self, tool):
+        if not self.workspace_selection_matches():
+            self.page_requested.emit("workspace")
+            self.notify("先应用身份与目录授权", "请在项目工作区应用所选身份和只读/读写权限，再检查并确认连接。不会继承其它身份的账号。")
+            return
         if not self.settings_match():
             self.page_requested.emit("connection")
             return
         path = self.project.get().strip()
         if path:
             title = {"claude": "Claude Code", "codex": "Codex", "shell": "Linux 终端", "login-claude": "Claude Code 登录", "login-codex": "Codex 登录"}.get(tool, tool)
-            self.run(lambda engine: engine.terminal(path, tool), description=f"正在启动 {title}，后台检查进行中时会自动等待…")
+            expected = (self.workspace_profile.get(), self.workspace_access.get())
+            self.run(lambda engine: engine.terminal(path, tool, expected_workspace=expected), description=f"正在启动 {title}，后台检查进行中时会自动等待…")
         else:
             self.notify("先选择项目", "请选择要交给工具读写的具体项目文件夹。")
 

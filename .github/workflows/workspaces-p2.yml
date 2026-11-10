@@ -1,0 +1,46 @@
+name: ENGE SPX Workspace Profiles
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/workspace-profiles-p2]
+    paths: ['src/**', 'tests/**', 'tools/**', '.github/workflows/workspaces-p2.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-workspaces-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -v
+      - run: python tools/smoke_gui.py
+  data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -u tests/integration_workspace_data.py --context default --output workspace-data.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Workspace-data
+          path: workspace-data.json
+          if-no-files-found: error

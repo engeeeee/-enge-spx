@@ -108,7 +108,7 @@ class BudgetTests(unittest.TestCase):
         config["projects"][key] = {"cpus": .5, "memory_mb": 768}
         self.store.write("settings.json", {**self.store.settings(), "resources": config})
         self.engine.image_ids = Mock(return_value={"work": "image"})
-        self.engine.ensure_container = Mock(return_value={"Id": "kept"})
+        self.engine.ensure_container = Mock(return_value={"Id": "kept", "Name": self.engine.prefix + "-project-" + key, "Config": {"User": "1000:1000", "Labels": {self.engine.role: "project"}}, "State": {"Running": True}, "HostConfig": {"Privileged": False, "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"]}, "Mounts": [{"Type": "volume", "Name": self.engine.prefix + "-tools-home", "Destination": "/home/workspace", "RW": True}, {"Type": "bind", "Source": str(path), "Destination": "/workspace/" + key, "RW": True}]})
         self.engine.proxy_env = Mock(return_value=[])
         self.engine._project(str(path), {"session": "network-session"})
         self.assertEqual(self.engine.ensure_container.call_args.kwargs["resource_key"], key)
@@ -142,12 +142,14 @@ class BudgetTests(unittest.TestCase):
         engine.proxy_env = Mock(return_value=[])
         engine.control_env = Mock(return_value=[])
         engine.docker.command = Mock(return_value=["docker", "exec"])
-        engine.tool_command("fixture", ["codex"])
+        path = self.store.home.parent / "fixture"
+        path.mkdir()
+        engine.tool_command(str(path), ["codex"])
         engine._browser.assert_not_called()
-        engine.tool_command("fixture", ["claude"], browser=True)
+        engine.tool_command(str(path), ["claude"], browser=True)
         engine._browser.assert_called_once()
         engine._browser.reset_mock()
-        engine.tool_command("fixture", ["claude"], browser=False)
+        engine.tool_command(str(path), ["claude"], browser=False)
         engine._browser.assert_not_called()
 
 

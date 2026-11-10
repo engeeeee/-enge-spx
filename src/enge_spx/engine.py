@@ -389,13 +389,18 @@ class Engine:
         from .proxy import route_config
         relay = route_config(settings["relay"])
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
-        return fingerprint({"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2, "network_policy": 1, "proxy_backend": self.backend.name})
+        result = {"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2, "network_policy": 1, "proxy_backend": self.backend.name}
+        from .workspace_profiles import load, policy, SHARED
+        workspace = load(self.store)
+        if workspace["selected"] != SHARED or workspace["projects"]:
+            result["workspace"] = policy(workspace)
+        return fingerprint(result)
 
     def networks(self):
         from .network_policy import ensure
         return ensure(self)
 
-    def ensure_container(self, role, image, arguments, command=(), name=None, resource_key=None):
+    def ensure_container(self, role, image, arguments, command=(), name=None, resource_key=None, validate_existing=None):
         from .resource_limits import validate, budget, arguments as resource_arguments, apply_stopped, ROLES
         settings = self.store.settings()
         limits = budget(validate(settings.get("resources")), role, resource_key) if role in ROLES else None
@@ -411,6 +416,8 @@ class Engine:
                 else:
                     raise SPXError("已有容器的镜像与本版本不同。请保留数据，使用新的专用数据目录。")
         if obj:
+            if validate_existing is not None:
+                validate_existing(obj)
             if limits is not None and settings.get("resources") is not None:
                 # Docker update ignores memory=0. Only the data-free gateway
                 # can be replaced to remove an existing hard memory limit;
@@ -600,6 +607,9 @@ class Engine:
             forward = self.store.read("forward.json", {})
             if forward.get("gateway") != state["gateway"] or forward.get("policy") != state["policy"] or time.time() - forward.get("heartbeat", 0) > 12:
                 raise SPXError("本机线路中转已断开，请重新检查连接。")
+        from .workspace_profiles import FILE, MARKER, load, validate_mounts
+        workspace = load(self.store)
+        audit_mounts = (self.store.home / FILE).exists() or (self.store.home / MARKER).exists()
         for name in self.managed():
             obj = self.docker.inspect("container", name)
             self.owned(obj)
@@ -607,6 +617,8 @@ class Engine:
             if role == "browser":
                 from .browser_security import validate_container
                 validate_container(obj)
+            if audit_mounts and role in ("project", "browser"):
+                validate_mounts(self, obj, workspace)
             if role in ("project", "browser") and obj["HostConfig"]["NetworkMode"] != "container:" + state["session"]:
                 raise SPXError("工作容器的网络空间已改变。")
 
@@ -753,23 +765,94 @@ class Engine:
     def shutdown(self):
         """Verified user exit: own workspace/services only; never quits Desktop."""
         with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前安全检查完成，随后停止工作区并退出…")):
-            installed = bool(self.store.read("images.json", {}))
-            self.log("正在撤销连接授权并停止本实例工作区…")
-            self._stop()
-            if installed and not self.docker.executable:
-                raise SPXError("未找到 Docker 命令行工具，已撤销本实例连接授权，但无法核验容器是否停止。界面会保留。")
-            deadline = time.monotonic() + 45
-            self.log("正在等待安全监测、中转和浏览器显示服务安全退出…")
-            for name in ("guard", "forward", "relay"):
-                with self.store.lock(name, timeout=max(0, deadline - time.monotonic())):
-                    pass
-            if self.docker.executable and self.store.read("images.json", {}):
-                for identifier in self.managed():
-                    obj = self.owned(self.docker.inspect("container", identifier))
-                    if obj["State"]["Running"]:
-                        raise SPXError("仍检测到本实例的运行容器，界面会保留，请重试退出。")
-            self.log("工作区与后台服务已停止，项目和账号数据保留。")
-            return {"workspace_stopped": True, "background_stopped": True, "docker_desktop_kept": True}
+            return self._shutdown_locked()
+
+    def _shutdown_locked(self):
+        """Caller holds the operation lock through stop, services and verification."""
+        installed = bool(self.store.read("images.json", {}))
+        self.log("正在撤销连接授权并停止本实例工作区…")
+        self._stop()
+        if installed and not self.docker.executable:
+            raise SPXError("未找到 Docker 命令行工具，已撤销本实例连接授权，但无法核验容器是否停止。界面会保留。")
+        deadline = time.monotonic() + 45
+        self.log("正在等待安全监测、中转和浏览器显示服务安全退出…")
+        for name in ("guard", "forward", "relay"):
+            with self.store.lock(name, timeout=max(0, deadline - time.monotonic())):
+                pass
+        if self.docker.executable and self.store.read("images.json", {}):
+            for identifier in self.managed():
+                obj = self.owned(self.docker.inspect("container", identifier))
+                if obj["State"]["Running"]:
+                    raise SPXError("仍检测到本实例的运行容器，界面会保留，请重试退出。")
+        self.log("工作区与后台服务已停止，项目和账号数据保留。")
+        return {"workspace_stopped": True, "background_stopped": True, "docker_desktop_kept": True}
+
+    def workspace_profiles(self):
+        from .workspace_profiles import load
+        return load(self.store)
+
+    def _save_workspace_locked(self, config, previous):
+        from .workspace_profiles import FILE, MARKER, PREVIOUS, policy
+        if config == previous:
+            return config
+        if policy(config) != policy(previous):
+            self.log("正在停止当前工作区，切换身份或项目目录权限…")
+            self._shutdown_locked()
+        self.store.write(PREVIOUS, {"schema": 1, "config": previous})
+        self.store.write(FILE, config)
+        self.store.write(MARKER, {"schema": 1, "enabled": True})
+        return config
+
+    def create_workspace_profile(self, name):
+        from .workspace_profiles import display_name, validate
+        name = display_name(name)
+        with self.store.lock(timeout=45):
+            previous = self.workspace_profiles()
+            config = validate(previous)
+            if name.casefold() in {value.casefold() for value in config["profiles"].values()}:
+                raise SPXError("已有同名身份，请使用不同名称。")
+            identity = secrets.token_hex(6)
+            while identity in config["profiles"]:
+                identity = secrets.token_hex(6)
+            config["profiles"][identity] = name
+            config = validate(config)
+            self._save_workspace_locked(config, previous)
+            return {"profile": identity, "config": config}
+
+    def configure_workspace(self, identity, path=None, access="ro"):
+        from .workspace_profiles import validate, profile_id
+        if not profile_id(identity) or access not in ("ro", "rw"):
+            raise SPXError("工作区身份或只读/读写选项无效。")
+        directory, key = self.store.project(path) if path else (None, None)
+        with self.store.lock(timeout=45, on_wait=lambda: self.log("等待当前操作完成后应用工作区身份…")):
+            previous = self.workspace_profiles()
+            config = validate(previous)
+            if identity not in config["profiles"]:
+                raise SPXError("所选工作区身份不存在；不会使用默认账号替代。")
+            config["selected"] = identity
+            if key:
+                config["projects"][key] = {"profile": identity, "access": access}
+            return self._save_workspace_locked(validate(config), previous)
+
+    def restore_workspace_profiles(self):
+        from .workspace_profiles import FILE, MARKER, PREVIOUS, validate, check_files
+        with self.store.lock(timeout=45):
+            check_files(self.store, PREVIOUS)
+            backup = self.store.read(PREVIOUS, {})
+            if not isinstance(backup, dict) or set(backup) != {"schema", "config"} or type(backup["schema"]) is not int or backup["schema"] != 1 or backup["config"] is None:
+                raise SPXError("没有可恢复的上次工作区身份配置。")
+            config = validate(backup["config"])
+            try:
+                current = self.workspace_profiles()
+            except SPXError:
+                # Explicit recovery only, never an implicit shared-account fallback.
+                self._shutdown_locked()
+                self.store.write(FILE, config)
+                self.store.write(MARKER, {"schema": 1, "enabled": True})
+                return config
+            # Restoring selection/authorization never forgets newly created data.
+            config["profiles"].update(current["profiles"])
+            return self._save_workspace_locked(validate(config), current)
 
     def save_resources(self, config):
         from .resource_limits import validate
@@ -857,12 +940,23 @@ class Engine:
 
     def _browser(self, state):
         from .browser_security import arguments, validate_container, validate_status
+        from .workspace_profiles import PROFILE, volumes, validate_mounts
+        workspace = self.workspace_profiles()
+        identity = workspace["selected"]
+        data = volumes(self, identity)
+        def verify(obj):
+            validate_container(obj)
+            validate_mounts(self, obj, workspace)
         ids = self.image_ids()
         # A stopped browser may contain an old one-time display token. Replace its
         # container, keeping its profile and downloads in dedicated persistent volumes.
         old = self._retire_stopped_browser()
-        obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", *arguments(), "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
-        validate_container(obj)
+        try:
+            obj = self.ensure_container("browser", ids["browser"], ["--label", PROFILE + "=" + identity, "--network", "container:" + state["session"], "--shm-size", "512m", *arguments(), "--volume", data["browser-home"] + ":/home/workspace", "--volume", data["downloads"] + ":/home/workspace/Downloads", *self.proxy_env(state)], validate_existing=verify)
+            verify(obj)
+        except SPXError:
+            self._stop("浏览器身份、挂载或沙箱核验失败，工作区已停止。")
+            raise
         if not old or not old["State"]["Running"]:
             self.store.write("browser-state.json", {"schema": 1, "id": obj["Id"], "phase": "running"})
             self.deliver_secret(obj["Id"], "browser", {"token": state["browser_token"], "proxy": state["proxy"], "legacy": self.store.legacy})
@@ -930,18 +1024,30 @@ class Engine:
             time.sleep(.5)
         raise SPXError("本机显示服务未能启动，请查看数据目录中的 relay.log。")
 
-    def browser(self):
+    def browser(self, expected_profile=None):
         with self.store.lock(timeout=30, on_wait=lambda: self.log("等待后台连接检查完成，随后自动打开浏览器…")):
+            if expected_profile is not None and self.workspace_profiles()["selected"] != expected_profile:
+                raise SPXError("当前身份已改变，请先应用所选身份并重新确认连接。")
             state = self.ready()
             url = self._browser(state)
         webbrowser.open(url)
         return url
 
     def _project(self, path, state):
-        directory, key = self.store.project(path)
-        name = self.prefix + "-project-" + key
+        from .workspace_profiles import project_plan, project_arguments, volumes, validate_mounts
+        workspace = self.workspace_profiles()
+        plan = project_plan(self, path, workspace)
+        directory, key = plan["directory"], plan["key"]
+        data = volumes(self, plan["profile"])
+        def verify(obj):
+            validate_mounts(self, obj, workspace, plan)
         ids = self.image_ids()
-        obj = self.ensure_container("project", ids["work"], ["--network", "container:" + state["session"], "--mount", f"type=bind,source={directory},target=/workspace/{key}", "--volume", self.prefix + "-tools-home:/home/workspace", "--workdir", "/workspace/" + key, *self.proxy_env(state)], name=name, resource_key=key)
+        try:
+            obj = self.ensure_container("project", ids["work"], ["--network", "container:" + state["session"], *project_arguments(plan), "--volume", data["tools-home"] + ":/home/workspace", "--workdir", "/workspace/" + key, *self.proxy_env(state)], name=plan["name"], resource_key=key, validate_existing=verify)
+            verify(obj)
+        except SPXError:
+            self._stop("项目身份、目录或权限核验失败，工作区已停止。")
+            raise
         settings = self.store.settings()
         projects = list(dict.fromkeys([*settings["projects"], str(directory)]))
         if projects != settings["projects"]:
@@ -953,10 +1059,14 @@ class Engine:
         argv, _ = self._tool_session(path, command, interactive, browser)
         return argv
 
-    def _tool_session(self, path, command, interactive=True, browser=None):
+    def _tool_session(self, path, command, interactive=True, browser=None, expected_workspace=None):
         # The guard checks immediately after confirmation and every 30 seconds.
         # Wait for its lock before executing anything; never retry the launch.
         with self.store.lock(timeout=30, on_wait=lambda: self.log("等待后台连接检查完成，随后自动启动工作区…")):
+            from .workspace_profiles import project_plan
+            plan = project_plan(self, path)
+            if expected_workspace is not None and (plan["profile"], plan["access"]) != expected_workspace:
+                raise SPXError("项目身份或目录权限已改变，请先应用设置并重新确认连接。")
             state = self.ready()
             if browser is None:
                 from .resource_limits import validate
@@ -967,7 +1077,7 @@ class Engine:
             flags = ["-it"] if interactive else ["-i"]
             return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), obj["Id"], *command), url
 
-    def terminal(self, path, tool):
+    def terminal(self, path, tool, expected_workspace=None):
         from .terminal import launch, resolve
         from .invocation import console_entry
         if tool not in TOOLS:
@@ -976,7 +1086,7 @@ class Engine:
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
         config = self.store.settings()["terminal"]
         resolve(config)
-        _, url = self._tool_session(path, TOOLS[tool], browser=True if tool.startswith("login-") else None)
+        _, url = self._tool_session(path, TOOLS[tool], browser=True if tool.startswith("login-") else None, expected_workspace=expected_workspace)
         directory, _ = self.store.project(path)
         command = [*console_entry(), "--data", str(self.store.home), "--project", str(directory), "attach", tool, "--session", self.prepared_session, "--container", self.prepared_container]
         # The terminal gets a public CLI invocation, never the token environment.
@@ -993,10 +1103,13 @@ class Engine:
             if state.get("phase") != "ready" or state.get("session") != session or time.time() - state.get("heartbeat", 0) > 100:
                 raise SPXError("工作区连接已改变，请返回 ENGE SPX 重新打开工具。")
             self.audit_topology(state)
-            _, key = self.store.project(path)
-            obj = self.inspect("project", self.prefix + "-project-" + key)
+            from .workspace_profiles import project_plan, validate_mounts
+            plan = project_plan(self, path)
+            key = plan["key"]
+            obj = self.inspect("project", plan["name"])
             if not obj or obj["Id"] != container or not obj["State"]["Running"] or obj["HostConfig"]["NetworkMode"] != "container:" + session:
                 raise SPXError("项目容器已改变，请返回 ENGE SPX 重新打开工具。")
+            validate_mounts(self, obj, plan=plan)
             return self.docker.command("exec", *( ["-it"] if interactive else ["-i"]), "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), container, *TOOLS[tool])
 
     def status(self):
