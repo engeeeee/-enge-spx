@@ -136,9 +136,10 @@ class Store:
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
             if hasattr(self, "credentials"):
+                from .credentials import SENSITIVE_FILES
                 marker = self.home / "credentials-state.json"
                 required = False
-                if marker.exists():
+                if name in SENSITIVE_FILES and marker.exists():
                     metadata = json.loads(marker.read_text(encoding="utf-8"))
                     if not isinstance(metadata, dict) or metadata.get("schema") != 1 or metadata.get("state") != "complete" or metadata.get("mode") != "dpapi-current-user":
                         raise SPXError("凭据迁移记录版本无效；请保留数据并使用对应版本恢复。")
@@ -204,7 +205,7 @@ class Store:
             except Exception:
                 shutil.rmtree(stage, ignore_errors=True)
                 raise
-        return {"schema": 0, "plaintext": True, "directory": str(destination), "source_unchanged": True}
+        return {"schema": 0, "plaintext": True, "directory": str(destination), "source_credentials_unchanged": True}
 
     def check_location(self):
         if (self.home / "relocated.json").exists():

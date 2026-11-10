@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -36,6 +38,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -65,17 +69,29 @@ jobs:
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: P0-UI-0.8.2
+          name: P0-UI-0.8.3
           path: ${{ runner.temp }}/spx-ui-checks
           if-no-files-found: error
       - if: runner.os == 'Windows'
         shell: pwsh
         run: ./tools/Update-Repository.ps1 -WhatIf
+      - if: runner.os == 'Windows'
+        name: Compare source GUI and real DPAPI overhead with pinned 0.8.3
+        shell: pwsh
+        run: python tools/benchmark_p0.py --kind host --output "$env:RUNNER_TEMP/p0-host.json"
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: P0-host-performance
+          path: ${{ runner.temp }}/p0-host.json
+          if-no-files-found: error
   package:
     needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -110,6 +126,8 @@ jobs:
           if ($timing.toolkit -ne 'Qt' -or -not $timing.brand_visible) { throw 'Packaged Qt interface or complete product name missing.' }
           $metadata = (Get-Item './dist/ENGE-SPX/ENGE-SPX.exe').VersionInfo
           if ($metadata.ProductName -ne 'ENGE SPX' -or $metadata.CompanyName -ne 'engeeeee') { throw 'Executable branding differs.' }
+      - name: Verify real DPAPI in the frozen Windows CLI
+        run: python tools/check_frozen_credentials.py dist/ENGE-SPX/spx.exe
       - name: Verify frozen GUI keeps Docker startup manual
         shell: pwsh
         run: python tests/test_gui_startup.py --packaged dist/ENGE-SPX/ENGE-SPX.exe
@@ -117,7 +135,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = Join-Path $env:RUNNER_TEMP 'spx-installed'
-          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.8.2-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
+          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.8.3-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
           if ($setup.ExitCode -ne 0 -or -not (Test-Path "$appDir/ENGE-SPX.exe")) { throw 'Setup failed.' }
           & "$appDir/spx.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed.' }
@@ -131,10 +149,10 @@ jobs:
           if ((Get-Content (Join-Path $privateData 'uninstall-test.txt')) -ne 'preserved') { throw 'Uninstall removed private data.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: P0-Windows-x64-0.8.2
+          name: P0-Windows-x64-0.8.3
           path: |
-            dist/ENGE-SPX-Windows-x64-0.8.2-Portable.zip
-            dist/ENGE-SPX-Windows-x64-0.8.2-Setup.exe
+            dist/ENGE-SPX-Windows-x64-0.8.3-Portable.zip
+            dist/ENGE-SPX-Windows-x64-0.8.3-Setup.exe
             dist/*.sha256
           if-no-files-found: error
   containers:
@@ -143,6 +161,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -155,6 +175,13 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -u tests/integration_chain.py --context default
+      - name: Compare offline browser costs with pinned 0.8.3 on the same Docker runner
+        run: python -u tools/benchmark_p0.py --kind docker --context default --output "$RUNNER_TEMP/p0-docker.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P0-docker-performance
+          path: ${{ runner.temp }}/p0-docker.json
+          if-no-files-found: error
       - name: Export the verified native environment
         if: github.event_name != 'pull_request'
         env:
@@ -186,7 +213,7 @@ jobs:
         if: github.repository == 'engeeeee/ENGE-SPX' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: P0-Runtime-0.8.2
+          name: P0-Runtime-0.8.3
           path: ${{ runner.temp }}/runtime-package/*
           compression-level: 0
           retention-days: 1

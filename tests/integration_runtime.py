@@ -157,6 +157,17 @@ def run(context, output):
             assert {item["Destination"] for item in gateway["Mounts"] if item["Type"] == "bind"} == {"/config/lease.jsonl"}
             assert execute(engine, gateway["Id"], "from pathlib import Path; print(Path('/tmp/spx/config.json').exists())") == "False"
             assert execute(engine, browser["Id"], "from pathlib import Path; print(Path('/dev/shm/spx/browser.json').exists())") == "False"
+            seals = execute(engine, gateway["Id"], '''import os,fcntl
+from pathlib import Path
+seals=[]
+for p in Path('/proc').glob('[0-9]*/fd/*'):
+ try:
+  if os.readlink(p).startswith('/memfd:spx-config'):
+   fd=os.open(p,os.O_RDONLY);seals.append(fcntl.fcntl(fd,fcntl.F_GET_SEALS));os.close(fd)
+ except OSError: pass
+assert seals and all(v & 15 == 15 for v in seals), 'Gateway config memfd is not sealed'
+print('SEALED')''')
+            assert seals == "SEALED"
             passed("proxy passwords and browser token absent from Docker metadata; only public lease bind-mounted; RAM handoff files removed")
             isolation_code = '''import socket,struct,errno
 for port in (5900,6099):

@@ -122,6 +122,10 @@ class Docker:
             raise SPXError("Docker 无法启动，请检查 Docker Desktop 安装。") from error
         if result.returncode:
             raise SPXError("Docker 机密输入操作失败，输入和原始错误输出未记录。" if input_data is not None else "Docker 操作失败：" + self.redact(error))
+        if not log and args[:1] == ("logs",):
+            # Docker puts the container's stderr on its own stderr even on a
+            # successful `logs` call. Keep that diagnostic path redacted too.
+            return self.redact(output + result.stderr).strip()
         return output.strip()
 
     def inspect(self, kind: str, name: str):
@@ -768,7 +772,11 @@ class Engine:
                 break
             except SPXError:
                 if not self.inspect("browser")["State"]["Running"]:
-                    raise SPXError("浏览器沙箱初始化或启动失败，请检查内核 user namespaces、seccomp 与 browser 日志；不会回退到无沙箱模式。")
+                    try:
+                        self.log("浏览器启动诊断：" + self.docker.run("logs", "--tail", "15", obj["Id"])[-4000:])
+                    except SPXError:
+                        pass
+                    raise SPXError("浏览器沙箱初始化或启动失败，请检查内核 user namespaces、seccomp 与 Docker Desktop 中此浏览器容器的日志；不会回退到无沙箱模式。")
                 time.sleep(.5)
         else:
             raise SPXError("共享浏览器启动超时，请重试。")

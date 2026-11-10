@@ -107,6 +107,16 @@ class CredentialBoundaryTests(unittest.TestCase):
                 docker.run("exec", "-i", "container", input_data="private-needle")
         self.assertNotIn("private-needle", str(caught.exception))
 
+    def test_docker_logs_keep_redacted_stderr_in_successful_calls(self):
+        docker = Docker("default")
+        docker.executable = "docker"
+        docker.redact = lambda value: redact(value, {"private-needle"})
+        with patch("enge_spx.engine.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "normal\n", "failure private-needle\n")):
+            result = docker.run("logs", "container")
+        self.assertIn("failure", result)
+        self.assertIn("normal", result)
+        self.assertNotIn("private-needle", result)
+
     def test_error_scrubber_handles_urls_json_and_encoded_known_secrets(self):
         secret = "p@ss word"
         known = values({"outbound": {"password": secret}, "browser_token": "a" * 64})

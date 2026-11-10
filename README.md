@@ -70,6 +70,8 @@ flowchart LR
 
 当前版本为 **[0.8.2 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.2-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
+本开发分支为 **0.8.3 P0 安全预览**，尚未替换上述已发布包。第一批包含浏览器沙箱与 Windows 凭据保护；构建验证与兼容范围见 [P0 升级说明](docs/security-hardening.zh-CN.md)。
+
 | 下载方式 | 适合谁 |
 | --- | --- |
 | **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.2-windows/ENGE-SPX-Windows-x64-0.8.2-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |

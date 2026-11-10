@@ -33,6 +33,8 @@ spx.exe --data D:\ENGE-SPX\data --without-browser --project D:\project codex
 
 CLI 进程确有需要的内部浏览器令牌，通过 Docker exec 的变量名传递，值只放在该 Docker 子进程环境中。第三方终端只接收公共 `spx attach` 命令，不接收令牌环境。Docker 管理端仍可观察必要的运行时凭据；这不是对管理端加密的协议。
 
+本机 noVNC 链接仍携带显示会话的授权能力，系统浏览器需要它建立显示连接；不要分享完整链接，停止或重新检查环境后它会失效。保留旧项目可写层时，旧容器创建元数据可能保留先前已失效的浏览器令牌；新的有效令牌只在需要的 exec 中传入。不会为了清除失效元数据而丢弃项目可写层。
+
 应用的 Docker 错误、构建日志和 GUI 消息进行脱敏；stdin 交接失败不记录原始 stderr。sing-box 原始 stdout/stderr 不保存，避免上游解析错误回显配置；此阶段保留通用退出错误和独立的连接诊断，详细后端结构化错误定位在下一批处理。交互式 Claude / Codex / shell 的输出由工具决定，不由应用改写。
 
 ## 升级步骤和失败处理
@@ -71,7 +73,7 @@ spx.exe --data D:\ENGE-SPX\data credentials clear-proxies
 spx.exe --data D:\ENGE-SPX\data credentials export-legacy --output D:\SPX-private-rollback --allow-plaintext
 ```
 
-导出**含明文凭据**；此标志是明确选择，不是迁移失败后的自动回退。导出不改变加密源目录，不复制日志、缓存或运行中的令牌。旧程序指向导出目录后，需重新准备其匹配的旧网关与浏览器镜像，并重新确认出口。导出目录与原目录共用实例标识及 Docker 卷，禁止同时运行。浏览器 Chromium 版本变化可能影响 Profile 向旧版回退，需保留升级前 Docker 备份。验证完成后删除不再需要的明文导出。
+导出**含明文凭据**；此标志是明确选择，不是迁移失败后的自动回退。导出不把源节点和设置降级为明文，不复制日志、缓存或运行中的令牌；执行前会停止环境并更新运行状态。旧程序指向导出目录后，需重新准备其匹配的旧网关与浏览器镜像，并重新确认出口。导出目录与原目录共用实例标识及 Docker 卷，禁止同时运行。浏览器 Chromium 版本变化可能影响 Profile 向旧版回退，需保留升级前 Docker 备份。验证完成后删除不再需要的明文导出。
 
 ## 保护范围
 

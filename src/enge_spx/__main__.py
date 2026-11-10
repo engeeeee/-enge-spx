@@ -50,11 +50,17 @@ def main():
             from .forward import tunnel_type
             from .platform_ui import ASSETS
             from .brand import PACKAGE_RESOURCES
+            from .credentials import CredentialCodec
             for proxy in ("http://127.0.0.1:9", "socks5://127.0.0.1:9"):
                 with client(proxy):
                     pass
             assert tunnel_type() and (ASSETS / "app.ico").is_file() and (PACKAGE_RESOURCES / "checks/exit_probe.py").is_file()
-            print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True}))
+            for name in ("browser-seccomp.json", "sandbox_status.py", "runtime_secret.py"):
+                assert (PACKAGE_RESOURCES / "containers" / name).is_file()
+            codec = CredentialCodec("000000000000")
+            fixture = [{"password": "synthetic-self-test-only"}]
+            assert codec.decode("nodes.json", codec.encode("nodes.json", fixture)) == fixture
+            print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True, "credential_protection": "dpapi-current-user" if codec.enabled else "private-files"}))
             return 0
         store = Store(args.data)
         # Internal children may be started while the parent holds the operation
@@ -72,8 +78,10 @@ def main():
         try:
             engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True))
         except SPXError:
+            if args.action != "stop":
+                raise
             context = store.read("controller-context.json", {})
-            if args.action != "stop" or context.get("instance") != store.instance or not context.get("context"):
+            if context.get("instance") != store.instance or not context.get("context"):
                 raise
             engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True), stop_context=context["context"])
             engine.doctor()

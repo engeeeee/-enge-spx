@@ -133,6 +133,8 @@ class CredentialTests(unittest.TestCase):
         atomic_json(self.store.home / "credentials-state.json", {"schema": 99, "state": "complete"})
         with self.assertRaises(SPXError):
             self.store.read("nodes.json")
+        self.store.write("controller-context.json", {"instance": self.store.instance, "context": "default"})
+        self.assertEqual(self.store.read("controller-context.json")["context"], "default")
 
     def test_private_posix_files_are_not_claimed_to_be_encrypted(self):
         if os.name == "nt":

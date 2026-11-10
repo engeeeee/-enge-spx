@@ -6,6 +6,7 @@ Baseline must already exist in local git history (CI checks out with fetch-depth
 """
 import argparse
 import ctypes
+from contextlib import ExitStack
 import io
 import json
 import os
@@ -89,54 +90,62 @@ def docker_measure(store, context):
     from enge_spx.engine import Engine
     store.write("settings.json", {**store.settings(), "context": context})
     engine = Engine(store)
-    engine.install()
-    image = engine.image_ids()["browser"]
-    secure = hasattr(engine, "deliver_secret")
-    samples = []
-    for index in range(3):
-        name = engine.prefix + "-browser"
-        volume = engine.prefix + "-benchmark-" + str(index)
-        try:
-            args = ["--network", "none", "--shm-size", "512m", "--memory", "2g", "--volume", volume + ":/home/workspace", "--env", "HTTP_PROXY=http://127.0.0.1:9"]
-            if secure:
-                from enge_spx.browser_security import arguments, validate_container, validate_status
-                args += arguments()
-            else:
-                # Synthetic baseline capability only; never used by current runtime.
-                args += ["--env", "SPX_BROWSER_TOKEN=" + "b" * 64]
-            start = time.perf_counter()
-            obj = engine.ensure_container("browser", image, args)
-            if secure:
-                validate_container(obj)
-                engine.deliver_secret(obj["Id"], "browser", {"token": "b" * 64, "proxy": "http://127.0.0.1:9"})
-            deadline = time.monotonic() + 60
-            while time.monotonic() < deadline:
-                result = subprocess.run(engine.docker.command("exec", obj["Id"], "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',6081),.2).close()"), capture_output=True, env=engine.docker.environment())
-                if result.returncode == 0:
-                    break
-                if not engine.inspect("browser")["State"]["Running"]:
-                    raise RuntimeError("Benchmark browser exited: " + engine.docker.run("logs", obj["Id"]))
-                time.sleep(.1)
-            else:
-                raise RuntimeError("Benchmark browser did not become ready")
-            sample = {"startup_ms": round((time.perf_counter()-start)*1000, 3)}
-            if secure:
-                sample["sandbox"] = validate_status(json.loads(engine.docker.run("exec", obj["Id"], "cat", "/tmp/spx-sandbox-status.json")))
-            time.sleep(5)
-            sample["docker_stats"] = [json.loads(engine.docker.run("stats", "--no-stream", "--format", "{{json .}}", obj["Id"])) for _ in range(3)]
-            sample["processes"] = max(0, len(engine.docker.run("top", obj["Id"], "-eo", "pid").splitlines())-1)
-            sample["profile_bytes"] = int(engine.docker.run("exec", obj["Id"], "du", "-sb", "/home/workspace").split()[0])
-            info = json.loads(engine.docker.run("container", "inspect", "--size", obj["Id"]))[0]
-            sample["writable_layer_bytes"] = info["SizeRw"]
-            start = time.perf_counter()
-            engine.docker.run("stop", "--time", "8", obj["Id"])
-            sample["stop_ms"] = round((time.perf_counter()-start)*1000, 3)
-            sample["running_after_stop"] = engine.inspect("browser")["State"]["Running"]
-            samples.append(sample)
-        finally:
-            engine.docker.run("rm", "-f", name)
-            engine.docker.run("volume", "rm", volume)
-    return {"scope": "browser container; network none; about:blank; no noVNC client", "sandbox": secure, "samples": samples, "startup_median_ms": round(statistics.median(s["startup_ms"] for s in samples), 3), "docker": engine.doctor()}
+    def cleanup_networks():
+        for network in (engine.internal, engine.external):
+            obj = engine.docker.inspect("network", network)
+            if obj:
+                engine.owned(obj)
+                engine.docker.run("network", "rm", network)
+    with ExitStack() as cleanup:
+        cleanup.callback(cleanup_networks)
+        engine.install()
+        image = engine.image_ids()["browser"]
+        secure = hasattr(engine, "deliver_secret")
+        samples = []
+        for index in range(3):
+            name = engine.prefix + "-browser"
+            volume = engine.prefix + "-benchmark-" + str(index)
+            try:
+                args = ["--network", "none", "--shm-size", "512m", "--memory", "2g", "--volume", volume + ":/home/workspace", "--env", "HTTP_PROXY=http://127.0.0.1:9"]
+                if secure:
+                    from enge_spx.browser_security import arguments, validate_container, validate_status
+                    args += arguments()
+                else:
+                    # Synthetic baseline capability only; never used by current runtime.
+                    args += ["--env", "SPX_BROWSER_TOKEN=" + "b" * 64]
+                start = time.perf_counter()
+                obj = engine.ensure_container("browser", image, args)
+                if secure:
+                    validate_container(obj)
+                    engine.deliver_secret(obj["Id"], "browser", {"token": "b" * 64, "proxy": "http://127.0.0.1:9"})
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    result = subprocess.run(engine.docker.command("exec", obj["Id"], "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',6081),.2).close()"), capture_output=True, env=engine.docker.environment())
+                    if result.returncode == 0:
+                        break
+                    if not engine.inspect("browser")["State"]["Running"]:
+                        raise RuntimeError("Benchmark browser exited: " + engine.docker.run("logs", obj["Id"]))
+                    time.sleep(.1)
+                else:
+                    raise RuntimeError("Benchmark browser did not become ready")
+                sample = {"startup_ms": round((time.perf_counter()-start)*1000, 3)}
+                if secure:
+                    sample["sandbox"] = validate_status(json.loads(engine.docker.run("exec", obj["Id"], "cat", "/tmp/spx-sandbox-status.json")))
+                time.sleep(5)
+                sample["docker_stats"] = [json.loads(engine.docker.run("stats", "--no-stream", "--format", "{{json .}}", obj["Id"])) for _ in range(3)]
+                sample["processes"] = max(0, len(engine.docker.run("top", obj["Id"], "-eo", "pid").splitlines())-1)
+                sample["profile_bytes"] = int(engine.docker.run("exec", obj["Id"], "du", "-sb", "/home/workspace").split()[0])
+                info = json.loads(engine.docker.run("container", "inspect", "--size", obj["Id"]))[0]
+                sample["writable_layer_bytes"] = info["SizeRw"]
+                start = time.perf_counter()
+                engine.docker.run("stop", "--time", "8", obj["Id"])
+                sample["stop_ms"] = round((time.perf_counter()-start)*1000, 3)
+                sample["running_after_stop"] = engine.inspect("browser")["State"]["Running"]
+                samples.append(sample)
+            finally:
+                engine.docker.run("rm", "-f", name)
+                engine.docker.run("volume", "rm", volume)
+        return {"scope": "browser container; network none; default local startup document; no noVNC client", "sandbox": secure, "samples": samples, "startup_median_ms": round(statistics.median(s["startup_ms"] for s in samples), 3), "docker": engine.doctor()}
 
 
 def main():
