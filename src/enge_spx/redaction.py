@@ -27,6 +27,10 @@ def values(value):
 
 def redact(text, secrets=()):
     text = str(text)
+    # A Basic header's base64 value is itself a password-bearing credential.
+    # Consume the whole header rather than only its scheme word.
+    text = re.sub(r"(?im)(\b(?:proxy-authorization|authorization)\s*[:=]\s*)(?:Basic|Bearer|Digest|Negotiate)\s+[^\r\n]*", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)\b(vmess|ss)://[^\s\"'<>]+", r"\1://[REDACTED]", text)
     text = re.sub(r"(?i)\b((?:https?|socks5h?|socks|trojan|vless|ss|vmess)://)[^\s/@]+@", r"\1[REDACTED]@", text)
     text = re.sub(r'''(?i)(["']?(?:password|uuid|token|browser_token|control|secret|private_key|authorization|proxy-authorization)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;\r\n}]+)''', r'\1"[REDACTED]"', text)
     for secret in sorted(set(secrets), key=len, reverse=True):

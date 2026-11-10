@@ -46,6 +46,8 @@ Current release: **[0.8.2 Preview](https://github.com/engeeeee/ENGE-SPX/releases
 
 This development branch is the **0.8.3 P0 security preview**, not a replacement of
 the published package above. See [sandbox, DPAPI and upgrade scope](docs/security-hardening.zh-CN.md).
+The [P0 validation record](docs/validation-p0.zh-CN.md) includes source files,
+actual test results, measured overhead and untested Windows/WSL2 boundaries.
 
 - **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.2-windows/ENGE-SPX-Windows-x64-0.8.2-Setup.exe)**: per-user setup with shortcuts.
 - **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.2-windows/ENGE-SPX-Windows-x64-0.8.2-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.

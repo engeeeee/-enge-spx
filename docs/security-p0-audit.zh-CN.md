@@ -71,6 +71,8 @@ Linux 没有 DPAPI，本批继续使用明确标示的私有目录 / 文件权�
 
 升级与恢复操作见 [P0 说明](security-hardening.zh-CN.md)，包含封套版本、失败处理、权限范围与显式回滚。P1/P2 的协议、资源、Profile 与诊断按后续批次推进。
 
+第一批交付的文件清单、实际测试、性能开销和遗留范围见 [P0 验证记录](validation-p0.zh-CN.md)。
+
 ## 主要依据
 
 - [Chromium Linux Sandboxing](https://chromium.googlesource.com/chromium/src/+show/9a2c4b7730a398293bdda2af079a76686ab06038/docs/linux/sandboxing.md)

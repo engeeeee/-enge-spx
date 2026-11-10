@@ -1,4 +1,5 @@
 import copy
+import base64
 import importlib.util
 import io
 import json
@@ -124,6 +125,15 @@ class CredentialBoundaryTests(unittest.TestCase):
         for value in (secret, "p%40ss%20word", "p%40ss+word", "a" * 64):
             self.assertNotIn(value, text)
         self.assertIn("REDACTED", text)
+
+    def test_authorization_headers_and_opaque_share_links_do_not_leak_encoded_credentials(self):
+        encoded = base64.b64encode(b"fixture:private-needle").decode()
+        messages = ("Proxy-Authorization: Basic " + encoded, "failure Authorization=Bearer " + encoded, "import vmess://" + encoded, "import ss://" + encoded)
+        for message in messages:
+            with self.subTest(message=message.split(":", 1)[0]):
+                result = redact(message)
+                self.assertNotIn(encoded, result)
+                self.assertIn("REDACTED", result)
 
     def test_delete_proxy_removes_persistent_runtime_references_without_removing_accounts(self):
         self.store.write("nodes.json", [{"id": "delete", "password": "private-needle"}, {"id": "keep"}])

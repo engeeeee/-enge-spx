@@ -1,0 +1,292 @@
+{
+  "schema": 1,
+  "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.43",
+  "python": "3.12.16",
+  "baseline_commit": "c08beb1f3224150d95dbc1c5fb05e1283ff9c5ff",
+  "candidate_commit": "48760c44499ba4d01865f77d371dd62816526916",
+  "kind": "docker",
+  "results": {
+    "baseline": {
+      "scope": "browser container; network none; default local startup document; no noVNC client",
+      "sandbox": false,
+      "samples": [
+        {
+          "startup_ms": 537.059,
+          "docker_stats": [
+            {
+              "BlockIO": "0B / 1.88MB",
+              "CPUPerc": "0.47%",
+              "MemPerc": "10.94%",
+              "MemUsage": "224.1MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            },
+            {
+              "BlockIO": "0B / 1.88MB",
+              "CPUPerc": "0.03%",
+              "MemPerc": "10.85%",
+              "MemUsage": "222.1MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            },
+            {
+              "BlockIO": "0B / 1.88MB",
+              "CPUPerc": "0.03%",
+              "MemPerc": "10.85%",
+              "MemUsage": "222.1MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            }
+          ],
+          "processes": 15,
+          "profile_bytes": 4664201,
+          "writable_layer_bytes": 20480,
+          "stop_ms": 459.576,
+          "running_after_stop": false
+        },
+        {
+          "startup_ms": 534.986,
+          "docker_stats": [
+            {
+              "BlockIO": "0B / 1.88MB",
+              "CPUPerc": "0.49%",
+              "MemPerc": "11.00%",
+              "MemUsage": "225.3MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            },
+            {
+              "BlockIO": "0B / 1.88MB",
+              "CPUPerc": "0.03%",
+              "MemPerc": "10.90%",
+              "MemUsage": "223.3MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            },
+            {
+              "BlockIO": "0B / 1.88MB",
+              "CPUPerc": "0.03%",
+              "MemPerc": "10.90%",
+              "MemUsage": "223.3MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            }
+          ],
+          "processes": 15,
+          "profile_bytes": 4664204,
+          "writable_layer_bytes": 20480,
+          "stop_ms": 468.361,
+          "running_after_stop": false
+        },
+        {
+          "startup_ms": 539.79,
+          "docker_stats": [
+            {
+              "BlockIO": "0B / 1.8MB",
+              "CPUPerc": "0.47%",
+              "MemPerc": "10.96%",
+              "MemUsage": "224.5MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            },
+            {
+              "BlockIO": "0B / 1.8MB",
+              "CPUPerc": "0.03%",
+              "MemPerc": "10.86%",
+              "MemUsage": "222.4MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            },
+            {
+              "BlockIO": "0B / 1.8MB",
+              "CPUPerc": "0.03%",
+              "MemPerc": "10.86%",
+              "MemUsage": "222.4MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "122"
+            }
+          ],
+          "processes": 15,
+          "profile_bytes": 4664202,
+          "writable_layer_bytes": 20480,
+          "stop_ms": 453.286,
+          "running_after_stop": false
+        }
+      ],
+      "startup_median_ms": 537.059,
+      "docker": {
+        "docker": "29.4.2",
+        "architecture": "x86_64",
+        "context": "default"
+      }
+    },
+    "candidate": {
+      "scope": "browser container; network none; default local startup document; no noVNC client",
+      "sandbox": true,
+      "samples": [
+        {
+          "startup_ms": 2032.725,
+          "sandbox": {
+            "schema": 1,
+            "namespace": true,
+            "pid_namespace": true,
+            "network_namespace": true,
+            "seccomp_bpf": true,
+            "renderer": {
+              "non_root": true,
+              "no_new_privileges": true,
+              "no_capabilities": true,
+              "seccomp": true,
+              "additional_seccomp_filter": true,
+              "nested_pid_namespace": true
+            }
+          },
+          "docker_stats": [
+            {
+              "BlockIO": "0B / 1.63MB",
+              "CPUPerc": "0.26%",
+              "MemPerc": "11.08%",
+              "MemUsage": "226.9MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "126"
+            },
+            {
+              "BlockIO": "0B / 1.63MB",
+              "CPUPerc": "0.02%",
+              "MemPerc": "11.08%",
+              "MemUsage": "226.9MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "126"
+            },
+            {
+              "BlockIO": "0B / 1.76MB",
+              "CPUPerc": "1.06%",
+              "MemPerc": "10.97%",
+              "MemUsage": "224.6MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "126"
+            }
+          ],
+          "processes": 16,
+          "profile_bytes": 4715853,
+          "writable_layer_bytes": 4096,
+          "stop_ms": 317.908,
+          "running_after_stop": false
+        },
+        {
+          "startup_ms": 2227.163,
+          "sandbox": {
+            "schema": 1,
+            "namespace": true,
+            "pid_namespace": true,
+            "network_namespace": true,
+            "seccomp_bpf": true,
+            "renderer": {
+              "non_root": true,
+              "no_new_privileges": true,
+              "no_capabilities": true,
+              "seccomp": true,
+              "additional_seccomp_filter": true,
+              "nested_pid_namespace": true
+            }
+          },
+          "docker_stats": [
+            {
+              "BlockIO": "0B / 1.63MB",
+              "CPUPerc": "0.25%",
+              "MemPerc": "11.08%",
+              "MemUsage": "226.8MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "125"
+            },
+            {
+              "BlockIO": "0B / 1.63MB",
+              "CPUPerc": "0.02%",
+              "MemPerc": "11.08%",
+              "MemUsage": "226.8MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "125"
+            },
+            {
+              "BlockIO": "0B / 1.76MB",
+              "CPUPerc": "1.06%",
+              "MemPerc": "10.97%",
+              "MemUsage": "224.6MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "125"
+            }
+          ],
+          "processes": 16,
+          "profile_bytes": 4715853,
+          "writable_layer_bytes": 4096,
+          "stop_ms": 332.045,
+          "running_after_stop": false
+        },
+        {
+          "startup_ms": 2113.671,
+          "sandbox": {
+            "schema": 1,
+            "namespace": true,
+            "pid_namespace": true,
+            "network_namespace": true,
+            "seccomp_bpf": true,
+            "renderer": {
+              "non_root": true,
+              "no_new_privileges": true,
+              "no_capabilities": true,
+              "seccomp": true,
+              "additional_seccomp_filter": true,
+              "nested_pid_namespace": true
+            }
+          },
+          "docker_stats": [
+            {
+              "BlockIO": "0B / 1.63MB",
+              "CPUPerc": "0.20%",
+              "MemPerc": "10.93%",
+              "MemUsage": "223.8MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "125"
+            },
+            {
+              "BlockIO": "0B / 1.63MB",
+              "CPUPerc": "0.02%",
+              "MemPerc": "10.93%",
+              "MemUsage": "223.8MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "125"
+            },
+            {
+              "BlockIO": "0B / 1.76MB",
+              "CPUPerc": "1.13%",
+              "MemPerc": "10.81%",
+              "MemUsage": "221.4MiB / 2GiB",
+              "NetIO": "0B / 0B",
+              "PIDs": "125"
+            }
+          ],
+          "processes": 16,
+          "profile_bytes": 4715848,
+          "writable_layer_bytes": 4096,
+          "stop_ms": 340.809,
+          "running_after_stop": false
+        }
+      ],
+      "startup_median_ms": 2113.671,
+      "docker": {
+        "docker": "29.4.2",
+        "architecture": "x86_64",
+        "context": "default"
+      }
+    }
+  },
+  "source": {
+    "run": "https://github.com/engeeeee/ENGE-SPX/actions/runs/42764782761",
+    "artifact": "https://github.com/engeeeee/ENGE-SPX/actions/runs/42764782761/artifacts/13739766769"
+  },
+  "omitted_fields": [
+    "temporary docker.data path",
+    "ephemeral docker_stats Container, ID and Name"
+  ]
+}
+

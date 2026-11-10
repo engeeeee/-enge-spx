@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "platform": "Windows-2025Server-10.0.26100-SP0",
+  "python": "3.12.10",
+  "baseline_commit": "c08beb1f3224150d95dbc1c5fb05e1283ff9c5ff",
+  "candidate_commit": "48760c44499ba4d01865f77d371dd62816526916",
+  "kind": "host",
+  "results": {
+    "baseline": {
+      "mode": "private-files",
+      "initial_migration_ms": 0.001,
+      "write_20_nodes_ms": 6.953,
+      "read_20_nodes_ms": 0.177,
+      "engine_construction_ms": 6.293,
+      "idle_python_cpu_percent_one_core": 1.5616,
+      "gui_import_construct_first_paint_ms": 2963.95,
+      "gui_idle_seconds": 5.031,
+      "gui_idle_cpu_percent_one_core": 0.3106,
+      "gui_working_set_bytes": 118431744,
+      "persistent_bytes": 6864
+    },
+    "candidate": {
+      "mode": "dpapi-current-user",
+      "initial_migration_ms": 63.133,
+      "write_20_nodes_ms": 10.073,
+      "read_20_nodes_ms": 0.988,
+      "engine_construction_ms": 9.501,
+      "idle_python_cpu_percent_one_core": 0,
+      "gui_import_construct_first_paint_ms": 778.596,
+      "gui_idle_seconds": 5.006,
+      "gui_idle_cpu_percent_one_core": 0,
+      "gui_working_set_bytes": 121016320,
+      "persistent_bytes": 7263
+    }
+  },
+  "source": {
+    "run": "https://github.com/engeeeee/ENGE-SPX/actions/runs/42764782761",
+    "artifact": "https://github.com/engeeeee/ENGE-SPX/actions/runs/42764782761/artifacts/13738449091"
+  }
+}
+
