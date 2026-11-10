@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import webbrowser
 
-from PySide6.QtCore import Qt, QSize, Signal, QEvent
+from PySide6.QtCore import Qt, QSize, Signal, QEvent, QTimer
 from PySide6.QtGui import QIcon, QFont, QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
                              QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
 from .. import __version__, terminal
 from ..brand import APP_NAME, ICONS, PROJECT_URL
 from ..line_security import LINE_MODES
+from ..platform_ui import restore_message
 from ..proxy import protocol
 from ..resource_limits import ROLES, MIN_MEMORY
 from ..state import SPXError
@@ -57,6 +58,7 @@ class Window(QMainWindow):
         self._force_close = False
         self.tray = None
         self.tray_hint_shown = False
+        self._restore_message = restore_message()
         self.exit_buttons = []
         self.exit_action = QAction("退出软件（停止工作区）", self)
         self.exit_action.setShortcut(QKeySequence("Ctrl+Q"))
@@ -783,6 +785,17 @@ class Window(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def nativeEvent(self, event_type, message):
+        if self._restore_message and event_type == b"windows_generic_MSG":
+            from ctypes import wintypes
+            event = wintypes.MSG.from_address(int(message))
+            if event.message == self._restore_message:
+                # Defer widget changes until the native sender receives its
+                # acknowledgement; keep all GUI state changes in Qt's loop.
+                QTimer.singleShot(0, self.reveal)
+                return True, 1
+        return super().nativeEvent(event_type, message)
 
     def return_from_desktop(self):
         if not self.minimized_by_user:

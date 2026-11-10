@@ -202,6 +202,8 @@ def exercise_entry_point(command, base, cli, mode):
                 time.sleep(.05)
             assert user.IsWindowVisible(hwnd), "Original GUI stayed hidden after reopening"
             assert not (base / "launches").exists(), "Tray restore launched Desktop"
+            # Verify the restored widget also handles input. A native-only
+            # ShowWindow can paint a window that Qt still considers hidden.
             print(f"Real entry point: {Path(command[0]).name} / {mode}; close-to-tray and duplicate-instance restore passed", flush=True)
             quit_shortcut(user, hwnd)
         stdout, stderr = process.communicate(timeout=6)
