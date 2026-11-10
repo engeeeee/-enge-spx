@@ -138,14 +138,25 @@ def quit_shortcut(user, hwnd):
         user.SetForegroundWindow(hwnd)
         time.sleep(.05)
     assert user.GetForegroundWindow() == hwnd, "Could not focus the isolated GUI to verify genuine exit"
+    time.sleep(.15)  # Let the target consume native activation/focus messages.
     user.SendInput.argtypes = [w.UINT, ctypes.POINTER(Input), ctypes.c_int]
     user.SendInput.restype = w.UINT
-    events = (Input * 4)()
-    for event, key, flags in zip(events, (0x11, ord('Q'), ord('Q'), 0x11), (0, 0, 2, 2)):
-        event.type = 1
-        event.payload.keyboard.key = key
-        event.payload.keyboard.flags = flags
-    assert user.SendInput(4, events, ctypes.sizeof(Input)) == 4, "Windows rejected the isolated Ctrl+Q input"
+    def send(keys):
+        events = (Input * len(keys))()
+        for event, (key, flags) in zip(events, keys):
+            event.type = 1
+            event.payload.keyboard.key = key
+            event.payload.keyboard.flags = flags
+        assert user.SendInput(len(keys), events, ctypes.sizeof(Input)) == len(keys), "Windows rejected the isolated Ctrl+Q input"
+    # Hold the modifier while Qt consumes Q, as with physical keyboard input;
+    # a zero-duration four-event burst can race Windows focus/key-state updates.
+    send([(0xA2, 0)])
+    try:
+        time.sleep(.08)
+        send([(ord('Q'), 0)])
+        time.sleep(.15)
+    finally:
+        send([(ord('Q'), 2), (0xA2, 2)])
 
 
 def exercise_entry_point(command, base, cli, mode):

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from unittest.mock import Mock
@@ -102,6 +103,10 @@ class NativeWindowTests(unittest.TestCase):
             with patch.object(self.controller, "request_close") as close:
                 self.window.close()
                 QTest.qWait(20)
+                time.sleep(.005)  # Yield the Python GIL to the real filesystem worker.
+            if not closed.count():
+                import faulthandler
+                faulthandler.dump_traceback(all_threads=True)
                 self.assertFalse(self.window.isVisible())
                 self.assertTrue(self.window.tray.isVisible())
                 self.assertFalse(self.controller.cancel.is_set())
