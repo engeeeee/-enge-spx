@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.2-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.3-windows">Download</a></p>
 
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
@@ -42,10 +42,15 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 ## Download and start
 
-Current release: **[0.8.2 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.2-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.8.3 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.3-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.2-windows/ENGE-SPX-Windows-x64-0.8.2-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.2-windows/ENGE-SPX-Windows-x64-0.8.2-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+**0.8.3 Preview** adds Chromium sandbox enforcement and Windows current-user DPAPI.
+See [upgrade and rollback](docs/security-hardening.zh-CN.md) and the
+[P0 validation record](docs/validation-p0.zh-CN.md) for actual test results,
+measured overhead and untested Windows/WSL2 boundaries.
+
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.3-windows/ENGE-SPX-Windows-x64-0.8.3-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.3-windows/ENGE-SPX-Windows-x64-0.8.3-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.
@@ -84,7 +89,9 @@ Runtime and subscription downloads use a separate local download proxy. Selectin
 - **Network paths**: tools use an internal network and gateway. Managed chaining has no direct fallback; local compatibility still depends on the external client's routing and the service providers.
 - **Monitoring**: changes stop the environment when detected. IP monitoring has an interval and request timeouts, so exit changes are not detected instantaneously.
 
-Containers depend on the host, Docker and WSL. Chromium currently uses `--no-sandbox`, and proxy credentials are not encrypted with the Windows credential store. The preview has not had an independent security audit or full acceptance testing on the user's Windows + Docker Desktop + v2ray + Pebrel combination. It does not guarantee anonymity, speed or account acceptance. Read the [security model](docs/security-model.zh-CN.md) for the full scope.
+Starting with 0.8.3, ENGE SPX requires Chromium namespace and Seccomp-BPF sandbox evidence, and protect application proxy settings with Windows current-user DPAPI. Existing 0.8.2 packages and images require upgrading to receive these changes. See [sandbox, credentials, migration and explicit rollback](docs/security-hardening.zh-CN.md).
+
+Containers depend on the host, Docker and WSL. DPAPI does not protect against malicious code running as the same user, host administrators or Docker administrators; tool-account and browser-profile volumes still need private storage and backups. The preview has not had an independent security audit or full acceptance testing on the user's Windows + Docker Desktop + v2ray + Pebrel combination. It does not guarantee anonymity, speed or account acceptance. Read the [security model](docs/security-model.zh-CN.md) for the full scope.
 
 ## Terminal, downloads and storage
 

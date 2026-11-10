@@ -53,11 +53,14 @@ class MigrationTests(unittest.TestCase):
         with self.assertRaises(SPXError):
             engine.owned({"Config": {"Labels": {OWNER: store.instance}}})
 
-    def test_legacy_images_and_project_layers_are_reused_by_both_installers(self):
+    def test_legacy_work_layers_are_reused_but_security_images_require_upgrade(self):
         store = self.legacy_store()
         engine = Engine(store)
         ids = {role: "sha256:" + str(i) * 64 for i, role in enumerate(LEGACY_RECIPES, 1)}
         images = {ids[role]: {"Id": ids[role], "Config": {"Labels": {LEGACY_LABEL_ROOT + ".recipe": value}}} for role, value in LEGACY_RECIPES.items()}
+        for role in ("gateway", "browser"):
+            self.assertFalse(engine.compatible_image(images[ids[role]], role))
+            images[ids[role]]["Config"]["Labels"] = {RECIPE: engine.recipes[role]}
         store.write("images.json", ids)
         engine.doctor = Mock(return_value={"architecture": "amd64"})
         engine.networks = Mock()

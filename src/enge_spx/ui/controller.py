@@ -110,8 +110,19 @@ class Controller(QObject):
     def schedule_refresh(self):
         self.refresh_timer.start()
 
+    def clean_message(self, text):
+        from ..redaction import redact, values
+        known = values(self.relay_url.get()) if hasattr(self, "relay_url") else set()
+        known.update(values(getattr(self, "nodes", [])))
+        return redact(text, known)
+
     def notify(self, title, text, error=False):
-        self.notice.emit(title, str(text), error)
+        self.notice.emit(title, self.clean_message(text), error)
+
+    def delete_selected_node(self):
+        identifier = self.selected.get()
+        if identifier and self.ask("删除代理", "停止当前环境并删除所选代理及派生配置？项目和工具账号会保留。"):
+            self.run(lambda engine: engine.delete_node(identifier), lambda result: self.refresh_nodes())
 
     def refresh_nodes(self):
         self.nodes = self.store.read("nodes.json", [])
@@ -148,19 +159,19 @@ class Controller(QObject):
 
         def worker():
             try:
-                engine = Engine(self.store, lambda text: self.events.put(("log", text)))
+                engine = Engine(self.store, lambda text: self.events.put(("log", self.clean_message(text))))
                 result = action(engine)
                 state = self.store.read("runtime.json", {})
                 compatible = state.get("phase") != "ready" or state.get("policy") == engine.policy()
                 self.events.put(("done", (result, done, compatible)))
             except DownloadPaused as error:
-                self.events.put(("paused", str(error)))
+                self.events.put(("paused", self.clean_message(error)))
             except StartupIssue as error:
-                self.events.put(("startup_error", (error.code, str(error))))
+                self.events.put(("startup_error", (error.code, self.clean_message(error))))
             except Exception as error:
                 if self.report:
                     self.report.capture("gui-worker-error", type(error), error, error.__traceback__)
-                self.events.put(("error", str(error)))
+                self.events.put(("error", self.clean_message(error)))
 
         self.delivery.start()
         threading.Thread(target=worker, name="spx-operation", daemon=True).start()

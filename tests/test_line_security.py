@@ -70,9 +70,11 @@ class LineSecurityTests(unittest.TestCase):
                 engine = Engine(self.store)
                 engine.image_ids = Mock(return_value={"gateway": "gateway-image", "work": "work-image"})
                 engine.networks = Mock(return_value=("172.18.0.2", "172.18.0.3"))
+                engine.deliver_secret = Mock()
                 engine.ensure_container = Mock(side_effect=[{"Id": "gateway", "NetworkSettings": {"Networks": {engine.external: {}}}}, {"Id": "session"}])
                 with patch("enge_spx.engine.socket.getaddrinfo", side_effect=AssertionError("host DNS leak")):
                     state = engine.setup()
+                engine.deliver_secret.assert_called_once_with("gateway", "gateway", self.store.read("gateway/config.json"))
                 config = self.store.read("gateway/config.json")
                 check = next(inbound for inbound in config["inbounds"] if inbound["listen_port"] == 2082)
                 self.assertEqual(check["listen"], "127.0.0.1")

@@ -32,6 +32,7 @@ RECIPE = "io.enge.spx.recipe"
 GATEWAY_IMAGE = "ghcr.io/sagernet/sing-box:v1.14.3"
 RESOURCES = CONTAINERS
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+TOOLS = {"claude": ["claude"], "codex": ["codex"], "shell": ["bash", "-l"], "login-claude": ["claude", "auth", "login"], "login-codex": ["codex", "login"]}
 
 
 def image_recipe(image):
@@ -46,6 +47,8 @@ class Docker:
         return desktop_application(executable)
 
     def __init__(self, context: str):
+        self.secret_env = {}
+        self.redact = lambda value: str(value)
         candidates = [shutil.which("docker")]
         if os.name == "nt":
             candidates += [str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Docker/Docker/resources/bin/docker.exe")]
@@ -66,9 +69,9 @@ class Docker:
     def environment(self):
         # A desktop shortcut can inherit PATH from before Docker was installed.
         # The absolute CLI path alone does not make its credential helpers visible.
-        return docker_environment(self.executable)
+        return {**docker_environment(self.executable), **self.secret_env}
 
-    def run(self, *args, timeout=60, log: Path | None = None, on_line=None, cancel=None) -> str:
+    def run(self, *args, timeout=60, log: Path | None = None, on_line=None, cancel=None, input_data=None) -> str:
         try:
             if log:
                 with log.open("a", encoding="utf-8") as stream:
@@ -93,6 +96,7 @@ class Docker:
                                 continue
                             if line is None:
                                 break
+                            line = self.redact(line)
                             stream.write(line)
                             stream.flush()
                             if on_line:
@@ -110,14 +114,18 @@ class Docker:
                     result = subprocess.CompletedProcess(self.command(*args), code)
                 output, error = "", f"详细日志：{log}"
             else:
-                result = subprocess.run(self.command(*args), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=self.environment(), creationflags=HIDDEN)
+                result = subprocess.run(self.command(*args), input=input_data, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=self.environment(), creationflags=HIDDEN)
                 output, error = result.stdout, result.stderr.strip()[-1500:]
         except subprocess.TimeoutExpired as error:
             raise SPXError("Docker 操作超时，请检查 Docker Desktop 状态及运行日志。") from error
         except OSError as error:
             raise SPXError("Docker 无法启动，请检查 Docker Desktop 安装。") from error
         if result.returncode:
-            raise SPXError("Docker 操作失败：" + error)
+            raise SPXError("Docker 机密输入操作失败，输入和原始错误输出未记录。" if input_data is not None else "Docker 操作失败：" + self.redact(error))
+        if not log and args[:1] == ("logs",):
+            # Docker puts the container's stderr on its own stderr even on a
+            # successful `logs` call. Keep that diagnostic path redacted too.
+            return self.redact(output + result.stderr).strip()
         return output.strip()
 
     def inspect(self, kind: str, name: str):
@@ -130,18 +138,21 @@ class Docker:
 
 
 class Engine:
-    def __init__(self, store: Store, log=lambda message: None):
+    def __init__(self, store: Store, log=lambda message: None, stop_context=None):
         self.store, self.log = store, log
-        self.settings = store.settings()
+        self.settings = {"context": stop_context} if stop_context else store.settings()
         self.docker = Docker(self.settings["context"])
+        from .redaction import redact, values
+        self.secret_values = set() if stop_context else values(self.settings) | values(store.read("nodes.json", [])) | values(store.read("runtime.json", {})) | values(store.read("relay.json", {}))
+        self.docker.redact = lambda text: redact(text, self.secret_values)
         self.owner = LEGACY_LABEL_ROOT + ".instance" if store.legacy else OWNER
         self.role = LEGACY_LABEL_ROOT + ".role" if store.legacy else ROLE
         self.prefix = ("ewbw-" if store.legacy else "spx-") + store.instance
         self.internal, self.external = self.prefix + "-internal", self.prefix + "-external"
         files = {p.relative_to(RESOURCES).as_posix(): p.read_text(encoding="utf-8") for p in sorted(RESOURCES.rglob("*")) if p.is_file() and "__pycache__" not in str(p)}
         self.recipe = fingerprint(files)[:12]
-        self.recipes = {role: fingerprint({name: files[name] for name in names})[:12] for role, names in {"gateway": ["Dockerfile.gateway", "gateway.py", "tunnel.py"], "work": ["Dockerfile.work", "probe.py", "open_browser.py"]}.items()}
-        self.recipes["browser"] = fingerprint({"work": self.recipes["work"], **{name: files[name] for name in ("Dockerfile.browser", "browser.py", "vnc_stdio.py", "chromium-policy.json")}})[:12]
+        self.recipes = {role: fingerprint({name: files[name] for name in names})[:12] for role, names in {"gateway": ["Dockerfile.gateway", "gateway.py", "tunnel.py", "runtime_secret.py"], "work": ["Dockerfile.work", "probe.py", "open_browser.py"]}.items()}
+        self.recipes["browser"] = fingerprint({"work": self.recipes["work"], **{name: files[name] for name in ("Dockerfile.browser", "browser.py", "vnc_stdio.py", "chromium-policy.json", "sandbox_status.py", "runtime_secret.py", "browser-seccomp.json")}})[:12]
         self.images = {role: "enge-spx/" + role + ":" + self.recipes[role] for role in ("gateway", "work", "browser")}
         self._image_abis = {}
 
@@ -149,7 +160,9 @@ class Engine:
         if not image or role not in self.recipes:
             return False
         recipe = image_recipe(image)
-        return recipe == self.recipes[role] or self.store.legacy and recipe == LEGACY_RECIPES[role]
+        # Gateway and browser must upgrade to stdin credentials and the sandbox.
+        # Work images keep their ABI and writable project layers intact.
+        return recipe == self.recipes[role] or role == "work" and self.store.legacy and recipe == LEGACY_RECIPES[role]
 
     def runtime_path(self, role, filename):
         if role not in self._image_abis:
@@ -300,6 +313,27 @@ class Engine:
                 settings["selected"] = nodes[0]["id"]
             self.store.write("settings.json", settings)
 
+    def delete_node(self, identifier):
+        with self.store.lock(timeout=30):
+            self._stop("代理已删除，请重新配置并确认连接。")
+            nodes = [node for node in self.store.read("nodes.json", []) if node["id"] != identifier]
+            settings = self.store.settings()
+            identifiers = {node["id"] for node in nodes}
+            if settings["selected"] not in identifiers:
+                settings["selected"] = nodes[0]["id"] if nodes else ""
+            if settings["relay"].get("line_id") == identifier:
+                settings["relay"] = {"enabled": False, "downloads": settings["relay"].get("downloads", True)}
+            self.store.write("nodes.json", nodes)
+            self.store.write("settings.json", settings)
+
+    def clear_proxy_credentials(self):
+        with self.store.lock(timeout=30):
+            self._stop("代理凭据已清除，项目和工具账号卷已保留。")
+            settings = self.store.settings()
+            settings.update(selected="", relay={"enabled": False, "downloads": True})
+            self.store.write("nodes.json", [])
+            self.store.write("settings.json", settings)
+
     def save_settings(self, selected: str, timezone: str, context: str, relay=None):
         try:
             ZoneInfo(timezone)
@@ -416,11 +450,11 @@ class Engine:
             # Work containers must not reach the line-only diagnostic listener.
             config["inbounds"].append({"type": "mixed", "tag": LINE_CHECK, "listen": "127.0.0.1", "listen_port": 2082})
             config["route"]["rules"] = line_rules(outbounds)
-        from .state import atomic_json
-        atomic_json(directory / "config.json", config)
+        self.store.write("gateway/config.json", config)
         journal = self._image_abis.get("gateway") != "legacy"
         self.set_lease(time.time() + 300, {"lease_journal": journal}, reset=True)
-        gateway = self.ensure_container("gateway", ids["gateway"], ["--user", str(getattr(os, "getuid", lambda: 0)()), "--network", self.internal, "--ip", gateway_ip, "--read-only", "--tmpfs", "/tmp", "--mount", f"type=bind,source={directory},target=/config,readonly"], ["run", "-c", "/config/config.json"])
+        gateway = self.ensure_container("gateway", ids["gateway"], ["--user", str(getattr(os, "getuid", lambda: 0)()), "--network", self.internal, "--ip", gateway_ip, "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777", "--mount", f"type=bind,source={directory / 'lease.jsonl'},target=/config/lease.jsonl,readonly"])
+        self.deliver_secret(gateway["Id"], "gateway", config)
         if self.external not in gateway["NetworkSettings"]["Networks"]:
             self.docker.run("network", "connect", "--gw-priority", "1", self.external, gateway["Id"])
         session = self.ensure_container("session", ids["work"], ["--network", self.internal, "--ip", session_ip, "--dns", "127.0.0.1", "--read-only", "--tmpfs", "/tmp", "--memory", "128m"], ["sleep", "infinity"])
@@ -550,6 +584,9 @@ class Engine:
             obj = self.docker.inspect("container", name)
             self.owned(obj)
             role = obj["Config"]["Labels"][self.role]
+            if role == "browser":
+                from .browser_security import validate_container
+                validate_container(obj)
             if role in ("project", "browser") and obj["HostConfig"]["NetworkMode"] != "container:" + state["session"]:
                 raise SPXError("工作容器的网络空间已改变。")
 
@@ -636,17 +673,21 @@ class Engine:
             self.store.write("gateway/lease.json", {"expires": expires})
 
     def _stop(self, reason="环境已停止，账号和项目数据已保留。"):
-        state = self.store.read("runtime.json", {})
+        try:
+            state = self.store.read("runtime.json", {})
+        except SPXError:
+            state = {"lease_journal": (self.store.home / "gateway/lease.jsonl").is_file()}
         write_error = None
         try:
             self.store.write("runtime.json", {"phase": "stopped", "reason": reason})
-        except OSError as error:
+        except (OSError, SPXError) as error:
             write_error = error
         try:
             self.set_lease(0, state)
-        except OSError as error:
+        except (OSError, SPXError) as error:
             write_error = error
         if not self.docker.executable or not self.store.read("images.json"):
+            self.clear_runtime_references()
             if write_error:
                 raise write_error
             return
@@ -664,8 +705,14 @@ class Engine:
             # A failed graceful stop still has to close this installation's network.
             for identifier in failures:
                 self.docker.run("kill", identifier, timeout=15)
+        self.clear_runtime_references()
         if write_error:
             raise write_error
+
+    def clear_runtime_references(self):
+        for name in ("gateway/config.json", "relay.json", "browser-token.json"):
+            (self.store.home / name).unlink(missing_ok=True)
+        self.docker.secret_env.clear()
 
     def stop(self):
         with self.store.lock():
@@ -689,25 +736,47 @@ class Engine:
         result = []
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
             result += ["--env", key + "=" + state["proxy"]]
+        return [*result, "--env", "NO_PROXY=localhost,127.0.0.1,::1", "--env", "no_proxy=localhost,127.0.0.1,::1", "--env", "BROWSER=/usr/local/bin/xdg-open", "--env", "TZ=" + self.store.settings()["timezone"]]
+
+    def control_env(self, state):
+        self.secret_values.add(state["browser_token"])
+        self.docker.secret_env["SPX_BROWSER_TOKEN"] = state["browser_token"]
+        result = ["--env", "SPX_BROWSER_TOKEN"]
         if self.store.legacy:
-            result += ["--env", LEGACY_BROWSER_TOKEN + "=" + state["browser_token"]]
-        return [*result, "--env", "NO_PROXY=localhost,127.0.0.1,::1", "--env", "no_proxy=localhost,127.0.0.1,::1", "--env", "SPX_BROWSER_TOKEN=" + state["browser_token"], "--env", "BROWSER=/usr/local/bin/xdg-open", "--env", "TZ=" + self.store.settings()["timezone"]]
+            self.docker.secret_env[LEGACY_BROWSER_TOKEN] = state["browser_token"]
+            result += ["--env", LEGACY_BROWSER_TOKEN]
+        return result
+
+    def deliver_secret(self, container, role, value):
+        from .redaction import values
+        self.secret_values.update(values(value))
+        code = (RESOURCES / "runtime_secret.py").read_text(encoding="utf-8")
+        self.docker.run("exec", "-i", container, "python3", "-c", code, role, input_data=json.dumps(value, separators=(",", ":")))
 
     def _browser(self, state):
+        from .browser_security import arguments, validate_container, validate_status
         ids = self.image_ids()
         # A stopped browser may contain an old one-time display token. Replace its
         # container, keeping its profile and downloads in dedicated persistent volumes.
         old = self.inspect("browser")
         if old and not old["State"]["Running"]:
             self.docker.run("rm", old["Id"])
-        obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", "--memory", "2g", "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
+        obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", "--memory", "2g", *arguments(), "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
+        validate_container(obj)
+        if not old or not old["State"]["Running"]:
+            self.deliver_secret(obj["Id"], "browser", {"token": state["browser_token"], "proxy": state["proxy"], "legacy": self.store.legacy})
         for _ in range(40):
             try:
-                self.docker.run("exec", obj["Id"], "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',5900),.3).close(); socket.create_connection(('127.0.0.1',6081),.3).close()", timeout=3)
+                report = self.docker.run("exec", obj["Id"], "python3", "-c", "import json,socket; socket.create_connection(('127.0.0.1',6081),.3).close(); print(open('/tmp/spx-sandbox-status.json').read())", timeout=3)
+                validate_status(json.loads(report))
                 break
             except SPXError:
                 if not self.inspect("browser")["State"]["Running"]:
-                    raise SPXError("共享浏览器启动失败，请检查此实例 browser 容器的日志。")
+                    try:
+                        self.log("浏览器启动诊断：" + self.docker.run("logs", "--tail", "15", obj["Id"])[-4000:])
+                    except SPXError:
+                        pass
+                    raise SPXError("浏览器沙箱初始化或启动失败，请检查内核 user namespaces、seccomp 与 Docker Desktop 中此浏览器容器的日志；不会回退到无沙箱模式。")
                 time.sleep(.5)
         else:
             raise SPXError("共享浏览器启动超时，请重试。")
@@ -777,34 +846,51 @@ class Engine:
         self.store.write("settings.json", settings)
         return obj, key
 
-    def tool_command(self, path, command, interactive=True):
-        argv, _ = self._tool_session(path, command, interactive)
+    def tool_command(self, path, command, interactive=True, browser=True):
+        argv, _ = self._tool_session(path, command, interactive, browser)
         return argv
 
-    def _tool_session(self, path, command, interactive=True):
+    def _tool_session(self, path, command, interactive=True, browser=True):
         # The guard checks immediately after confirmation and every 30 seconds.
         # Wait for its lock before executing anything; never retry the launch.
         with self.store.lock(timeout=30, on_wait=lambda: self.log("等待后台连接检查完成，随后自动启动工作区…")):
             state = self.ready()
-            url = self._browser(state)
+            url = self._browser(state) if browser else None
             obj, key = self._project(path, state)
+            self.prepared_session, self.prepared_container = state["session"], obj["Id"]
             flags = ["-it"] if interactive else ["-i"]
-            return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), obj["Id"], *command), url
+            return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), obj["Id"], *command), url
 
     def terminal(self, path, tool):
         from .terminal import launch, resolve
-        commands = {"claude": ["claude"], "codex": ["codex"], "shell": ["bash", "-l"], "login-claude": ["claude", "auth", "login"], "login-codex": ["codex", "login"]}
-        if tool not in commands:
+        from .invocation import console_entry
+        if tool not in TOOLS:
             raise SPXError("未知工具。")
         if os.name != "nt":
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
         config = self.store.settings()["terminal"]
         resolve(config)
-        command, url = self._tool_session(path, commands[tool])
+        _, url = self._tool_session(path, TOOLS[tool])
         directory, _ = self.store.project(path)
-        launch(config, command, str(directory), "ENGE SPX · " + tool, self.docker.environment())
+        command = [*console_entry(), "--data", str(self.store.home), "--project", str(directory), "attach", tool, "--session", self.prepared_session, "--container", self.prepared_container]
+        # The terminal gets a public CLI invocation, never the token environment.
+        launch(config, command, str(directory), "ENGE SPX · " + tool, docker_environment(self.docker.executable))
         # Open the viewer so any account authorization URL stays in Chromium.
         webbrowser.open(url)
+
+    def attach_command(self, path, tool, session, container, interactive=True):
+        if tool not in TOOLS:
+            raise SPXError("未知工作区工具。")
+        with self.store.lock(timeout=30):
+            state = self.store.read("runtime.json", {})
+            if state.get("phase") != "ready" or state.get("session") != session or time.time() - state.get("heartbeat", 0) > 100:
+                raise SPXError("工作区连接已改变，请返回 ENGE SPX 重新打开工具。")
+            self.audit_topology(state)
+            _, key = self.store.project(path)
+            obj = self.inspect("project", self.prefix + "-project-" + key)
+            if not obj or obj["Id"] != container or not obj["State"]["Running"] or obj["HostConfig"]["NetworkMode"] != "container:" + session:
+                raise SPXError("项目容器已改变，请返回 ENGE SPX 重新打开工具。")
+            return self.docker.command("exec", *( ["-it"] if interactive else ["-i"]), "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), container, *TOOLS[tool])
 
     def status(self):
         return status_snapshot(self.store)

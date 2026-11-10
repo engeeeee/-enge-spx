@@ -1,5 +1,34 @@
 # Changes
 
+## 0.8.3 P0 security preview — 2026-11-10
+
+- Require non-root Chromium namespace/PID/network and Seccomp-BPF sandbox
+  evidence, including the real display renderer's additional kernel filter and
+  nested PID namespace. Use a browser-only, pinned Moby-derived allowlist with
+  bounded namespace syscall additions. Keep all capabilities dropped and
+  no-new-privileges; make the root filesystem read-only. Unsupported hosts fail
+  closed; an explicit CLI-only option is available without a browser fallback.
+- Keep browser and CLI filesystems, PIDs and identity volumes separate. Move
+  VNC to a private Unix socket, disable X11 TCP and authorize X11 with a private
+  cookie so the shared OAuth network namespace does not expose display control.
+- Protect Windows application proxy configuration and internal descriptors with
+  versioned current-user DPAPI envelopes. Preserve old node IDs/settings, verify
+  before migration, resume interrupted writes and reject silent plaintext
+  downgrade. Keep POSIX private-file behavior explicitly distinct from encryption.
+- Transfer gateway and browser credentials on Docker exec stdin into private RAM
+  files, remove the handoff files, and run sing-box with a sealed anonymous memfd.
+  Bind only the public lease journal. Pass internal CLI capabilities by environment
+  name; third-party terminals attach through a public CLI command without secrets.
+- Redact application error/log boundaries, add node deletion and proxy-reference
+  cleanup, and support private explicit legacy export for rollback. Preserve
+  project writable layers, tool accounts and browser volumes; gateway and browser
+  images must upgrade. No TLS/capability/direct-egress relaxation or new Python
+  dependency. Moby Apache-2.0 notices are included; the project license is unchanged.
+- Add real Windows DPAPI, renderer/privilege, stdin, migration/failure, terminal
+  handoff and Cookie/Local Storage regressions plus a same-runner overhead harness.
+  Physical Docker Desktop/WSL2 acceptance and real service-account login remain
+  separately scoped; subsequent protocol/resource/Profile batches are not included.
+
 ## 0.8.2 Preview — 2026-11-09
 
 - Fix the reported Windows lease-renewal failure: new gateways read a bounded

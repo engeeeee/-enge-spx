@@ -23,6 +23,7 @@ from websockets.exceptions import InvalidStatus
 from enge_spx.engine import Engine, GATEWAY_IMAGE, OWNER
 from enge_spx.nodes import parse_nodes
 from enge_spx.state import Store, SPXError, atomic_json
+from enge_spx.browser_security import validate_container, validate_status
 
 
 def wait_lock(store):
@@ -38,6 +39,66 @@ def wait_lock(store):
 
 def execute(engine, container, code):
     return engine.docker.run("exec", container, "python3", "-c", code)
+
+
+LOGIN_FIXTURE = '''from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from pathlib import Path
+import json
+class Handler(BaseHTTPRequestHandler):
+ def log_message(self,*args): pass
+ def do_GET(self):
+  prior='spx_fixture=persistent' in self.headers.get('Cookie','')
+  html="<script>const previous=localStorage.getItem('spx_fixture');localStorage.setItem('spx_fixture','persistent');fetch('/evidence',{method:'POST',body:JSON.stringify({cookie:"+json.dumps(prior)+",storage:previous==='persistent'})});</script>"
+  body=html.encode()
+  self.send_response(200);self.send_header('Content-Type','text/html');self.send_header('Content-Length',str(len(body)))
+  self.send_header('Set-Cookie','spx_fixture=persistent; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax')
+  self.end_headers();self.wfile.write(body)
+ def do_POST(self):
+  size=int(self.headers.get('Content-Length','0'));assert 0<size<2048
+  evidence=json.loads(self.rfile.read(size));assert set(evidence)=={'cookie','storage'}
+  Path('/home/workspace/.spx-login-evidence.json').write_text(json.dumps(evidence))
+  self.send_response(204);self.end_headers()
+ThreadingHTTPServer(('127.0.0.1',1455),Handler).serve_forever()
+'''
+
+
+def login_fixture(engine, worker, browser, state):
+    engine.docker.run("exec", "-d", worker, "python3", "-c", LOGIN_FIXTURE)
+    for _ in range(40):
+        try:
+            execute(engine, browser, "import socket; socket.create_connection(('127.0.0.1',1455),.2).close()")
+            break
+        except SPXError:
+            time.sleep(.1)
+    execute(engine, worker, "from pathlib import Path; Path('/home/workspace/.spx-login-evidence.json').unlink(missing_ok=True)")
+    engine.docker.run("exec", *engine.control_env(state), worker, "python3", "/opt/spx/open_browser.py", "http://127.0.0.1:1455/", timeout=45)
+    for _ in range(60):
+        raw = execute(engine, worker, "from pathlib import Path; p=Path('/home/workspace/.spx-login-evidence.json'); print(p.read_text() if p.exists() else '')")
+        if raw:
+            return json.loads(raw)
+        time.sleep(.2)
+    raise AssertionError("Browser did not execute the controlled login/Profile fixture")
+
+
+def rejected_sandbox(engine, base):
+    from enge_spx.browser_security import PROFILE
+    policy = json.loads(PROFILE.read_text())
+    # Deliberately deny the namespace variants required by the browser. Preserve
+    # every other restriction; never introduce unconfined or container caps.
+    policy["syscalls"] = [rule for rule in policy["syscalls"] if not (not rule.get("includes", {}).get("caps") and ("unshare" in rule["names"] or "clone" in rule["names"] and any(arg.get("valueTwo", 0) for arg in rule.get("args", []))))]
+    path = base / "sandbox-deny.json"
+    path.write_text(json.dumps(policy))
+    name = engine.prefix + "-sandbox-rejected"
+    obj = engine.ensure_container("browser", engine.image_ids()["browser"], ["--network", "none", "--read-only", "--security-opt", "seccomp=" + str(path), "--memory", "1g", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m,mode=1777", "--tmpfs", "/home/workspace:rw,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0700"], name=name)
+    engine.deliver_secret(obj["Id"], "browser", {"token": "b" * 64, "proxy": "http://127.0.0.1:9"})
+    for _ in range(60):
+        if not engine.inspect("browser", name)["State"]["Running"]:
+            break
+        time.sleep(.5)
+    else:
+        raise AssertionError("Unsupported sandbox must terminate the browser")
+    assert "CHROMIUM_SANDBOX_UNAVAILABLE" in engine.docker.run("logs", obj["Id"])
+    assert engine.docker.inspect("container", name)["State"]["ExitCode"] != 0
 
 
 def run(context, output):
@@ -83,6 +144,47 @@ def run(context, output):
                 viewer = engine._browser(state)
                 worker, key = engine._project(str(project), state)
             browser = engine.inspect("browser")
+            validate_container(browser)
+            sandbox = validate_status(json.loads(execute(engine, browser["Id"], "print(open('/tmp/spx-sandbox-status.json').read())")))
+            passed("Chromium namespace/PID/network/seccomp sandbox and actual renderer kernel evidence verified")
+            for role in ("gateway", "browser"):
+                inspected = engine.inspect(role)
+                metadata = json.dumps({key: inspected.get(key) for key in ("Args", "Path", "Config", "HostConfig", "Mounts")})
+                assert password not in metadata and state["browser_token"] not in metadata
+                assert not inspected["HostConfig"]["Privileged"] and not inspected["HostConfig"]["CapAdd"]
+                assert not inspected["HostConfig"].get("PortBindings")
+            gateway = engine.inspect("gateway")
+            assert {item["Destination"] for item in gateway["Mounts"] if item["Type"] == "bind"} == {"/config/lease.jsonl"}
+            assert execute(engine, gateway["Id"], "from pathlib import Path; print(Path('/tmp/spx/config.json').exists())") == "False"
+            assert execute(engine, browser["Id"], "from pathlib import Path; print(Path('/dev/shm/spx/browser.json').exists())") == "False"
+            seals = execute(engine, gateway["Id"], '''import os,fcntl
+from pathlib import Path
+seals=[]
+for p in Path('/proc').glob('[0-9]*/fd/*'):
+ try:
+  if os.readlink(p).startswith('/memfd:spx-config'):
+   fd=os.open(p,os.O_RDONLY);seals.append(fcntl.fcntl(fd,fcntl.F_GET_SEALS));os.close(fd)
+ except OSError: pass
+assert seals and all(v & 15 == 15 for v in seals), 'Gateway config memfd is not sealed'
+print('SEALED')''')
+            assert seals == "SEALED"
+            passed("proxy passwords and browser token absent from Docker metadata; only public lease bind-mounted; RAM handoff files removed")
+            isolation_code = '''import socket,struct,errno
+for port in (5900,6099):
+ s=socket.socket(); s.settimeout(2)
+ assert s.connect_ex(('127.0.0.1',port)) != 0, 'Browser display exposed over TCP'
+ s.close()
+s=socket.socket(socket.AF_UNIX); s.settimeout(2)
+try:
+ s.connect('\\0/tmp/.X11-unix/X99')
+ s.sendall(struct.pack('<BBHHHHH',ord('l'),0,11,0,0,0,0))
+ assert s.recv(1024)[:1] != b'\\x01', 'X11 accepted a CLI peer without its private cookie'
+except OSError as error:
+ assert error.errno in (errno.ENOENT,errno.ECONNREFUSED,errno.EACCES), str(error)
+finally: s.close()
+print('DISPLAY_ISOLATED')'''
+            assert execute(engine, worker["Id"], isolation_code) == "DISPLAY_ISOLATED"
+            passed("CLI cannot access VNC TCP, X11 TCP or unauthenticated shared-namespace X11")
             for _ in range(80):
                 try:
                     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -117,10 +219,11 @@ def run(context, output):
                 passed(command + " executable: " + version)
             execute(engine, worker["Id"], f"from pathlib import Path; Path('/workspace/{key}/marker.txt').write_text('project'); Path('/home/workspace/.spx-test').write_text('home'); Path('/tmp/spx-layer').write_text('layer')")
             execute(engine, browser["Id"], "from pathlib import Path; Path('/home/workspace/.spx-browser-test').write_text('browser')")
-            engine.docker.run("exec", "--env", "SPX_BROWSER_TOKEN=" + state["browser_token"], worker["Id"], "python3", "/opt/spx/open_browser.py", "https://example.com", timeout=45)
+            engine.docker.run("exec", *engine.control_env(state), worker["Id"], "python3", "/opt/spx/open_browser.py", "https://example.com", timeout=45)
             passed("tool authorization URL opens inside shared Chromium")
             # Share a localhost callback listener between the actual two containers.
-            execute(engine, worker["Id"], "import subprocess; subprocess.Popen(['python3','-m','http.server','1455','--bind','127.0.0.1'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)")
+            first_identity = login_fixture(engine, worker["Id"], browser["Id"], state)
+            assert first_identity == {"cookie": False, "storage": False}, first_identity
             value = execute(engine, browser["Id"], "import urllib.request; print(urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:1455',timeout=5).status)")
             assert value == "200", value
             passed("browser can reach the tool's localhost OAuth callback")
@@ -197,6 +300,9 @@ finally:
             assert execute(engine, resumed["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
             assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
             passed("project files, tool home, writable layer and browser home survive stop/recheck")
+            restored_identity = login_fixture(engine, resumed["Id"], engine.inspect("browser")["Id"], state)
+            assert restored_identity == {"cookie": True, "storage": True}, restored_identity
+            passed("real Chromium Cookie and Local Storage survive container stop/recreation; localhost login callback works")
             # Exercise the actual data-directory migration against stopped Docker
             # resources. A gateway bind mount must follow the new path, while the
             # project container (including its writable layer) must stay intact.
@@ -225,16 +331,25 @@ finally:
                 assert engine.inspect("session")["Id"] == previous_session
                 gateway = engine.inspect("gateway")
                 assert gateway["Id"] != previous_gateway
-                mount = next(item for item in gateway["Mounts"] if item["Destination"] == "/config")
-                assert Path(mount["Source"]).resolve() == (store.home / "gateway").resolve()
+                mount = next(item for item in gateway["Mounts"] if item["Destination"] == "/config/lease.jsonl")
+                assert Path(mount["Source"]).resolve() == (store.home / "gateway/lease.jsonl").resolve()
             finally:
                 lock.__exit__(None, None, None)
             assert (project / "marker.txt").read_text() == "project"
             assert execute(engine, migrated["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
             assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
             passed("data relocation preserves project container, layer, accounts and browser; gateway uses new bind mount")
+            engine.stop()
+            rejected_sandbox(engine, base)
+            passed("namespace initialization failure terminates the browser without a no-sandbox retry")
             report = {"passed": records, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
             output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        except Exception:
+            # Only the browser supervisor's bounded, non-secret startup errors.
+            browser = engine.inspect("browser")
+            if browser:
+                print("BROWSER STARTUP DIAGNOSTICS", engine.docker.redact(engine.docker.run("logs", "--tail", "35", browser["Id"])), flush=True)
+            raise
         finally:
             try:
                 engine.stop()

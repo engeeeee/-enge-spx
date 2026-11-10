@@ -12,6 +12,7 @@ import time
 import urllib.parse
 
 
+
 def allowed_url(value):
     if not isinstance(value, str) or len(value) > 8192 or any(ord(c) < 32 for c in value):
         return False
@@ -33,16 +34,37 @@ def browser_profile(home):
 
 
 def main():
-    token = os.environ.get("SPX_BROWSER_TOKEN", "")
-    proxy = os.environ.get("HTTP_PROXY", "")
+    from sandbox_status import verify_chromium, verify_renderer
+    if os.getuid() == 0:
+        raise SystemExit("CHROMIUM_SANDBOX_UNAVAILABLE: browser must be non-root")
+    bootstrap = Path("/dev/shm/spx/browser.json")
+    deadline = time.monotonic() + 30
+    while not bootstrap.is_file():
+        if time.monotonic() >= deadline:
+            raise SystemExit("Browser runtime authorization was not delivered.")
+        time.sleep(.05)
+    value = json.loads(bootstrap.read_text(encoding="utf-8"))
+    bootstrap.unlink()
+    token, proxy, legacy = value.get("token", ""), value.get("proxy", ""), value.get("legacy", False)
     if not re.fullmatch("[a-f0-9]{64}", token) or not proxy.startswith("http://"):
         raise SystemExit("Missing browser authorization or proxy configuration.")
     os.environ["DISPLAY"] = ":99"
     profile = browser_profile(Path.home())
-    chromium = ["chromium", "--no-sandbox", "--no-first-run", "--disable-dev-shm-usage", "--disable-quic", "--disable-background-networking", "--password-store=basic", "--user-data-dir=" + profile, "--proxy-server=" + proxy]
+    chromium = ["chromium", "--disable-setuid-sandbox", "--no-first-run", "--disable-dev-shm-usage", "--disable-quic", "--disable-background-networking", "--password-store=basic", "--user-data-dir=" + profile, "--proxy-server=" + proxy]
+    verified = verify_chromium(chromium)
     children = []
+    def close_children():
+        # Flush Chromium's persistent profile while its display is still alive.
+        for child in reversed(children):
+            if child.poll() is None:
+                child.terminate()
+            try:
+                child.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
     def spawn(args):
-        child = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         children.append(child)
         return child
     stopped = threading.Event()
@@ -50,7 +72,15 @@ def main():
         stopped.set()
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    vnc = spawn(["Xvnc", ":99", "-geometry", "1440x900", "-depth", "24", "-rfbport", "5900", "-localhost", "yes", "-SecurityTypes", "None", "-AlwaysShared", "-AcceptCutText", "1", "-SendCutText", "1"])
+    # X11 abstract sockets share the network namespace. A private cookie keeps
+    # CLI peers out; the VNC socket itself is filesystem-only and mode 0600.
+    authority = Path("/dev/shm/spx/Xauthority")
+    authority.touch(mode=0o600)
+    os.environ["XAUTHORITY"] = str(authority)
+    import secrets
+    cookie = secrets.token_hex(16)
+    subprocess.run(["xauth", "-f", str(authority)], input="add :99 . " + cookie + "\n", text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    vnc = spawn(["Xvnc", ":99", "-geometry", "1440x900", "-depth", "24", "-nolisten", "tcp", "-auth", str(authority), "-rfbport", "-1", "-rfbunixpath", "/tmp/spx-vnc.sock", "-rfbunixmode", "0600", "-SecurityTypes", "None", "-AlwaysShared", "-AcceptCutText", "1", "-SendCutText", "1"])
     for _ in range(100):
         if Path("/tmp/.X11-unix/X99").exists():
             break
@@ -58,7 +88,14 @@ def main():
             raise SystemExit("VNC display failed to start.")
         time.sleep(0.1)
     spawn(["openbox"])
-    browser = spawn([*chromium, "about:blank"])
+    # Force a local document so the real display must instantiate a renderer.
+    browser = spawn([*chromium, "data:text/html,<title>ENGE SPX</title><p>Workspace browser ready.</p>"])
+    try:
+        verified["renderer"] = verify_renderer(browser.pid)
+    except Exception:
+        close_children()
+        raise
+    Path("/tmp/spx-sandbox-status.json").write_text(json.dumps({"schema": 1, **verified}))
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -66,7 +103,7 @@ def main():
         def do_POST(self):
             candidate = self.headers.get("X-SPX-Token", "")
             # A preserved 0.2 work image may still issue its original header.
-            if not candidate and os.environ.get("EWB_BROWSER_TOKEN"):
+            if not candidate and legacy:
                 candidate = self.headers.get("X-EWB-Token", "")
             if self.path != "/open" or not hmac.compare_digest(candidate, token):
                 self.send_error(403)
@@ -97,14 +134,7 @@ def main():
                 break
     finally:
         server.shutdown()
-        for child in reversed(children):
-            if child.poll() is None:
-                child.terminate()
-        for child in children:
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
+        close_children()
 
 
 if __name__ == "__main__":
