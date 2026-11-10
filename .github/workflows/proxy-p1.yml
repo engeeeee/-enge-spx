@@ -1,0 +1,30 @@
+name: ENGE SPX P1 Proxy
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/proxy-backend-p1]
+    paths: ['src/**', 'tests/**', 'tools/**', '.github/workflows/proxy-p1.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-proxy-p1-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  network-feasibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check isolated bridge migration and native core build tags
+        run: python -u tools/probe_proxy_network.py --output "$RUNNER_TEMP/p1-network-probe.json"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P1-network-feasibility
+          path: ${{ runner.temp }}/p1-network-probe.json
+          if-no-files-found: error
