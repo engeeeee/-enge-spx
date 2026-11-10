@@ -1,24 +1,33 @@
 # 存储位置与第三方终端
 
-适用于 ENGE SPX 0.4.0 Preview。在“偏好设置”中完成配置。
+适用于 ENGE SPX 0.8.4 Preview。在“偏好设置”中完成配置。
 
-## 使用 Pebrel
+## 选择终端
 
-1. 在“工作区终端”选择 **Pebrel**。安装在常见目录或已加入 PATH 时，可点击“检测终端”；便携版或自定义安装目录请点击“选择 exe”，选中 `pebrel.exe`。
-2. 点击“测试终端”。会在所选终端内打开本地 PowerShell 测试窗口，不需要连接代理、登录账号或启动 Docker 工作区。
-3. 确认可用后点击“保存终端设置”。下次打开 Claude Code、Codex、Linux 终端或登录窗口时生效，无需重新建立代理连接。
+自动选择依次检测 **Windows Terminal → PowerShell 7 → Windows PowerShell**。不会自动寻找、优先选择或安装第三方终端。手动选定的终端找不到时会提示，不会静默切换。
 
-自动选择按 Pebrel、Windows Terminal、PowerShell 7、Windows PowerShell 的顺序检测。手动选定的终端找不到时会提示，不会静默切换到其他终端。
+1. 在“工作区终端”选择内置终端类型，或选择 **自定义程序** 并指定任意第三方终端的 exe。
+2. 自定义程序按该终端官方说明填写启动参数，必须包含一次独立的 `{command}`。软件不根据 exe 名称猜测参数。
+3. 点击“测试终端”，在所选终端内打开本地 PowerShell 测试窗口，不需要代理、账号或 Docker 工作区。
+4. 确认可用后点击“保存终端”。随后 Claude Code、Codex、Linux 终端和登录窗口使用同一设置，无需重新建立代理连接。
 
-Pebrel 接收项目工作目录、窗口标题和 Docker 工作区命令，工具本身仍在 Linux 容器内运行。这里选择的是 Windows 上显示工作区的终端程序。`spx claude` 等命令行操作继续使用调用它们的终端。
+终端只负责 Windows 上的显示与交互，工具继续在 Linux 容器内运行。`spx claude` 等命令行操作继续使用调用它们的终端。
 
-“自定义程序”支持可直接启动命令的终端 exe。参数示例：
+新自定义配置仅提供 `{command}` 占位符，不假定各终端的命令行选项相同。对支持 `-e` 的终端，参数可以是：
 
 ```text
---working-directory "{project}" --title "{title}" --hold -e {command}
+-e {command}
 ```
 
-这是 Pebrel 风格的示例。其他终端的参数名称请使用其官方说明。
+另一些终端使用 `start --cwd "{project}" -- {command}` 等形式；具体以所选程序的帮助为准。项目目录同时作为启动进程的工作目录传入；需要窗口标题或额外控制时使用该终端支持的参数。
+
+0.8.4 取消旧版的 Pebrel 专用入口及自动优先发现。已有 `kind=pebrel` 设置在读取时规范为通用自定义配置，保留原 exe 和原来实际使用的参数；保存后使用普通 `kind=custom`，无需重建工作区。兼容读取不代表新配置对该终端有特殊优先级。
+
+## 启动指令出现在 AI 输入栏
+
+某些终端会向每个新会话自动输入欢迎页或系统信息命令。直接启动 Docker / CLI 时，这些内容可能进入 Claude Code 或 Codex 的输入框。在所选终端关闭自动欢迎命令或启动输入，或者使用默认的标准终端。ENGE SPX 不注入欢迎指令，也不通过自动回车、吞掉输入或修改第三方全局设置来处理。
+
+例如用户报告的 `Clear-Host; & '...nebula_fastfetch_intro.ps1'` 来自终端自己的欢迎页，其注入行为可在 [Pebrel 源码](https://github.com/Kuddev/pebrel/blob/0ed1a041a21681022b984546c926e15de8688d7e/nebula_app/src/gpui_shell/terminal/view/startup.rs#L212)核对。这是通用启动输入冲突的一个已核实例，不为它增加专用运行分支。
 
 | 占位符 | 用途 |
 | --- | --- |

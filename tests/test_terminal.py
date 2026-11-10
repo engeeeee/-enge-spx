@@ -19,23 +19,48 @@ class TerminalTests(unittest.TestCase):
         with self.assertRaises(SPXError):
             terminal.split_arguments('--title "unclosed')
 
-    def test_pebrel_passes_docker_argv_without_a_shell(self):
+    def test_legacy_terminal_setting_uses_generic_launcher_without_losing_its_command(self):
         command = [r"C:\Program Files\Docker\docker.exe", "--context", "desktop-linux", "exec", "-it", "--env", "VALUE=a;echo injected", "container", "claude"]
-        with patch.object(terminal, "resolve", return_value=("pebrel", "pebrel.exe")):
+        with patch.object(terminal, "resolve", return_value=("custom", "pebrel.exe")), patch.object(terminal, "discover", return_value="pebrel.exe"):
+            migrated = terminal.validate({"kind": "pebrel"})
+            self.assertEqual(migrated["kind"], "custom")
+            self.assertEqual(migrated["arguments"], terminal.LEGACY_ARGUMENTS)
             argv, flags = terminal.launch_command({"kind": "pebrel"}, command, r"D:\项目 & spaces", "ENGE SPX · claude")
         self.assertEqual(argv[:8], ["pebrel.exe", "--working-directory", r"D:\项目 & spaces", "--title", "ENGE SPX · claude", "--hold", "-e", command[0]])
         self.assertEqual(argv[7:], command)
         self.assertFalse(flags)
         self.assertNotIn("cmd.exe", argv)
 
-    def test_auto_prefers_pebrel_and_explicit_selection_never_falls_back(self):
-        with patch.object(terminal, "discover", side_effect=lambda kind: "pebrel.exe" if kind == "pebrel" else "powershell.exe") as discover:
-            self.assertEqual(terminal.resolve({"kind": "auto"}), ("pebrel", "pebrel.exe"))
-            discover.assert_called_once_with("pebrel")
+    def test_auto_selects_standard_terminals_and_explicit_selection_never_falls_back(self):
+        self.assertNotIn("pebrel", terminal.PRESETS.values())
+        with patch.object(terminal, "discover", side_effect=lambda kind: "wt.exe" if kind == "wt" else "powershell.exe") as discover:
+            self.assertEqual(terminal.resolve({"kind": "auto"}), ("wt", "wt.exe"))
+            discover.assert_called_once_with("wt")
         with patch.object(terminal, "discover", return_value=None) as discover:
             with self.assertRaises(SPXError):
-                terminal.resolve({"kind": "pebrel"})
-            discover.assert_called_once_with("pebrel")
+                terminal.resolve({"kind": "pwsh"})
+            discover.assert_called_once_with("pwsh")
+
+    def test_auto_falls_through_only_standard_terminals_in_order(self):
+        with patch.object(terminal, "discover", side_effect=lambda kind: "powershell.exe" if kind == "powershell" else None) as discover:
+            self.assertEqual(terminal.resolve({"kind": "auto"}), ("powershell", "powershell.exe"))
+        self.assertEqual([call.args[0] for call in discover.call_args_list], ["wt", "pwsh", "powershell"])
+
+    def test_legacy_explicit_path_needs_no_discovery_and_migration_is_idempotent(self):
+        original = {"kind": "pebrel", "executable": r"D:\My Terminal\pebrel.exe"}
+        with patch.object(terminal, "discover", side_effect=AssertionError("Explicit selection must remain explicit")):
+            migrated = terminal.validate(original)
+            self.assertEqual(terminal.validate(migrated), migrated)
+        self.assertEqual(migrated["kind"], "custom")
+        self.assertEqual(migrated["executable"], original["executable"])
+        self.assertEqual(original["kind"], "pebrel")
+
+    def test_custom_launch_does_not_infer_flags_from_executable_name(self):
+        for executable in ("pebrel.exe", "other-terminal.exe"):
+            config = {"kind": "custom", "executable": executable, "arguments": "--run {command}"}
+            with self.subTest(executable=executable), patch.object(terminal, "resolve", return_value=("custom", executable)):
+                argv, _ = terminal.launch_command(config, ["spx.exe", "attach"], "D:/project", "title")
+                self.assertEqual(argv, [executable, "--run", "spx.exe", "attach"])
 
     def test_powershell_encodes_every_child_argument(self):
         command = [r"C:\Docker's tools\docker.exe", "--context", "local", "exec", "--env", "VALUE='; Write-Host injected; '", "work", "claude"]

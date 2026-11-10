@@ -13,6 +13,7 @@ Docker 安全选项存在等效的 `=` / `:` 表示。原校验只接受部分�
 - `src/enge_spx/engine.py`：在停止环境后、出口检查前清理本实例已停止的浏览器，复用 `_browser()` 原有的安全替换逻辑。不强制删除、不删除卷，不放行运行中的不安全浏览器。
 - `src/enge_spx/browser_security.py`：安全选项兼容解析与脱敏失败字段；继续逐项检查 UID、capabilities、只读根、no-new-privileges 与专用策略，并验证真实 renderer。
 - `tests/test_migration.py`、`tests/test_security_p0.py`、`tests/integration_runtime.py`：升级确认、数据保留、安全选项与危险配置回归。
+- `src/enge_spx/terminal.py`、`src/enge_spx/ui/window.py`、`tests/test_terminal.py` 与终端文档：按用户要求取消第三方终端的专用预设和优先发现；默认标准终端，第三方统一走自定义参数。旧设置兼容读取为通用配置，保留 exe 与原参数。
 - 版本元数据、打包 CI、README 中英文、CHANGELOG、P0 升级说明与本记录：0.8.4 发布和恢复说明。
 
 无新增依赖、监听端口、持久后台进程或凭据格式迁移。网关/工作/浏览器镜像配方不变；配置、DPAPI 封套和数据卷保持兼容。项目许可证及第三方声明不变。
@@ -26,7 +27,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 python tools/check_repository.py
 ```
 
-单元测试发现 176 项，166 通过、10 项 Windows 专属检查跳过，无失败。Windows 原生与真实 Docker 项目由同版本 CI 单独执行，不将跳过的测试算作实测通过。
+单元测试发现 180 项，170 通过、10 项 Windows 专属检查跳过，无失败。Windows 原生与真实 Docker 项目由同版本 CI 单独执行，不将跳过的测试算作实测通过。
 
 CI 的 Python 3.12 / Windows、Linux，以及原生 Linux Docker：
 
@@ -45,7 +46,7 @@ CI 门禁还包括 Windows GUI、DPI、冻结程序手动 Docker 启动、安装
 
 ## 性能与剩余限制
 
-本次修复没有更换 Chromium、网关、VNC、资源限制、检测周期或镜像配方。停止浏览器的删除操作从打开工具前提前到出口检查前；不增加持续轮询或常驻进程。没有在同一 Windows / WSL2 主机开展 CPU、内存、吞吐或完整启动时间对比，不声称性能提升。
+本次修复没有更换 Chromium、网关、VNC、资源限制、检测周期或镜像配方。停止浏览器的删除操作从打开工具前提前到出口检查前；不增加持续轮询或常驻进程。终端默认选择顺序改变，用户明确配置的第三方 exe 仍保留；第三方自身注入欢迎指令需要在该终端关闭，未声称可以从应用端安全辨别并过滤用户输入。没有在同一 Windows / WSL2 主机开展 CPU、内存、吞吐或完整启动时间对比，不声称性能提升。
 
 用户报告 Docker Desktop 4.99.0（245822），查到 legacy 命名的已停止浏览器；手动移除该停止实例后，用户确认 0.8.3 可以正常工作，与源码重现的升级阻塞一致。0.8.4 自动执行这一步，无需用户命令。原始容器的完整安全字段未作为自动化证据采集。CI 的原生 Linux Docker 与 Windows GUI/DPAPI 不等价于这台机器的 Docker Desktop / WSL2 沙箱验收。新安装包仍需在该机器复测；若失败，新错误会给出具体检查项，不使用扩大权限或无沙箱方式绕过。
 

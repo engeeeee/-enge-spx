@@ -101,7 +101,7 @@ unchanged state is not repeatedly rewritten, and navigation adapts to narrow
 windows. The complete name and main action are checked at multiple DPI scales.
 System file pickers remain native.
 
-Use Pebrel, Windows Terminal, PowerShell or a custom executable and argument template. The selected terminal hosts the window; tools still run in their container.
+Automatic selection uses Windows Terminal, PowerShell 7, then Windows PowerShell. All third-party terminals use the same custom executable and argument template. The selected terminal hosts the window; tools still run in their container.
 
 Downloads support pause, resume, speed/progress display, SHA-256 and exact image-recipe validation. App configuration, logs and download caches can move to another drive. Docker's images, containers and volumes use a separate disk-migration assistant and require applying the move in Docker Desktop. Project and program directories remain separate. See [storage and terminal settings](docs/storage-terminal.zh-CN.md).
 

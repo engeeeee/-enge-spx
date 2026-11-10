@@ -425,7 +425,7 @@ class Window(QMainWindow):
         panel = page.panel("启动行为")
         panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
         panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。退出软件不会关闭 Docker Desktop。", "Caption", True))
-        panel = page.panel("工作区终端", "Pebrel、Windows Terminal、PowerShell 或你选择的命令行程序。")
+        panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
         panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
         row = QHBoxLayout()
         self.terminal_path = entry(self.c.terminal_exe, "预设可自动寻找，或选择便携版 exe")
@@ -433,7 +433,8 @@ class Window(QMainWindow):
         row.addWidget(self.action("选择 exe", self.choose_terminal))
         panel.layout.addWidget(label("终端程序", "Muted"))
         panel.layout.addLayout(row)
-        self.terminal_args = panel.field("自定义启动参数", entry(self.c.terminal_args, "仅自定义程序需要填写"), "{project} 为项目目录，{title} 为标题，独立的 {command} 插入工作区命令。")
+        self.terminal_args = panel.field("自定义启动参数", entry(self.c.terminal_args, "按所选终端的说明填写"), "{project} 为项目目录，{title} 为标题，独立的 {command} 插入工作区命令。")
+        panel.layout.addWidget(label("自定义终端请关闭会自动输入命令的欢迎页，避免欢迎指令进入工具输入框。", "Caption", True))
         self.c.terminal_kind.changed.connect(lambda unused: self.terminal_fields())
         self.terminal_fields()
         row = panel.row()
@@ -551,7 +552,7 @@ class Window(QMainWindow):
         if path:
             self.c.terminal_exe.set(path)
             if self.c.terminal_kind.get() == "auto":
-                self.c.terminal_kind.set("pebrel" if Path(path).stem.lower() == "pebrel" else "custom")
+                self.c.terminal_kind.set("custom")
 
     def export_v2ray(self):
         path, unused = QFileDialog.getSaveFileName(self, "保存 v2rayN 路由规则", "ENGE-SPX-v2rayN-rules.json", "JSON (*.json)")

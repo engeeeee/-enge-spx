@@ -14,6 +14,11 @@
 - Add current/legacy naming migration regressions, real Docker upgrade markers
   and kernel no-new-privileges checks. Reuse the unchanged runtime recipes and
   existing versioned credential format. Protocol batch 2 remains paused.
+- Default to Windows Terminal / PowerShell and use one generic custom-executable
+  path for third-party terminals. Remove the Pebrel preset and discovery
+  priority; normalize saved legacy selections without losing their executable
+  or effective arguments. Document terminal-injected welcome commands without
+  adding terminal-specific input filtering or editing external settings.
 
 ## 0.8.3 P0 security preview — 2026-11-10
 
