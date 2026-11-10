@@ -76,7 +76,7 @@ jobs:
         shell: pwsh
         run: ./tools/Update-Repository.ps1 -WhatIf
       - if: runner.os == 'Windows'
-        name: Compare source GUI and real DPAPI overhead with pinned 0.8.3
+        name: Compare source GUI and real DPAPI overhead with pinned 0.8.2
         shell: pwsh
         run: python tools/benchmark_p0.py --kind host --output "$env:RUNNER_TEMP/p0-host.json"
       - if: runner.os == 'Windows'
@@ -175,7 +175,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -u tests/integration_chain.py --context default
-      - name: Compare offline browser costs with pinned 0.8.3 on the same Docker runner
+      - name: Compare offline browser costs with pinned 0.8.2 on the same Docker runner
         run: python -u tools/benchmark_p0.py --kind docker --context default --output "$RUNNER_TEMP/p0-docker.json"
       - uses: actions/upload-artifact@v4
         with:

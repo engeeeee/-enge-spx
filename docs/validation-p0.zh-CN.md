@@ -18,8 +18,8 @@
 | DPAPI 与兼容迁移 | `credentials.py`、`state.py` |
 | 生命周期、最小凭据交接和终端接入 | `engine.py`、`__main__.py`、`invocation.py`、`relay.py` |
 | 错误与日志脱敏、代理删除入口 | `redaction.py`、`ui/controller.py`、`ui/window.py` |
-| 浏览器权限和实际 renderer 核验 | `browser_security.py`、`resources/containers/browser.py`、`sandbox_status.py`、`browser-seccomp.json`、`Dockerfile.browser` |
-| RAM 配置与显示隔离 | `resources/containers/runtime_secret.py`、`gateway.py`、`Dockerfile.gateway`、`vnc_stdio.py` |
+| 浏览器权限和实际 renderer 核验 | `browser_security.py`；`resources/containers/` 下的 `browser.py`、`sandbox_status.py`、`browser-seccomp.json`、`Dockerfile.browser` |
+| RAM 配置与显示隔离 | `resources/containers/` 下的 `runtime_secret.py`、`gateway.py`、`Dockerfile.gateway`、`vnc_stdio.py` |
 | 自动化验证 | `tests/test_credentials.py`、`test_security_p0.py`；更新 `test_workspace_launch.py`、`test_line_security.py`、`test_migration.py`、`integration_runtime.py` |
 | 可重跑工具 | `tools/probe_sandbox.py`、`benchmark_p0.py`、`check_frozen_credentials.py` |
 | CI 和打包 | `.github/workflows/security-p0.yml`、`ci.yml`；Windows 版本元数据与 Installer；`__init__.py` |
@@ -58,7 +58,7 @@ Windows 应用敏感 JSON 使用当前用户 DPAPI、版本 1 封套及与实例
 | 命令 / 检查 | 冻结验证的实际结果 |
 | --- | --- |
 | `python tools/check_repository.py` | 通过，33 个文档和版本/仓库元数据核对 |
-| `python -m unittest discover -s tests -v`，`PYTHONPATH=src` | Python 3.12：Windows 169 项，4 项平台跳过；Linux 169 项，8 项平台跳过，无失败 |
+| `python -m unittest discover -s tests -v`，`PYTHONPATH=src` | Python 3.12：Windows 169 项，4 项平台跳过；Linux 169 项，10 项平台跳过，无失败 |
 | `python tools/probe_sandbox.py --output sandbox.json` | Docker 默认策略拒绝所需 user namespace；受限策略成功；实际窗口 renderer 的全部内核条件通过 |
 | `python -u tests/integration_runtime.py --context default --output integration.json` | 沙箱、显示、Cookie/Local Storage、RAM/seals、190 秒续期、故障关闭、持久化和迁盘通过 |
 | `python -u tests/integration_chain.py --context default` | 本机 HTTP 线路接 SOCKS/HTTP 落地、软件内加密链路、远端域名解析和第一跳中断检查通过 |
