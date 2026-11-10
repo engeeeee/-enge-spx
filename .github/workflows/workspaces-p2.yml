@@ -80,7 +80,7 @@ jobs:
           from enge_spx import downloads
           root = Path(os.environ['RUNNER_TEMP']) / 'spx-profile-upgrade'
           store = Store(root)
-          store.write('settings.json', {**store.settings(), 'context': 'default'})
+          store.write('settings.json', {**store.settings(), 'context': 'default', 'relay': {'enabled': False, 'downloads': False}})
           engine = Engine(store, lambda text: print(text, flush=True))
           # Test-only pinned older release; production version/recipe validation
           # is unchanged. The complete archive is hashed before Docker import.
