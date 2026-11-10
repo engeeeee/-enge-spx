@@ -56,5 +56,18 @@ with tempfile.TemporaryDirectory() as directory:
     if target:
         window.grab().save(str(path / (name + "-resources.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    window.show_page("workspace")
+    QTest.qWait(80)
+    page = window.pages["workspace"]
+    for widget in (window.workspace_profile_box, window.workspace_apply_button):
+        page.ensureWidgetVisible(widget)
+        QTest.qWait(20)
+        rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
+        assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Workspace identity control is clipped: {rect}"
+    page.verticalScrollBar().setValue(0)
+    report["workspace_identity_controls_visible"] = True
+    if target:
+        window.grab().save(str(path / (name + "-workspaces.png")))
+        (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report), flush=True)
     window.finish_close()

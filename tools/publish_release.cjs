@@ -50,7 +50,7 @@ module.exports = async ({github, context, core}) => {
     '',
     '### 核心用途',
     '',
-    '在独立 Linux 容器中运行 Claude Code、Codex 和共享 Chromium，通过指定线路与落地代理访问服务。项目范围挂载、受控网关、双出口核验与异常停机共同减少对 Windows 日常环境的暴露。',
+    '在独立 Linux 容器中运行 Claude Code、Codex 和 Chromium，通过指定线路与落地代理访问服务。可选择独立工作区身份及项目只读/读写授权；受控网关、双出口核验与异常停机共同减少对 Windows 日常环境的暴露。',
     '',
     '### 这个版本',
     '',

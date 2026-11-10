@@ -82,6 +82,7 @@ class Controller(QObject):
         except SPXError as error:
             self.workspace_config = None
             workspace_message = str(error)
+        self.network_report = None
         try:
             self.resource_config = validate_resources(settings.get("resources"))
             resource_message = "预算保存后在下次启动应用；不会重建项目容器。"
@@ -119,6 +120,8 @@ class Controller(QObject):
             "project_budget_enabled": False, "project_budget_cpu": 0, "project_budget_memory": 4096,
             "workspace_profile": self.workspace_config["selected"] if self.workspace_config else "",
             "workspace_access": "rw", "workspace_status": workspace_message,
+            "network_summary": "由你主动检查当前已应用的工作区。不自动启动 Docker 或浏览器，不更改语言或时区。",
+            "network_evidence": "尚未检查。结果会标明宿主、容器、浏览器、第一跳和最终出口；导出时地址使用每份报告独立的代号。",
         }
         for role in ROLES:
             defaults["budget_" + role + "_cpu"] = self.resource_config["budgets"][role]["cpus"]
@@ -215,7 +218,7 @@ class Controller(QObject):
             return False
         def action(engine):
             config = engine.restore_workspace_profiles() if restore else engine.configure_workspace(identity, path or None, access)
-            canonical = str(engine.store.project(path)[0]) if path else None
+            canonical = str(engine.store.project(path)[0]) if path and not restore else None
             return config, canonical
         def done(result):
             self.workspace_config = result[0]
@@ -232,6 +235,26 @@ class Controller(QObject):
             return False
         identity = self.workspace_profile.get()
         return self.run(lambda engine: engine.browser(expected_profile=identity))
+
+    def check_network(self):
+        def done(report):
+            self.network_report = report
+            self.network_evidence.set(json.dumps(report, ensure_ascii=False, indent=2))
+            state = report.get("status")
+            summary = {"checked": "已完成本次检查。连接保持确认；请结合证据范围阅读结果，超时不等于证明没有发包。", "partial": "已完成部分检查；浏览器未运行、探测超时或部分信息不可用。未执行项不计为通过。", "not_ready": "工作区尚未确认，未启动任何环境。请先检查并确认连接后重试。", "unsafe": "发现工作区存在成功直连或权限异常，已请求停止。", "failed": "已确认连接的复核失败，已请求停止；请查看失败阶段并重新检查连接。"}.get(state, "诊断结果不可用。")
+            if state in ("unsafe", "failed"):
+                summary += "已核验停止。" if report.get("stop", {}).get("verified") else "未能确认停止，请检查 Docker 状态并重试停止工作区。"
+                self.notify("网络检查未通过", summary, True)
+            self.network_summary.set(summary)
+            self.operation.set("网络检查完成，报告已脱敏。")
+        return self.run(lambda engine: engine.network_diagnostics(), done, description="检查当前工作区的出口、路由与浏览器环境，不修改宿主网络…")
+
+    def export_network_report(self, path):
+        if self.network_report is None:
+            self.notify("先运行检查", "请先生成一份当前工作区的网络检查报告。")
+            return False
+        report = self.network_report
+        return self.run(lambda engine: atomic_json(Path(path), report), lambda result: self.operation.set("脱敏报告已导出，不含项目路径、账号、代理凭据或原始 SDP。"), description="导出脱敏网络报告…")
 
     def mark_resource_custom(self, unused):
         if not self._loading_resources:

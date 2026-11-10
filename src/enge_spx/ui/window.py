@@ -24,7 +24,7 @@ from .controller import Value
 from .widgets import (Page, Panel, TitleBar, Dialog, Combo, label, bind_text,
                       button, entry, combo, check, progress, confirm, notice, budget_number)
 
-NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "downloads": "下载与安装", "resources": "资源与性能", "logs": "运行日志", "settings": "偏好设置"}
+NAMES = {"overview": "工作台", "connection": "连接与代理", "workspace": "项目工作区", "network": "网络检查", "downloads": "下载与安装", "resources": "资源与性能", "logs": "运行日志", "settings": "偏好设置"}
 
 
 class ResizeEdge(QWidget):
@@ -571,6 +571,34 @@ class Window(QMainWindow):
         page.finish()
         self.select_resource_view("usage")
         return page
+
+    def build_network(self):
+        page = Page("网络环境检查", "按对象查看实际证据，区分已验证、未运行和不可用；不自动更改环境。")
+        panel = page.panel("检查当前工作区", "公网检测只在受控容器中执行，宿主只读路由，浏览器不会自动启动。出口复核失败、发现直连或安全条件变化时，会停止本实例并核验结果。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.network_summary))
+        row = panel.row()
+        row.addWidget(self.action("检查网络环境", self.c.check_network, True))
+        row.addWidget(self.action("导出脱敏报告", self.save_network_report))
+        row.addWidget(self.action("查看时区设置", lambda: self.show_page("settings"), ghost=True))
+        panel.layout.addWidget(label("WebRTC 仅观察本地候选与容器回环测试，不代表验证所有公网 STUN/TURN。IP 地区为近似参考，不保证匿名或不会关联账号。", "Caption", True))
+        panel = page.panel("检测对象与证据", "宿主、容器、浏览器、第一跳与最终出口分开记录。语言只读；已有环境的时区保持固定。")
+        evidence = QPlainTextEdit()
+        evidence.setReadOnly(True)
+        evidence.setMinimumHeight(320)
+        evidence.setPlainText(self.c.network_evidence.get())
+        self.c.network_evidence.changed.connect(evidence.setPlainText)
+        panel.layout.addWidget(evidence)
+        page.resized.connect(lambda width, height: row.setDirection(QBoxLayout.Direction.TopToBottom if width < 550 else QBoxLayout.Direction.LeftToRight))
+        page.finish()
+        return page
+
+    def save_network_report(self):
+        if self.c.network_report is None:
+            self.c.notify("先运行检查", "请先生成一份当前工作区的网络检查报告。")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "导出脱敏网络报告", "ENGE-SPX-network-report.json", "JSON (*.json)")
+        if path:
+            self.c.export_network_report(path)
 
     def select_resource_view(self, view):
         self.resource_view = view

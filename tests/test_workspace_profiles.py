@@ -216,6 +216,14 @@ class WorkspaceProfileTests(unittest.TestCase):
         self.engine.ready.assert_not_called()
         self.engine._browser.assert_not_called()
 
+    def test_legacy_export_cannot_drop_identity_or_readonly_authorization(self):
+        identity = self.identity()
+        self.engine.configure_workspace(identity, str(self.directory), "ro")
+        target = self.root / "legacy-export"
+        with self.assertRaisesRegex(SPXError, "旧格式不能保留"):
+            self.store.export_legacy_credentials(target, allow_plaintext=True)
+        self.assertFalse(target.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

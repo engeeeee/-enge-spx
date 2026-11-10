@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows">Download</a></p>
 
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
@@ -13,13 +13,14 @@ It is intended for people who want to reduce exposure of their everyday Windows 
 | Capability | What it provides |
 | --- | --- |
 | **Containerized coding tools** | Claude Code, Codex and Linux commands run in containers with the selected project mounted, keeping tool dependencies apart from everyday Windows applications |
-| **A workspace browser** | A persistent Chromium profile for login and authorization, separate from the host browser; the workspace profile is shared between projects |
+| **A workspace browser** | Sandboxed Chromium with persistent login data separate from the host browser; optional identities isolate Cookie, Storage and authorization |
+| **Identity and project grants** | Independent tool accounts, browser data and downloads per identity; explicit read-only/read-write project grants, with legacy shared mode preserved |
 | **A fixed line-to-landing chain** | A supported encrypted first hop followed by a SOCKS5, HTTP or HTTPS landing proxy, plus an explicitly labeled local-v2ray compatibility mode |
 | **Exit review and monitoring** | Separate first-hop and final-exit checks, explicit confirmation before use, and environment shutdown when monitoring detects a connection, exit or topology problem |
 
 ```mermaid
 flowchart LR
-    W["Windows controller"] -. "Selected project, read-write" .-> T
+    W["Windows controller"] -. "Selected project, explicit RO/RW grant" .-> T
     subgraph C["Docker Linux workspace"]
         T["Claude Code / Codex / Linux shell"]
         B["Workspace Chromium"]
@@ -42,16 +43,18 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 ## Download and start
 
-Current release: **[0.10.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.10.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.11.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.11.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-**0.10.0 Preview** adds on-demand resource monitoring, normal/low-resource modes,
-per-container and per-project CPU/memory budgets, and independent browser startup
-and stop. It retains 0.9.0 protocols, isolated network migration, tray behavior,
-sandbox enforcement, DPAPI, fixed chains and fail-closed monitoring. See
-[resource settings](docs/resources.zh-CN.md) and [validation](docs/validation-resources.zh-CN.md).
+**0.11.0 Preview** adds independent workspace identities, explicit read-only/read-write
+project grants and evidence-scoped network diagnostics with sanitized export.
+New identities start with empty accounts and browser data; switching verifies
+shutdown first and returning reuses each identity’s own data. Legacy shared mode,
+resource budgets, protocols, sandbox, DPAPI, fixed chains and fail-closed monitoring remain.
+See [identities and migration](docs/workspaces.zh-CN.md),
+[diagnostics](docs/network-diagnostics.zh-CN.md) and [validation](docs/validation-workspaces.zh-CN.md).
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.10.0-windows/ENGE-SPX-Windows-x64-0.10.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.11.0-windows/ENGE-SPX-Windows-x64-0.11.0-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.11.0-windows/ENGE-SPX-Windows-x64-0.11.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.

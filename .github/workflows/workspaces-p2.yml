@@ -20,6 +20,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -29,6 +31,20 @@ jobs:
       - run: python tools/check_repository.py
       - run: python -m unittest discover -s tests -v
       - run: python tools/smoke_gui.py
+      - name: Three same-runner 0.10.0 and candidate pairs with alternating source order
+        shell: python
+        run: |
+          import subprocess, sys
+          for index in range(3):
+              command = [sys.executable, 'tools/benchmark_p0.py', '--kind', 'host', '--baseline', '6168bf406d9d7d6254e5be102921445f5129db48', '--output', f'host-workspaces-{index}.json']
+              if index % 2:
+                  command.append('--candidate-first')
+              subprocess.run(command, check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Host-workspaces-${{ runner.os }}
+          path: host-workspaces-*.json
+          if-no-files-found: error
   data:
     runs-on: ubuntu-latest
     timeout-minutes: 10

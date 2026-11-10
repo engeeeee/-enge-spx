@@ -137,6 +137,24 @@ class WorkspaceUITests(unittest.TestCase):
         self.assertEqual(self.store.read(FILE)["selected"], "shared")
         self.assertFalse(self.controller.workspace_selection_matches())
 
+    def test_network_page_is_lazy_readonly_and_exports_the_observed_report(self):
+        c = self.controller
+        with patch("enge_spx.engine.Docker.run", side_effect=AssertionError("Opening a page queried Docker")):
+            self.window.show_page("network")
+            QTest.qWait(30)
+        self.assertIsNone(c.network_report)
+        report = {"schema": 1, "status": "partial", "objects": {"browser": {"status": "not_running"}}}
+        with patch("enge_spx.engine.Engine.network_diagnostics", return_value=report):
+            c.check_network()
+            self.wait()
+        self.assertEqual(c.network_report, report)
+        self.assertIn("部分检查", c.network_summary.get())
+        target = self.root / "network-report.json"
+        c.export_network_report(target)
+        self.wait()
+        import json
+        self.assertEqual(json.loads(target.read_text()), report)
+
 
 if __name__ == "__main__":
     unittest.main()

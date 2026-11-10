@@ -1,5 +1,21 @@
 # Changes
 
+## 0.11.0 workspace identity and diagnostics preview — 2026-11-10
+
+- Add versioned, opt-in workspace identities with separate tool HOME, Chromium
+  Profile and downloads. Keep legacy shared volumes and login data. Verify owned
+  shutdown before switching; never copy credentials between identities.
+- Require explicit project identity and recursive read-only/read-write grants;
+  audit names, mounts, users and capabilities before start. Reject stale attach
+  and missing/corrupt initialized config without falling back to shared accounts.
+- Add lazy GUI/CLI network diagnostics with read-only host routes, controlled
+  IPv4/IPv6/UDP observations, real browser language/timezone/local WebRTC checks,
+  first-hop/final-exit timings and per-report sanitized export. No debug ports,
+  automatic browser startup, fingerprint changes or new production dependencies.
+- Preserve sandbox, DPAPI, protocol backends, fail-closed guard, resource modes,
+  manual Docker startup and X-to-tray/default verified-stop exit behavior.
+  See docs/validation-workspaces.zh-CN.md for measured scope and remaining limits.
+
 ## 0.10.0 resource management preview — 2026-11-10
 
 - Add schema-1 role/project CPU and memory budgets, normal/low/custom modes and

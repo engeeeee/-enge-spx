@@ -528,14 +528,21 @@ class Engine:
                 time.sleep(.1)
         raise LineSecurityError("前置线路检查入口未能启动，请检查网关日志和节点配置。")
 
-    def probe_chain(self, state, detailed=True):
+    def probe_chain(self, state, detailed=True, timings=None):
+        def measured(scope, action):
+            if timings is None:
+                return action()
+            from .network_diagnostics import measured_probe
+            return measured_probe(scope, action, timings)
         line = None
         if state.get("line_proxy"):
-            line = self.probe_line(state)
+            line = measured("first_hop", lambda: self.probe_line(state))
             expected = self.store.settings()["relay"].get("expected_ip") or (state.get("evidence") or {}).get("line_ip")
             if expected and line["ip"] != expected:
+                if timings:
+                    timings[-1].update(result="unexpected_exit", error_code="unexpected_exit")
                 raise LineSecurityError("前置线路出口 IP 已改变，已停止环境。请检查 v2ray 分流、线路选择或直连回退，再重新核对。")
-        evidence = dict(self.probe(state, detailed=detailed))
+        evidence = dict(measured("final_exit", lambda: self.probe(state, detailed=detailed)))
         if line:
             evidence.update(line_ip=line["ip"], line_mode=state["line_mode"])
         return evidence
@@ -650,7 +657,7 @@ class Engine:
     def start_guard(self):
         self.background("guard")
 
-    def ready(self):
+    def ready(self, timings=None):
         state = self.store.read("runtime.json", {})
         if state.get("phase") != "ready":
             raise SPXError("请先检查节点、核对出口 IP 并确认连接。")
@@ -658,8 +665,10 @@ class Engine:
             self.audit_topology(state)
             if time.time() - state.get("heartbeat", 0) > 100:
                 raise SPXError("连接监测进程已失联，请重新检查连接。")
-            result = self.probe_chain(state, detailed=False)
+            result = self.probe_chain(state, detailed=False) if timings is None else self.probe_chain(state, detailed=False, timings=timings)
             if result["ip"] != state["evidence"]["ip"]:
+                if timings:
+                    timings[-1].update(result="unexpected_exit", error_code="unexpected_exit")
                 raise SPXError("检测到出口 IP 改变，环境已停止。")
             state["heartbeat"] = time.time()
             self.set_lease(time.time() + 180, state)
@@ -791,6 +800,10 @@ class Engine:
         from .workspace_profiles import load
         return load(self.store)
 
+    def network_diagnostics(self, browser=True):
+        from .network_diagnostics import collect
+        return collect(self, browser=browser)
+
     def _save_workspace_locked(self, config, previous):
         from .workspace_profiles import FILE, MARKER, PREVIOUS, policy
         if config == previous:
@@ -800,7 +813,8 @@ class Engine:
             self._shutdown_locked()
         self.store.write(PREVIOUS, {"schema": 1, "config": previous})
         self.store.write(FILE, config)
-        self.store.write(MARKER, {"schema": 1, "enabled": True})
+        if self.store.read(MARKER) != {"schema": 1, "enabled": True}:
+            self.store.write(MARKER, {"schema": 1, "enabled": True})
         return config
 
     def create_workspace_profile(self, name):
