@@ -101,6 +101,21 @@ def rejected_sandbox(engine, base):
     assert engine.docker.inspect("container", name)["State"]["ExitCode"] != 0
 
 
+def security_option_compatibility(engine):
+    from enge_spx.browser_security import arguments
+    for index, option in enumerate(("no-new-privileges=true", "no-new-privileges:true")):
+        name = engine.prefix + "-security-format-" + str(index)
+        try:
+            obj = engine.ensure_container("browser", engine.image_ids()["work"], ["--network", "none", *arguments(), "--security-opt", option], name=name)
+            validate_container(obj)
+            value = execute(engine, obj["Id"], "from pathlib import Path; s=Path('/proc/1/status').read_text(); assert 'NoNewPrivs:\\t1' in s; print('NNP_ENABLED')")
+            assert value == "NNP_ENABLED", value
+        finally:
+            obj = engine.inspect("browser", name)
+            if obj:
+                engine.docker.run("rm", "-f", obj["Id"])
+
+
 def run(context, output):
     records = []
     def passed(label):
@@ -115,6 +130,8 @@ def run(context, output):
         try:
             engine.install()
             passed("native gateway/work/browser images built")
+            security_option_compatibility(engine)
+            passed("real Docker equals/colon no-new-privileges options accepted; PID 1 kernel flag remains enabled")
             gateway_ip, _ = engine.networks()
             password = secrets.token_hex(16)
             node_config = {"log": {"level": "warn"}, "dns": {"servers": [{"type": "local", "tag": "local"}]}, "inbounds": [{"type": "shadowsocks", "listen": "0.0.0.0", "listen_port": 8443, "method": "aes-128-gcm", "password": password}], "outbounds": [{"type": "direct", "tag": "direct"}], "route": {"final": "direct", "default_domain_resolver": "local"}}
@@ -129,7 +146,20 @@ def run(context, output):
             credentials = base64.urlsafe_b64encode(("aes-128-gcm:" + password).encode()).decode().rstrip("=")
             nodes, _ = parse_nodes(f"ss://{credentials}@{node_ip}:8443#Local-integration-node")
             engine.save_nodes(nodes)
+            # Reproduce an upgrade from the old writable/default-seccomp browser
+            # without downloading/running an obsolete unsandboxed image. The
+            # harmless fixture only writes markers and sleeps, with no network.
+            old_browser = engine.ensure_container("browser", engine.image_ids()["work"], ["--network", "none", "--volume", engine.prefix + "-browser-home:/home/workspace", "--volume", engine.prefix + "-downloads:/home/workspace/Downloads"])
+            execute(engine, old_browser["Id"], "from pathlib import Path; Path('/home/workspace/.spx-upgrade-profile').write_text('profile'); Path('/home/workspace/Downloads/.spx-upgrade-download').write_text('download')")
+            engine.docker.run("stop", "--time", "8", old_browser["Id"])
+            try:
+                validate_container(engine.inspect("browser"))
+            except SPXError:
+                pass
+            else:
+                raise AssertionError("The old browser fixture must fail the new sandbox policy")
             evidence = engine.check()
+            assert engine.inspect("browser") is None, "Stopped pre-sandbox browser was not retired before review"
             assert evidence["direct_blocked"] is True
             passed("two exit sources agree; direct TCP egress blocked")
             engine.confirm()
@@ -147,6 +177,9 @@ def run(context, output):
             validate_container(browser)
             sandbox = validate_status(json.loads(execute(engine, browser["Id"], "print(open('/tmp/spx-sandbox-status.json').read())")))
             passed("Chromium namespace/PID/network/seccomp sandbox and actual renderer kernel evidence verified")
+            assert browser["Id"] != old_browser["Id"]
+            assert execute(engine, browser["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-upgrade-profile').read_text()+Path('/home/workspace/Downloads/.spx-upgrade-download').read_text())") == "profiledownload"
+            passed("stopped pre-sandbox browser upgrades before confirmation; Profile and downloads survive replacement")
             for role in ("gateway", "browser"):
                 inspected = engine.inspect(role)
                 metadata = json.dumps({key: inspected.get(key) for key in ("Args", "Path", "Config", "HostConfig", "Mounts")})

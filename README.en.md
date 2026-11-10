@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.3-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.4-windows">Download</a></p>
 
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
@@ -42,15 +42,15 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 ## Download and start
 
-Current release: **[0.8.3 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.3-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.8.4 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.8.4-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-**0.8.3 Preview** adds Chromium sandbox enforcement and Windows current-user DPAPI.
+**0.8.4 Preview** fixes upgrade confirmation blocked by a stopped legacy browser, retaining Chromium sandbox enforcement and Windows current-user DPAPI.
 See [upgrade and rollback](docs/security-hardening.zh-CN.md) and the
 [P0 validation record](docs/validation-p0.zh-CN.md) for actual test results,
 measured overhead and untested Windows/WSL2 boundaries.
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.3-windows/ENGE-SPX-Windows-x64-0.8.3-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.3-windows/ENGE-SPX-Windows-x64-0.8.3-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.4-windows/ENGE-SPX-Windows-x64-0.8.4-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.8.4-windows/ENGE-SPX-Windows-x64-0.8.4-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.
@@ -101,7 +101,7 @@ unchanged state is not repeatedly rewritten, and navigation adapts to narrow
 windows. The complete name and main action are checked at multiple DPI scales.
 System file pickers remain native.
 
-Use Pebrel, Windows Terminal, PowerShell or a custom executable and argument template. The selected terminal hosts the window; tools still run in their container.
+Automatic selection uses Windows Terminal, PowerShell 7, then Windows PowerShell. All third-party terminals use the same custom executable and argument template. The selected terminal hosts the window; tools still run in their container.
 
 Downloads support pause, resume, speed/progress display, SHA-256 and exact image-recipe validation. App configuration, logs and download caches can move to another drive. Docker's images, containers and volumes use a separate disk-migration assistant and require applying the move in Docker Desktop. Project and program directories remain separate. See [storage and terminal settings](docs/storage-terminal.zh-CN.md).
 

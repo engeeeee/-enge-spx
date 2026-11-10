@@ -26,6 +26,58 @@ def resource(name):
 
 
 class SandboxTests(unittest.TestCase):
+    def container(self, options=None):
+        if options is None:
+            options = ["no-new-privileges", "seccomp=" + browser_security.PROFILE.read_text()]
+        return {"Config": {"User": "1000:1000"}, "HostConfig": {"Privileged": False, "CapDrop": ["ALL"], "CapAdd": [], "ReadonlyRootfs": True, "SecurityOpt": options}}
+
+    def test_container_policy_accepts_equivalent_docker_security_option_formats(self):
+        policy = json.loads(browser_security.PROFILE.read_text())
+        for privilege in ("no-new-privileges", "no-new-privileges=true", "no-new-privileges:true"):
+            for separator in ("=", ":"):
+                for payload in (json.dumps(policy), json.dumps(policy, separators=(",", ":")), str(browser_security.PROFILE)):
+                    with self.subTest(privilege=privilege, separator=separator, path=payload == str(browser_security.PROFILE)):
+                        browser_security.validate_container(self.container([privilege, "seccomp" + separator + payload]))
+
+    def test_container_policy_rejects_missing_false_duplicate_and_malformed_options(self):
+        profile = "seccomp=" + browser_security.PROFILE.read_text()
+        altered = json.loads(browser_security.PROFILE.read_text())
+        altered["defaultAction"] = "SCMP_ACT_ALLOW"
+        cases = (
+            None, {}, "no-new-privileges", [None, profile],
+            [], [profile], ["no-new-privileges"],
+            ["no-new-privileges=false", profile], ["no-new-privileges:false", profile],
+            ["no-new-privileges=", profile], ["no-new-privileges:", profile],
+            ["no-new-privileges", "no-new-privileges:false", profile],
+            ["no-new-privileges:false", "no-new-privileges=true", profile],
+            ["no-new-privileges", "seccomp:unconfined"],
+            ["no-new-privileges", "seccomp=builtin"],
+            ["no-new-privileges", "seccomp"],
+            ["no-new-privileges", "seccomp:{invalid}"],
+            ["no-new-privileges", "seccomp:" + json.dumps(altered)],
+            ["no-new-privileges", profile, "seccomp:unconfined"],
+            ["no-new-privileges", "seccomp:unconfined", profile],
+            ["no-new-privileges", profile, profile],
+        )
+        for index, options in enumerate(cases):
+            with self.subTest(case=index):
+                obj = self.container()
+                obj["HostConfig"]["SecurityOpt"] = options
+                with self.assertRaises(SPXError):
+                    browser_security.validate_container(obj)
+
+    def test_container_failure_names_safe_fields_without_dumping_inspect_or_secrets(self):
+        obj = self.container(["no-new-privileges:false", "seccomp=private-needle"])
+        obj["Config"]["Env"] = ["PASSWORD=private-needle"]
+        with self.assertRaises(SPXError) as caught:
+            browser_security.validate_container(obj)
+        message = str(caught.exception)
+        self.assertIn("no-new-privileges=true", message)
+        self.assertIn("seccomp=应用专用策略", message)
+        self.assertNotIn("User=1000", message)
+        self.assertNotIn("private-needle", message)
+        self.assertNotIn("PASSWORD", message)
+
     def test_renderer_detection_accepts_linux_rewritten_process_titles(self):
         status = resource("sandbox_status")
         for command in (b"/usr/lib/chromium/chromium\0--type=renderer\0--flag\0", b"/usr/lib/chromium/chromium --type=renderer --flag\0", b"chromium --type=renderer"):

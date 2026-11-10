@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -92,6 +93,22 @@ class NativeWindowTests(unittest.TestCase):
         value.set("after")
         value.set("after")
         self.assertEqual(spy.count(), 1)
+
+    def test_legacy_terminal_reopens_as_custom_and_exe_picker_has_no_brand_special_case(self):
+        store = Store(Path(self.folder.name) / "legacy-terminal")
+        store.write("settings.json", {**store.settings(), "terminal": {"kind": "pebrel", "executable": "D:/Terminals/pebrel.exe"}})
+        controller = Controller(store)
+        window = Window(controller)
+        self.addCleanup(window.finish_close)
+        self.assertEqual(controller.terminal_kind.get(), "custom")
+        self.assertEqual(controller.terminal_exe.get(), "D:/Terminals/pebrel.exe")
+        self.assertIn("{command}", controller.terminal_args.get())
+        for name in ("pebrel.exe", "another-terminal.exe"):
+            controller.terminal_kind.set("auto")
+            with patch("enge_spx.ui.window.QFileDialog.getOpenFileName", return_value=("D:/Terminals/" + name, "")):
+                window.choose_terminal()
+            self.assertEqual(controller.terminal_kind.get(), "custom")
+            self.assertEqual(controller.terminal_exe.get(), "D:/Terminals/" + name)
 
 
 if __name__ == "__main__":

@@ -532,6 +532,11 @@ class Engine:
             self.doctor()
             self._stop("正在检查连接。")
             try:
+                # A pre-sandbox browser remains stopped after an upgrade. It
+                # must be retired before confirm/guard audits every owned
+                # container. Keep the named Profile/download volumes; the next
+                # browser launch still validates the replacement and renderer.
+                self._retire_stopped_browser()
                 self.take_over_legacy_guard()
                 state = self.setup()
                 state.update({"phase": "checking", "policy": self.policy()})
@@ -753,14 +758,18 @@ class Engine:
         code = (RESOURCES / "runtime_secret.py").read_text(encoding="utf-8")
         self.docker.run("exec", "-i", container, "python3", "-c", code, role, input_data=json.dumps(value, separators=(",", ":")))
 
+    def _retire_stopped_browser(self):
+        old = self.inspect("browser")
+        if old and not old["State"]["Running"]:
+            self.docker.run("rm", old["Id"])
+        return old
+
     def _browser(self, state):
         from .browser_security import arguments, validate_container, validate_status
         ids = self.image_ids()
         # A stopped browser may contain an old one-time display token. Replace its
         # container, keeping its profile and downloads in dedicated persistent volumes.
-        old = self.inspect("browser")
-        if old and not old["State"]["Running"]:
-            self.docker.run("rm", old["Id"])
+        old = self._retire_stopped_browser()
         obj = self.ensure_container("browser", ids["browser"], ["--network", "container:" + state["session"], "--shm-size", "512m", "--memory", "2g", *arguments(), "--volume", self.prefix + "-browser-home:/home/workspace", "--volume", self.prefix + "-downloads:/home/workspace/Downloads", *self.proxy_env(state)])
         validate_container(obj)
         if not old or not old["State"]["Running"]:

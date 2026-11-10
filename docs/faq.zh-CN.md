@@ -77,9 +77,9 @@ ENGE SPX 是 Windows 上的 AI 编程隔离工作台。它把 Claude Code、Code
 连接，检查通过才准备项目并打开工具。终端和浏览器复用同一次准备结果，
 避免启动后再次抢占操作锁。超时或连接异常仍会提示，不会跳过检查。
 
-## 窗口由 Pebrel 打开，工具还在容器里吗
+## 窗口由第三方终端打开，工具还在容器里吗
 
-是。Pebrel、Windows Terminal、PowerShell 或自定义终端负责显示与交互，启动命令仍通过 Docker 进入所选项目的 Linux 容器。详情见 [终端设置](storage-terminal.zh-CN.md)。
+是。Windows Terminal、PowerShell 或你选择的第三方终端负责显示与交互，启动命令仍通过 Docker 进入所选项目的 Linux 容器。详情见 [终端设置](storage-terminal.zh-CN.md)。
 
 ## 不操作 Shell，浏览器环境会自动停止吗
 

@@ -48,9 +48,9 @@ ENGE SPX 把 AI 编程工具和浏览器放进 Linux 容器，通过你选择的
 
 项目目录是 **读写共享** 的，AI 工具仍能修改、删除项目文件和读取项目内密钥。只选择必要目录，并保留版本管理和备份。完整边界见 [隔离与安全模型](security-model.zh-CN.md)。
 
-## 可选：使用 Pebrel、迁移到 D 盘
+## 可选：自定义终端、迁移到 D 盘
 
-在偏好设置选择 Pebrel，自动检测或指定 exe，测试后保存。自定义终端支持程序路径和启动参数模板。
+在偏好设置选择 Windows Terminal / PowerShell，或使用“自定义程序”指定任意第三方终端的 exe 与启动参数，测试后保存。自动模式不优先选择第三方终端。
 
 应用数据与下载缓存可迁移到例如 `D:\ENGE-SPX\data`；Docker 镜像、容器和数据卷需通过独立的 Docker 数据盘迁移助手，在 Docker Desktop 的 Disk image location 中应用变更。两项迁移不是同一件事，详见 [存储与终端设置](storage-terminal.zh-CN.md)。
 

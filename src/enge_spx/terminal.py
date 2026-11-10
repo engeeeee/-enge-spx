@@ -9,8 +9,11 @@ import subprocess
 
 from .state import SPXError
 
-PRESETS = {"自动选择（优先 Pebrel）": "auto", "Pebrel": "pebrel", "Windows Terminal": "wt", "PowerShell 7": "pwsh", "Windows PowerShell": "powershell", "自定义程序": "custom"}
-DEFAULT_ARGUMENTS = '--working-directory "{project}" --title "{title}" --hold -e {command}'
+PRESETS = {"自动选择": "auto", "Windows Terminal": "wt", "PowerShell 7": "pwsh", "Windows PowerShell": "powershell", "自定义程序": "custom"}
+DEFAULT_ARGUMENTS = "{command}"
+# Read compatibility only: this old preset used fixed flags, regardless of its
+# stored arguments. Normalize it into the same custom launcher as any other exe.
+LEGACY_ARGUMENTS = '--working-directory "{project}" --title "{title}" --hold -e {command}'
 
 
 def split_arguments(text: str) -> list[str]:
@@ -60,6 +63,9 @@ def split_arguments(text: str) -> list[str]:
 def validate(config: dict | None) -> dict:
     config = config or {}
     kind = config.get("kind", "auto")
+    if kind == "pebrel":
+        config = {**config, "kind": "custom", "executable": config.get("executable") or discover("pebrel") or "pebrel.exe", "arguments": LEGACY_ARGUMENTS}
+        kind = "custom"
     if kind not in PRESETS.values():
         raise SPXError("请选择受支持的终端，或选择自定义程序。")
     executable = str(config.get("executable", "")).strip().strip('"')
@@ -79,6 +85,7 @@ def validate(config: dict | None) -> dict:
 
 
 def discover(kind: str) -> str | None:
+    # The legacy name is only queried when reading a saved pre-0.8.4 preset.
     names = {"pebrel": "pebrel.exe", "wt": "wt.exe", "pwsh": "pwsh.exe", "powershell": "powershell.exe"}
     name = names[kind]
     found = shutil.which(name)
@@ -107,11 +114,11 @@ def resolve(config: dict | None) -> tuple[str, str]:
     config = validate(config)
     kind, executable = config["kind"], config["executable"]
     if kind == "auto":
-        for candidate in ("pebrel", "wt", "pwsh", "powershell"):
+        for candidate in ("wt", "pwsh", "powershell"):
             found = discover(candidate)
             if found:
                 return candidate, found
-        raise SPXError("未找到可用终端，请在偏好设置中选择 Pebrel 或其他终端的 exe。")
+        raise SPXError("未找到可用终端，请在偏好设置中选择终端类型或自定义终端的 exe。")
     executable = os.path.expandvars(executable) if executable else discover(kind)
     if executable and not Path(executable).is_file():
         executable = shutil.which(executable)
@@ -125,8 +132,6 @@ def resolve(config: dict | None) -> tuple[str, str]:
 def launch_command(config: dict | None, command: list[str], project: str, title: str) -> tuple[list[str], int]:
     config = validate(config)
     kind, executable = resolve(config)
-    if kind == "pebrel":
-        return [executable, "--working-directory", project, "--title", title, "--hold", "-e", *command], 0
     if kind == "wt":
         # Semicolons are wt's own command separators, even inside quoted argv.
         if any(";" in arg for arg in [*command, project, title]):
@@ -155,7 +160,7 @@ def _powershell_arguments(command: list[str], project: str | None = None) -> lis
 def _powershell_command(command: list[str], project: str) -> list[str]:
     executable = discover("powershell")
     if not executable:
-        raise SPXError("此命令含 Windows Terminal 分隔符，需要 Windows PowerShell；也可以改用 Pebrel。")
+        raise SPXError("此命令含 Windows Terminal 分隔符，需要 Windows PowerShell；也可选择自定义终端。")
     return [executable, *_powershell_arguments(command, project)]
 
 
