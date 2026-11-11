@@ -75,8 +75,10 @@ Runtime downloads verify the release manifest, exact image recipes, file size
 and SHA-256. Both OCI manifest and classic configuration identifiers are recorded
 for Docker image-store compatibility. Published assets are not silently replaced.
 
-The release CI pins Linux jobs to `ubuntu-24.04` to avoid an implicit OS migration
-through the `ubuntu-latest` label. It builds and tests on Windows and Linux, runs actual Linux x64
+The release CI pins Linux unit tests and publication jobs to `ubuntu-24.04`,
+and real container integration to `ubuntu-26.04` (the environment verified by
+0.13.0), to avoid an implicit OS migration through `ubuntu-latest`. It builds
+and tests on Windows and Linux, runs actual Linux x64
 containers and tests both Docker image stores. On the independent maintained
 repository's main branch, successful Windows and container jobs enable a
 versioned full release marked as Latest. The publication script is scoped to
