@@ -1,5 +1,22 @@
 # Changes
 
+## 0.12.0 field recording preview — 2026-11-11
+
+- Add explicit bounded resource recording in GUI/CLI using the existing monitor.
+  Reports separate app, containers, host and shared Desktop/WSL counters, use
+  per-recording process/container aliases and omit paths, names, credentials,
+  command lines, environment and AI input. Activities are user labels.
+- Serialize sampling, queue behind an in-flight query/operation, continue only
+  user-started recording in the tray, and cancel/save before genuine exit or
+  data migration. Preserve partial evidence if final output cannot be replaced.
+- Bound duration, sample count and report size; unavailable is not zero usage,
+  sampled maxima are not guaranteed peaks, and shared groups are not additive.
+- Reuse strict local IPC context validation for resource access and startup.
+  Reject SSH/TCP, remote named pipes and Unix URI authorities before daemon
+  queries. Retain manual Docker startup and all existing security/lifecycle rules.
+- No production dependencies, image recipes, privileges, listening ports,
+  configuration migrations or license changes.
+
 ## 0.11.0 workspace identity and diagnostics preview — 2026-11-10
 
 - Add versioned, opt-in workspace identities with separate tool HOME, Chromium

@@ -5,12 +5,32 @@ import math
 import os
 import re
 import time
+from types import SimpleNamespace
 
 from . import process_metrics
 from .resource_limits import ROLES, cpu_limit
 from .state import SPXError
+from .docker_env import require_local_context
 
 MAX_CONTAINERS = 256
+
+
+def sampling_target(store, context=None):
+    """Build a telemetry-only target without decrypting nodes/settings/runtime."""
+    from .engine import Docker, OWNER, ROLE
+    from .brand import LEGACY_LABEL_ROOT
+    if context is None:
+        try:
+            saved = store.read("controller-context.json", {})
+            if isinstance(saved, dict) and saved.get("instance") == store.instance:
+                context = saved.get("context")
+        except (SPXError, OSError):
+            pass
+    verified = isinstance(context, str) and bool(context) and len(context) <= 256
+    return SimpleNamespace(store=store, docker=Docker(context if verified else "desktop-linux"),
+                           owner=LEGACY_LABEL_ROOT + ".instance" if store.legacy else OWNER,
+                           role=LEGACY_LABEL_ROOT + ".role" if store.legacy else ROLE,
+                           ready=verified)
 
 
 def byte_count(value):
@@ -32,6 +52,8 @@ def containers(engine, cancel=None):
     def checkpoint():
         if cancel is not None and cancel.is_set():
             raise SPXError("资源采样已取消。")
+    checkpoint()
+    require_local_context(engine.docker, timeout=6)
     checkpoint()
     # Do not read environment variables, mounts, command lines or credentials.
     ids = engine.docker.run("ps", "-aq", "--filter", "label=" + engine.owner + "=" + engine.store.instance, timeout=6).splitlines()

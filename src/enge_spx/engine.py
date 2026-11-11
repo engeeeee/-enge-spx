@@ -182,25 +182,13 @@ class Engine:
         obj = self.docker.inspect("container", name or self.prefix + "-" + role)
         return self.owned(obj, role) if obj else None
 
+    def local_context(self, timeout=6):
+        """Read local context metadata before any daemon access; never starts it."""
+        from .docker_env import require_local_context
+        return require_local_context(self.docker, timeout)
+
     def doctor(self, timeout=60) -> dict:
-        if not self.docker.executable:
-            raise DockerUnavailable("未找到 Docker Desktop 命令行工具。")
-        try:
-            raw = self.docker.run("context", "inspect", self.docker.context, timeout=timeout)
-        except SPXError as error:
-            raise DockerContextUnavailable("Docker 上下文尚不可用，请检查 Docker Desktop 是否已完成初始化。") from error
-        try:
-            contexts = json.loads(raw)
-            if not isinstance(contexts, list) or len(contexts) != 1 or not isinstance(contexts[0], dict):
-                raise ValueError()
-            context = contexts[0]
-            endpoint = context["Endpoints"]["docker"]["Host"]
-            if not isinstance(endpoint, str):
-                raise ValueError()
-        except (ValueError, KeyError, TypeError) as error:
-            raise DockerConfigurationError("Docker 上下文信息无效，请检查 Docker 安装和上下文设置。") from error
-        if not endpoint.startswith(("npipe://", "unix://")):
-            raise DockerConfigurationError("请选择本机 Docker Desktop 上下文；此版本不支持远程 Docker。")
+        self.local_context(timeout)
         try:
             info = json.loads(self.docker.run("info", "--format", "{{json .}}", timeout=timeout))
             if not isinstance(info, dict) or not info.get("OSType"):

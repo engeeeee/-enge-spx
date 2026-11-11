@@ -469,9 +469,9 @@ class Window(QMainWindow):
 
     def build_resources(self):
         page = Page("资源与性能", "查看占用来源，为工作区安排预算；安全监测始终独立运行。")
-        self.resource_panels = {"usage": [], "budget": []}
+        self.resource_panels = {"usage": [], "budget": [], "record": []}
         row = QHBoxLayout()
-        for key, title in (("usage", "占用概览"), ("budget", "预算设置")):
+        for key, title in (("usage", "占用概览"), ("budget", "预算设置"), ("record", "实机记录")):
             item = button(title, lambda value=key: self.select_resource_view(value))
             item.setCheckable(True)
             self.resource_view_buttons[key] = item
@@ -538,6 +538,24 @@ class Window(QMainWindow):
         row.addWidget(button("立即采样", self.c.sample_resources))
         row.addWidget(self.action("停止本工作区", lambda: self.c.run(lambda engine: engine.stop()), ghost=True))
         row.addStretch()
+        panel = section("record", "实机性能记录", "手动记录真实使用期间的占用；记录中可以继续操作工作区，最小化/托盘中也会继续。停止或真正退出时保存，安全监测保持运行。")
+        from ..resource_recording import ACTIVITIES
+        self.record_duration = combo(self.c.record_seconds, [("1 分钟", 60), ("5 分钟", 300), ("15 分钟", 900), ("60 分钟", 3600)])
+        self.record_activity = combo(self.c.record_activity, [(title, key) for key, title in ACTIVITIES.items()])
+        panel.field("记录时长", self.record_duration)
+        panel.field("本次活动（自己选择）", self.record_activity)
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.record_status))
+        row = panel.row()
+        recording_actions = row
+        self.record_start = button("开始记录…", self.start_resource_recording, True)
+        self.record_stop = button("停止并保存", self.c.stop_resource_recording)
+        self.record_export = button("导出最近结果…", self.export_resource_recording)
+        for widget in (self.record_start, self.record_stop, self.record_export):
+            row.addWidget(widget)
+        row.addStretch()
+        self.c.record_active.changed.connect(lambda unused: self.update_recording_controls())
+        self.c.record_available.changed.connect(lambda unused: self.update_recording_controls())
+        self.update_recording_controls()
         previous_narrow = None
         def adapt(width, height):
             nonlocal previous_narrow
@@ -545,7 +563,7 @@ class Window(QMainWindow):
             if narrow == previous_narrow:
                 return
             previous_narrow = narrow
-            for layout in (budget_actions, project_inputs, monitor_actions):
+            for layout in (budget_actions, project_inputs, monitor_actions, recording_actions):
                 layout.setDirection(QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight)
             for widget in [*budget_headers, *(item for row in budget_rows for item in row)]:
                 grid.removeWidget(widget)
@@ -571,6 +589,27 @@ class Window(QMainWindow):
         page.finish()
         self.select_resource_view("usage")
         return page
+
+    def update_recording_controls(self):
+        if not hasattr(self, "record_start"):
+            return
+        active = self.c.record_active.get()
+        enabled = not self.c.busy and self.c.exit_mode is None
+        self.record_start.setEnabled(enabled and not active)
+        self.record_stop.setEnabled(active and self.c.exit_mode is None)
+        self.record_export.setEnabled(enabled and not active and self.c.record_available.get())
+        self.record_duration.setEnabled(enabled and not active)
+        self.record_activity.setEnabled(enabled and not active)
+
+    def start_resource_recording(self):
+        path, _ = QFileDialog.getSaveFileName(self, "保存脱敏性能记录", "ENGE-SPX-performance.json", "JSON (*.json)")
+        if path:
+            self.c.start_resource_recording(path)
+
+    def export_resource_recording(self):
+        path, _ = QFileDialog.getSaveFileName(self, "导出最近一次性能记录", "ENGE-SPX-performance.json", "JSON (*.json)")
+        if path:
+            self.c.export_resource_recording(path)
 
     def build_network(self):
         page = Page("网络环境检查", "按对象查看实际证据，区分已验证、未运行和不可用；不自动更改环境。")
@@ -740,6 +779,7 @@ class Window(QMainWindow):
             enabled = not view["busy"] and (not needs_ready or view["ready"])
             if widget.isEnabled() != enabled:
                 widget.setEnabled(enabled)
+        self.update_recording_controls()
         for name in ("pause_button", "startup_cancel"):
             if hasattr(self, name):
                 getattr(self, name).setEnabled(view["busy"] and view["cancelable"])
