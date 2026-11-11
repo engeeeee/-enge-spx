@@ -1,0 +1,43 @@
+{
+  "version": "0.13.2",
+  "source_commit": "990d97eae580e99e3c22db454adb878dec76b90c",
+  "platform": "Windows",
+  "python": "3.12.10",
+  "qt": "6.12.0",
+  "captured_utc": "2026-11-11T16:27:30.817123+00:00",
+  "state": "unconfigured temporary data; no accounts, proxies or Docker workspace started",
+  "captures": [
+    {
+      "file": "overview.png",
+      "page": "overview",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 79622,
+      "sha256": "854a189070a268c767b3a9b376525090558f348436297f2755179be4eca85ea4"
+    },
+    {
+      "file": "workspace.png",
+      "page": "workspace",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 91560,
+      "sha256": "9678728047ff95324a510c5ebe910084b8a66d54354a6dedae5b936239891d1b"
+    },
+    {
+      "file": "connection.png",
+      "page": "connection",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 94142,
+      "sha256": "2625a2cb77a2de682e1e12ab788f6fa43d2c18825bfe0806b1bce9b3c1619c73"
+    },
+    {
+      "file": "resources.png",
+      "page": "resources",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 89463,
+      "sha256": "ffb26c191f1545b6520153c8ec766b1d83bc06d4bf01dea96418ca8445f51a54"
+    }
+  ]
+}

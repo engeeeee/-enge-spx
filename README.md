@@ -4,6 +4,7 @@
 <p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.2-windows">下载 Windows 版</a> ·
+  <a href="#界面预览">界面预览</a> ·
   <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
   <a href="docs/security-model.zh-CN.md">隔离与安全</a> ·
   <a href="README.en.md">English</a>
@@ -30,6 +31,19 @@
 | **双出口核验与异常停止** | 分别检查线路出口和落地出口，由你确认后启用；运行期间检测连接、出口和拓扑变化，发现异常后停止本环境 |
 
 这些能力组成一个完整工作流：**准备隔离环境 → 配置代理路径 → 核对出口 → 打开项目与工具**。工作区浏览器负责环境内的网页登录，桌面终端负责承载交互窗口，编程命令仍在容器中执行。
+
+## 界面预览
+
+**工作台：从准备环境到确认出口，在一个入口完成。** 打开软件先查看状态，何时启动 Docker、准备环境和启用连接，由你决定。
+
+![ENGE SPX 0.13.2 在 Windows 上运行的工作台，包含一键准备、出口信息和工作区网络路径](docs/images/0.13.2/overview.png)
+
+| 项目工作区：选择项目、身份和工具 | 连接与代理：分别管理线路和落地 |
+| --- | --- |
+| [![Windows 项目工作区，展示目录选择、身份授权及 Claude Code、Codex 和 Chromium 入口](docs/images/0.13.2/workspace.png)](docs/images/0.13.2/workspace.png) | [![Windows 连接与代理页，展示 SOCKS5、HTTP、HTTPS 落地和前置线路设置](docs/images/0.13.2/connection.png)](docs/images/0.13.2/connection.png) |
+| 选择本地目录，应用身份和只读/读写权限；连接确认后，从同一页面打开 Claude Code、Codex、Linux 终端与工作区浏览器。 | 导入或添加节点，选择软件内双跳或本机 v2ray 兼容模式，配置线路服务器、落地和下载代理。 |
+
+截图为 **0.13.2 真实程序在 Windows 原生环境中的运行画面**，使用未配置账号与节点的临时数据，展示配置入口。点击图片可查看原图；[截图来源与复现](docs/screenshots/README.md)记录了源码版本、Windows CI 和文件校验信息。
 
 ## 适合哪些场景
 
@@ -58,22 +72,11 @@ flowchart LR
 
 图示为推荐的 **软件内双跳**。Windows 运行控制界面和终端窗口，Linux 容器运行工具与浏览器；浏览器不挂载项目目录或工具账号卷。项目容器按授权访问你选择的真实目录，其他本机目录不主动共享。
 
-<details>
-<summary>查看一键准备界面</summary>
-
-![ENGE SPX 一键准备界面](docs/images/spx-startup.png)
-
-截图来自原生 Windows CI 中运行的真实源码界面；不同显示器、DPI 与用户实机组合仍需交互验收。
-
-</details>
-
 ## 下载并开始使用
 
 当前版本为 **[0.13.2 正式版](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.2-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-**0.13.2 正式版** 修复联合关闭 Docker Desktop 超时、先关闭 Docker 后无法退出软件的问题；关闭确认失败时，可仅本次退出 ENGE SPX，保留原偏好。账号、代理、身份、预算和现有镜像继续使用。见 [退出说明](docs/exit.zh-CN.md)与 [发布验证](docs/validation-0.13.2.zh-CN.md)。
-
-在“网络检查 → 测试 HTTPS 速度”可按需测量最终受控链路的首字节耗时和单次下载速率，前后独立核验出口，报告只在本地保存。测速最多 3 次请求、约 1 MiB 应用载荷，出口复核的时间与流量另计；不自动启动 Docker、修改线路或回退直连。见 [测速范围与单位](docs/network-measurement.zh-CN.md)及 [Windows 长时验收](docs/windows-acceptance.zh-CN.md)。保留可选[同时关闭 Docker Desktop](docs/exit.zh-CN.md)、[实机资源记录](docs/field-recording.zh-CN.md)、身份隔离和全部网络保护。
+本版修复 Docker Desktop 联合关闭与退出顺序问题，保留现有账号、代理、身份、预算及镜像。具体变化见 [发布记录](CHANGELOG.md)与 [实际验证](docs/validation-0.13.2.zh-CN.md)。
 
 | 下载方式 | 适合谁 |
 | --- | --- |
@@ -101,7 +104,20 @@ flowchart LR
 
 也可关闭前置线路，仅使用所选落地；此时本机会连接落地，不具备固定加密第一跳的保护。软件不修改 Windows 系统代理，可以与本机 v2ray 同时运行。系统级 TUN 仍可能改变连接线路服务器的外层路径。
 
-落地支持认证和无认证 SOCKS5 / HTTP / HTTPS；导入支持 URI 列表、JSON、Clash、本地文件及主动获取的 HTTPS 订阅。未支持的传输参数会明确拒绝。协议范围和示例见 [代理配置](docs/proxies.zh-CN.md)，模式边界见 [线路保护](docs/line-protection.zh-CN.md)。
+支持的节点与传输方式：
+
+| 协议 | 支持范围 |
+| --- | --- |
+| **SOCKS5 / HTTP / HTTPS** | 认证或无认证落地，HTTPS 保留证书和名称验证 |
+| **VLESS** | TLS TCP、WebSocket、gRPC，以及 Reality / TCP Vision |
+| **Trojan** | TLS TCP、WebSocket、gRPC |
+| **VMess** | AEAD TCP、可选 TLS、WebSocket、gRPC；未加密配置不能用作加密第一跳 |
+| **Shadowsocks** | AEAD / 2022 TCP |
+| **Hysteria2** | 实际 QUIC/UDP 传输、固定服务器端口，可选 salamander；可作为第一跳连接 SOCKS5 / HTTP(S) 落地 |
+
+导入支持 URI / Base64 列表、JSON、常见 Clash / Mihomo YAML、本地文件和主动获取的 HTTPS 订阅。**只提取节点，不执行导入文件里的 DIRECT、分组、自动回退或 DNS 策略。** 不支持的参数和链路组合会明确拒绝；Reality 校验必要的公钥与 SNI，Hysteria2 需要 UDP 路径可达。
+
+参数与组合限制见 [协议说明](docs/proxy-p1.zh-CN.md)，操作示例见 [代理配置](docs/proxies.zh-CN.md)，两种接入模式的边界见 [线路保护](docs/line-protection.zh-CN.md)。
 
 **工作区代理与下载代理分别配置。** 运行环境和订阅可使用本机下载代理；勾选代理下载后，不可用时停止，不自动改为直连。源码构建的镜像拉取使用 Docker Desktop 自己的网络。
 
@@ -130,15 +146,31 @@ flowchart LR
 | **应用数据跨盘迁移** | 将配置、日志和下载缓存迁到 D 盘等自选目录，复制后校验，保留安装标识与部分下载 |
 | **Docker 数据盘迁移助手** | 记录资源，指导你在 Docker Desktop 迁移数据盘，恢复后核验原镜像、容器和数据卷 |
 | **已有数据与命令行** | 复用匹配镜像和原有项目、账号、浏览器数据；可用 `spx start` 准备与检查，再用 `spx confirm` 确认 |
-| **资源预算与占用来源** | 区分应用、Linux 容器、Docker Desktop 与 WSL2；按容器/项目设置 CPU、内存上限，低资源模式可延迟启动浏览器，浏览器可单独停止 |
 
 应用数据迁移与 Docker 数据盘迁移是两项独立操作，项目原目录也各自保留。操作与恢复见 [存储与终端设置](docs/storage-terminal.zh-CN.md)，旧版接管见 [升级说明](docs/migration.zh-CN.md)。
+
+## 资源、浏览器与退出
+
+**按需要分配资源，不必让所有组件一直运行。** 网关、会话、CLI 项目和 Chromium 可分别设置 CPU、内存上限，当前项目也可使用独立预算。正常模式与低资源模式可选；上限不是内存预留，低预算可能影响编译速度。
+
+![ENGE SPX Windows 资源预算界面，展示各容器 CPU、内存限制和按需启动浏览器选项](docs/images/0.13.2/resources.png)
+
+| 你想做什么 | 在哪里操作 |
+| --- | --- |
+| **看清资源花在哪里** | “资源与性能 → 占用概览”区分应用进程、本实例容器、Docker Desktop 和 WSL2，占用不能简单相加 |
+| **减少闲置开销** | 选择低资源模式，或关闭“随工具自动启动浏览器”；需要时再打开 Chromium，亦可“停止浏览器 · 保留 CLI” |
+| **记录实际使用过程** | 在“实机记录”手动开始资源采样，或在“网络检查”按需测试最终链路 HTTPS 首字节耗时与有界下载速率，导出脱敏报告 |
+| **留在后台或真正退出** | X 隐藏到托盘；托盘右键或 Ctrl+Q 真正退出时默认停止工作区，也可在设置中选择同时正常关闭 Docker Desktop |
+
+Docker 已手动关闭时，软件核实状态后完成收尾；工作区已停止、只有 Desktop 关闭确认失败时，可仅本次退出 ENGE SPX。网络安全监测按原规则独立运行，不随资源页隐藏而关闭。
+
+详见 [资源预算](docs/resources.zh-CN.md)、[实机记录](docs/field-recording.zh-CN.md)、[测速范围与单位](docs/network-measurement.zh-CN.md)和 [退出流程](docs/exit.zh-CN.md)。测速不是 AI 请求速度或线路极限带宽；长时使用步骤见 [Windows 实机验收](docs/windows-acceptance.zh-CN.md)。
 
 ## 常见问题与文档
 
 Windows 负责桌面控制，工作区实际是 Linux 容器。项目按只读/读写授权挂载；可在项目工作区创建独立身份，分别保存工具账号和浏览器资料。默认共享兼容旧版，同一身份内仍共享账号。独立数据目录适合进一步分开节点、时区及整个实例。
 
-X 隐藏到托盘，已确认的环境与监测继续运行；真正“退出软件”（Ctrl+Q）默认先停止本实例工作区。明确保留工作区退出界面的选项位于托盘“更多”，需要确认。[退出流程](docs/exit.zh-CN.md)说明任务收尾和失败重试；[常见问题](docs/faq.zh-CN.md)解释代理、共享和迁移范围。
+明确保留工作区退出界面的选项位于托盘“更多”，需要确认；重新打开软件可继续管理。[常见问题](docs/faq.zh-CN.md)解释代理、共享和迁移范围。
 
 | 你要做什么 | 对应文档 |
 | --- | --- |
@@ -147,6 +179,9 @@ X 隐藏到托盘，已确认的环境与监测继续运行；真正“退出软
 | 了解隔离、数据位置与信任边界 | [隔离与安全模型](docs/security-model.zh-CN.md) · [常见问题](docs/faq.zh-CN.md) |
 | 处理安装、下载或凭据工具错误 | [安装排障](docs/installation-troubleshooting.zh-CN.md) |
 | 自定义终端、迁移数据到 D 盘 | [存储与终端](docs/storage-terminal.zh-CN.md) |
+| 分开账号身份、设置项目访问权限 | [工作区身份与项目授权](docs/workspaces.zh-CN.md) |
+| 控制资源、记录占用或诊断网络 | [资源预算](docs/resources.zh-CN.md) · [实机记录](docs/field-recording.zh-CN.md) · [网络检查](docs/network-diagnostics.zh-CN.md) |
+| 处理托盘退出和 Docker 联合关闭 | [退出流程](docs/exit.zh-CN.md) · [0.13.2 验证](docs/validation-0.13.2.zh-CN.md) |
 | 反馈问题、提交贡献或报告漏洞 | [支持指南](SUPPORT.md) · [贡献指南](CONTRIBUTING.md) · [安全报告](SECURITY.md) |
 
 ## 项目状态与开发
