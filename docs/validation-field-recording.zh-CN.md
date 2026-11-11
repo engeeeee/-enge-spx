@@ -39,7 +39,16 @@ PYTHONPATH=src python tools/benchmark_resources.py --baseline fdd319a4cf7947c9d8
 
 完整 PR 回归已全部通过，包括真实 cgroup 限额/数据复用、三项记录场景、身份数据/递归只读、停止后网络迁移/回滚及 DNS/UDP/IPv6 阻断；TLS、Reality、gRPC、QUIC 协议夹具；实际 Chromium namespace/PID/network/seccomp 与 renderer 内核证据、中文 PTY、无中文系统字体、190 秒无 shell 输入续期、过期租约关闭、独立停止/恢复浏览器与 Cookie/Storage 保留、数据搬迁、全部归属服务停止、沙箱失败拒绝启动。真实线路与落地双跳、独立出口变化、Hysteria2 QUIC/UDP 故障均按 Fail-Closed 工作；七项真实 Chromium 身份/诊断场景与全部资源测量阶段成功。
 
-上述合成账号与本地 OAuth/Cookie 夹具不代表真实 AI 登录，云端 Windows Server 也不代表物理 Windows/WSL 验收。PR 按规则跳过镜像导出、两种镜像存储导入和发布；这些不计入 PR 通过项。主分支将重新运行全部测试并增加同次制品的双存储导入，只有全部成功才发布；实际结果与公开资产核验在完成后补记。源码与测试不因最终文档补记而更改。
+上述合成账号与本地 OAuth/Cookie 夹具不代表真实 AI 登录，云端 Windows Server 也不代表物理 Windows/WSL 验收。PR 按规则跳过镜像导出、两种镜像存储导入和发布；这些不计入 PR 通过项。源码与测试不因最终文档补记而更改。
+
+发布提交 `8d35336a6f03626b257f19a47a9ec67c50bd9d11` 的 [主分支同次发布 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42969056641) 已全部成功：Windows/Linux 319 项、DPI、冻结程序、真实 DPAPI/托盘/默认核验停止、完整容器/协议/身份/资源测试全部重跑通过。原生 containerd 与独立经典存储分别实际下载、校验并导入同次导出的运行包，重复安装、已有标签和容器数据保留均通过。发布任务下载两份同次 Artifact 后核对摘要再发布，没有拼接其它运行的制品。该次冻结 GUI 首绘 973 ms，同样没有旧冻结安装包的同条件对照。
+
+[0.12.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.0-windows) 已公开七个资产。发布后实际下载安装版 32,422,464 B、便携版 50,895,742 B，文件大小、SHA-256 与公开摘要及校验文件一致，便携包全量 ZIP CRC 和检查资源完整性通过。运行镜像清单的 schema、版本、平台、三种配方/标识、875,933,356 B 大小与公开摘要一致；未再次下载整个运行归档，其实际导入依据来自上述同次双存储门禁。
+
+| Windows 资产 | 实际下载 SHA-256 |
+| --- | --- |
+| Setup.exe | `355aacf812b7777a7337d7c76be77d211cfa9b6285b84290eb94f5a773f1ff3d` |
+| Portable.zip | `747aa8b483a8051360c78c2f6218c1a2d66e9e30aaa97157919609bf1670b38b` |
 
 ## 6. 性能前后对比
 
