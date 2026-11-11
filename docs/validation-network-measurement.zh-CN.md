@@ -1,6 +1,6 @@
 # 有界网络测量交付与验证
 
-基线 0.12.1，`04b64bb450090e51246764bef8de8825146e2caf`；源码候选 `a9e6e1faedecaa9f0f6c2b7a9e1e43d291a3125e`，[PR #8](https://github.com/engeeeee/ENGE-SPX/pull/8)。PR 的全套源码、打包、容器门禁通过；主分支的最终发布及公开下载结果完成后补记。文件风险和边界见 [审计](network-measurement-plan.zh-CN.md)。跳过或未运行不计为通过。
+基线 0.12.1，`04b64bb450090e51246764bef8de8825146e2caf`；源码候选 `a9e6e1faedecaa9f0f6c2b7a9e1e43d291a3125e`，[PR #8](https://github.com/engeeeee/ENGE-SPX/pull/8)。2026-11-11 已发布 [0.13.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.0-windows)，合并/发布提交 `859e75bd6be9f4f7026383dda02a46ff0c3472e9`。PR、主分支完整门禁及公开下载校验均已完成。文件风险和边界见 [审计](network-measurement-plan.zh-CN.md)。跳过或未运行不计为通过。
 
 ## 1. 修改概述
 
@@ -61,6 +61,18 @@ Linux GUI 使用 `QT_QPA_PLATFORM=offscreen`。历史对照要求本地 git 中�
 完整容器门禁还通过既有实际协议/TLS 名称/证书/认证、Reality 错误参数、Hysteria2 QUIC/分片 UDP/断 UDP、固定落地及第一跳中断、DNS/UDP/IPv6/宿主直连阻断、版本化网络迁移回滚、资源限制/记录/跨实例停止、真实 Chromium 内核沙箱、拒绝无沙箱回退、Cookie/Storage/账户身份隔离、中文 PTY、190 秒浏览器独立续期、过期租约停机与数据迁移。全部安全验证保留；真实服务账号和物理 Desktop/WSL2 不在这些结果中。
 
 源码 PR 的发布任务按规则跳过；只有主分支同次安装包、容器和导出归档双 store 导入门禁成功才发布。
+
+[主分支同次发布检查](https://github.com/engeeeee/ENGE-SPX/actions/runs/43015474729)全部通过：Windows 365 项（361 通过、4 跳过）、Linux 365 项（353 通过、12 跳过）、Qt/DPI、冻结 Python 3.12、真实 DPAPI、手动 Docker 启动、安装/卸载，以及全部协议、沙箱、数据、身份和资源容器回归再次通过。主分支冻结首屏 794 ms；实际 Engine 公网测量再次为 `checked/measured`、前后核验通过，测量阶段 366.525 ms。三个资源 worker 完全停止后的本实例运行容器均为 0。资源 artifact 的 ZIP SHA-256 已核验为 `80cbdfd70f6a3655c4dc967a7c080b35a63603e0892863d0f05cdb9e8cb954bc`。
+
+导出的运行归档在 containerd 和经典 Docker 镜像存储中分别成功导入并验证，之后才发布。公开标签指向上述发布提交；七个附件齐全。安装版和便携版已从公开链接实际下载，大小、公开 SHA-256/GitHub digest 一致；便携 ZIP CRC、两个可执行程序及必需资源通过检查，新增 `network_probe.py` 与已测试源码一致（规范化行尾）。
+
+| 公开附件 | bytes | SHA-256 |
+| --- | ---: | --- |
+| `ENGE-SPX-Windows-x64-0.13.0-Setup.exe` | 32,459,710 | `8eeca809bff92c9108542b6cfc62da1d004e97244b656912f0fc34027d335665` |
+| `ENGE-SPX-Windows-x64-0.13.0-Portable.zip` | 50,961,953 | `6c40421e4e18400ac27325cd2322b5c6df8b4fbaa394d1d0878c0aa4218772be` |
+| `ENGE-SPX-Runtime-linux-amd64-0.13.0.tar.gz` | 875,925,994 | `945b7f648cea5bbc31cb8796c7abbd6f4ad98107b68c2e692624b3315dfa4989` |
+
+公开 runtime manifest 的平台、镜像/config ID、配方、大小和 digest 与同次 CI 已验证的导出 SHA 对照通过；没有再次下载整份 runtime 归档。配方仍是 gateway `9aa8a7818569`、work `6e3fcfa5633c`、browser `1bca0984bc51`。CI 导入与公开摘要校验不代替真实 Desktop/WSL2 设备验收。
 
 ## 6. 修改前后性能对比
 
