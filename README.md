@@ -71,7 +71,7 @@ flowchart LR
 
 当前版本为 **[0.12.1 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-**0.12.1 Preview** 增加可选联合退出：在“偏好设置 → 启动行为”勾选“真正退出时同时关闭 Docker Desktop”并保存，先停止工作区、结束性能记录，再正常关闭 Docker Desktop。默认关闭此选项；X 隐藏和“保留工作区退出”不触发。联合关闭会中断其它 Docker 容器，不执行全局 WSL 关闭。见 [退出与失败恢复](docs/exit.zh-CN.md)和 [实际验证](docs/validation-desktop-exit.zh-CN.md)。保留 0.12.0 的[实机记录](docs/field-recording.zh-CN.md)、独立身份、项目授权、网络诊断及全部网络保护。
+**0.12.1 Preview** 增加可选联合退出：在“偏好设置 → 启动行为”勾选“退出时关闭 Docker Desktop”并保存，先停止工作区、结束性能记录，再正常关闭 Docker Desktop。默认关闭此选项；X 隐藏和“保留工作区退出”不触发。联合关闭会中断其它 Docker 容器，不执行全局 WSL 关闭。见 [退出与失败恢复](docs/exit.zh-CN.md)和 [实际验证](docs/validation-desktop-exit.zh-CN.md)。保留 0.12.0 的[实机记录](docs/field-recording.zh-CN.md)、独立身份、项目授权、网络诊断及全部网络保护。
 
 | 下载方式 | 适合谁 |
 | --- | --- |

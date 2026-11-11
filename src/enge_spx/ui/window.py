@@ -698,12 +698,13 @@ class Window(QMainWindow):
 
     def build_settings(self):
         page = Page("偏好设置", "选择自己的终端，安排数据位置，让工作台适合你的习惯。")
+        responsive_rows = []
         panel = page.panel("启动行为")
         panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
         panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。", "Caption", True))
         panel.layout.addWidget(label("关闭窗口后隐藏到系统托盘。托盘右键可恢复窗口、保留工作区退出界面，或停止工作区并退出。", "Caption", True))
         panel.layout.addWidget(label("退出软件（Ctrl+Q）会先停止本实例的 CLI、浏览器、网关与后台服务；默认保留 Docker Desktop。", "Caption", True))
-        self.close_desktop_check = check("真正退出时同时关闭 Docker Desktop", self.c.close_docker_desktop)
+        self.close_desktop_check = check("退出时关闭 Docker Desktop", self.c.close_docker_desktop)
         panel.layout.addWidget(self.close_desktop_check)
         panel.layout.addWidget(label("会正常关闭 Docker Desktop，其它 Docker 容器也会中断。X 隐藏和“保留工作区退出”不触发；不关闭其它 WSL 发行版。", "Caption", True))
         self.save_exit_preferences_button = self.action("保存退出偏好", self.c.save_exit_preferences, ghost=True)
@@ -720,7 +721,10 @@ class Window(QMainWindow):
                 self.stop_exit_button = item
             panel.layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
-        panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
+        terminal_box = combo(self.c.terminal_kind, list(terminal.PRESETS.items()))
+        terminal_box.setMinimumContentsLength(10)
+        terminal_box.setSizeAdjustPolicy(Combo.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        panel.field("终端类型", terminal_box)
         row = QHBoxLayout()
         self.terminal_path = entry(self.c.terminal_exe, "预设可自动寻找，或选择便携版 exe")
         row.addWidget(self.terminal_path, 1)
@@ -732,6 +736,7 @@ class Window(QMainWindow):
         self.c.terminal_kind.changed.connect(lambda unused: self.terminal_fields())
         self.terminal_fields()
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("检测终端", self.c.detect_terminal))
         row.addWidget(self.action("测试终端", lambda: self.c.terminal_action()))
         row.addWidget(self.action("保存终端", lambda: self.c.terminal_action(True), True))
@@ -743,6 +748,7 @@ class Window(QMainWindow):
         row.addWidget(entry(self.c.data_target, "选择专用的空目标文件夹"), 1)
         row.addWidget(self.action("选择目录", lambda: self.choose_storage(self.c.data_target)))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("检查并迁移应用数据", self.c.migrate_data, True))
         row.addWidget(self.action("打开当前目录", self.open_data, ghost=True))
         row.addStretch()
@@ -756,6 +762,7 @@ class Window(QMainWindow):
         row.addWidget(self.action("选择目录", lambda: self.choose_storage(self.c.docker_target)))
         panel.layout.addWidget(label("1. 检测位置并准备迁移。\n2. 在 Docker Desktop → Resources → Advanced → Disk image location 选择目标并 Apply。\n3. 回到这里核验原镜像、容器和数据卷。", "Caption", True))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("检测位置", self.c.detect_storage))
         row.addWidget(self.action("准备迁移", self.c.prepare_docker_move))
         row.addWidget(self.action("核验结果", self.c.verify_docker_move, True))
@@ -771,9 +778,20 @@ class Window(QMainWindow):
         panel.layout.addWidget(label(f"{__version__} Preview · engeeeee", "Muted"))
         panel.layout.addWidget(label("容器按项目共享文件，账号与浏览器资料会保留。容器不等同于完全隔离的独立电脑。", "Caption", True))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("项目仓库 ↗", lambda: webbrowser.open(PROJECT_URL), ghost=True))
         row.addWidget(self.action("复制诊断信息", self.copy_diagnostics, ghost=True))
         row.addStretch()
+        previous_narrow = None
+        def adapt(width, height):
+            nonlocal previous_narrow
+            narrow = width < 550
+            if narrow != previous_narrow:
+                previous_narrow = narrow
+                for layout in responsive_rows:
+                    layout.setDirection(QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight)
+        page.resized.connect(adapt)
+        adapt(page.viewport().width(), page.viewport().height())
         page.finish()
         return page
 

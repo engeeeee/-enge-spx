@@ -9,7 +9,7 @@ if os.name != "nt":
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QAbstractSpinBox
+from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QLabel
 from enge_spx.state import Store
 from enge_spx.ui import style
 from enge_spx.ui.controller import Controller
@@ -84,12 +84,27 @@ with tempfile.TemporaryDirectory() as directory:
     window.show_page("settings")
     page = window.pages["settings"]
     QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), "Settings page overflows horizontally"
+    for widget in page.findChildren(QLabel):
+        if widget.wordWrap():
+            rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
+            assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Settings explanation is clipped: {rect}"
     for widget in (window.close_desktop_check, window.save_exit_preferences_button, window.stop_exit_button):
         page.ensureWidgetVisible(widget)
         QTest.qWait(20)
         rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
         assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Exit setting is clipped: {rect}"
     report["desktop_exit_controls_visible"] = True
+    controller.desktop_exit_supported = True  # Layout only; finish_close does not request shutdown.
+    controller.saved_close_desktop = True
+    controller.close_docker_desktop.set(True)
+    window.update_exit_actions(controller.view)
+    QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), "Enabled Desktop-exit text overflows settings"
+    page.ensureWidgetVisible(window.stop_exit_button)
+    QTest.qWait(20)
+    action = QRect(window.stop_exit_button.mapTo(page.viewport(), QPoint()), window.stop_exit_button.size())
+    assert action.left() >= 0 and action.right() <= page.viewport().width(), "Enabled exit action is clipped"
     if target:
         window.grab().save(str(path / (name + "-exit.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
