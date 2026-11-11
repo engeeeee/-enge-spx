@@ -9,7 +9,7 @@ import sys
 import threading
 import unittest
 
-from desktop_harness import environment, exercise_entry_point, fake_desktop
+from desktop_harness import environment, exercise_entry_point, exercise_desktop_exit, fake_desktop
 
 
 def run_child():
@@ -73,6 +73,13 @@ def run_child():
 
 @unittest.skipUnless(os.name == "nt", "Windows GUI and Desktop cold-start subprocess")
 class GUIColdStartTests(unittest.TestCase):
+    def test_optional_desktop_exit_is_opt_in_and_graceful(self):
+        command = [os.environ["SPX_TEST_PACKAGED_GUI"]] if "SPX_TEST_PACKAGED_GUI" in os.environ else [sys.executable, "-X", "faulthandler", "-m", "enge_spx"]
+        with fake_desktop() as (base, cli):
+            for enabled in (False, True):
+                with self.subTest(enabled=enabled):
+                    exercise_desktop_exit(command, base, cli, enabled)
+
     def test_real_entry_point_never_starts_desktop_on_open(self):
         command = [os.environ["SPX_TEST_PACKAGED_GUI"]] if "SPX_TEST_PACKAGED_GUI" in os.environ else [sys.executable, "-X", "faulthandler", "-m", "enge_spx"]
         with fake_desktop() as (base, cli):
@@ -95,6 +102,6 @@ if __name__ == "__main__":
         run_child()
     elif "--packaged" in sys.argv:
         os.environ["SPX_TEST_PACKAGED_GUI"] = str(Path(sys.argv[sys.argv.index("--packaged") + 1]).resolve(strict=True))
-        unittest.main(argv=[sys.argv[0], "GUIColdStartTests.test_real_entry_point_never_starts_desktop_on_open", "-v"])
+        unittest.main(argv=[sys.argv[0], "GUIColdStartTests.test_real_entry_point_never_starts_desktop_on_open", "GUIColdStartTests.test_optional_desktop_exit_is_opt_in_and_graceful", "-v"])
     else:
         unittest.main()

@@ -1,0 +1,47 @@
+name: ENGE SPX Desktop Exit Measurements
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/optional-desktop-exit]
+    paths: ['src/**', 'tests/**', 'tools/**', '.github/workflows/desktop-exit.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-desktop-exit-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -p test_desktop_shutdown.py -v
+      - name: Three 0.12.0 and candidate host pairs
+        shell: python
+        run: |
+          import subprocess, sys
+          for index in range(3):
+              command = [sys.executable, 'tools/benchmark_p0.py', '--kind', 'host', '--baseline', '221f59fddeab2570bf462c76cb4965c7fd2e8dd9', '--output', f'host-desktop-exit-{index}.json']
+              if index % 2:
+                  command.append('--candidate-first')
+              subprocess.run(command, check=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Desktop-exit-native-${{ runner.os }}
+          path: host-desktop-exit-*.json
+          if-no-files-found: warn

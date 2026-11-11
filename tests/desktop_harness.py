@@ -34,7 +34,17 @@ class Desktop {
             form.Text = "ENGE SPX isolated fake Desktop";
             form.Width = 420; form.Height = 220;
             var timer = new Timer(); timer.Interval = 1800;
-            timer.Tick += delegate { form.Close(); };
+            bool persistent = Environment.GetEnvironmentVariable("SPX_TEST_PERSISTENT_DESKTOP") == "1";
+            if (persistent) timer.Interval = 100;
+            timer.Tick += delegate {
+                if (!persistent || File.Exists(Path.Combine(root, "stop-request"))) form.Close();
+            };
+            form.FormClosed += delegate {
+                if (persistent) {
+                    File.Delete(marker);
+                    File.WriteAllText(Path.Combine(root, "desktop-closed"), "normal");
+                }
+            };
             form.Shown += delegate {
                 File.AppendAllText(Path.Combine(root, "launches"), "launch\n");
                 File.WriteAllText(marker, "ready");
@@ -54,6 +64,16 @@ class Desktop {
             return 0;
         }
         string command = String.Join(" ", args);
+        if (command == "desktop status --format json") {
+            Console.WriteLine(File.Exists(marker) ? "{\"Status\":\"running\"}" : "{\"Status\":\"stopped\"}");
+            return 0;
+        }
+        if (command.StartsWith("desktop stop --timeout ")) {
+            File.AppendAllText(Path.Combine(root, "stops"), "normal-stop\n");
+            File.WriteAllText(Path.Combine(root, "stop-request"), "normal");
+            for (int i = 0; i < 60 && File.Exists(marker); i++) System.Threading.Thread.Sleep(50);
+            return File.Exists(marker) ? 1 : 0;
+        }
         if (command.StartsWith("desktop start ")) {
             if (Environment.GetEnvironmentVariable("SPX_TEST_START_MODE") == "legacy") return 2;
             var start = new ProcessStartInfo(Path.Combine(root, "Docker App", "Docker Desktop.exe"));
@@ -87,7 +107,7 @@ class Desktop {
 
 
 def environment(base, cli, mode):
-    for name in ("ready", "launches", "main-hwnd", "notified"):
+    for name in ("ready", "launches", "main-hwnd", "notified", "stop-request", "stops", "desktop-closed"):
         (base / name).unlink(missing_ok=True)
     return {**os.environ, "SPX_TEST_FAKE_ROOT": str(base), "SPX_TEST_START_MODE": mode, "PYTHONIOENCODING": "utf-8", "PATH": str(cli.parent) + os.pathsep + os.environ.get("PATH", "")}
 
@@ -222,3 +242,78 @@ def exercise_entry_point(command, base, cli, mode):
         fault = data / "logs/gui-fault.log"
         details = fault.read_text(encoding="utf-8") if fault.is_file() else "No native fault file"
         raise AssertionError(f"{error}\n{text}\n{details}\n{stdout}\n{stderr}") from error
+
+
+def exercise_desktop_exit(command, base, cli, enabled):
+    """Actual Windows GUI/process shutdown against our owned Desktop fixture."""
+    data = base / ("joint-exit-on" if enabled else "joint-exit-off")
+    data.mkdir()
+    if enabled:
+        (data / "exit-preferences.json").write_text(json.dumps({"schema": 1, "close_docker_desktop": True}), encoding="utf-8")
+    (data / "account-sentinel").write_text("preserved", encoding="utf-8")
+    env = environment(base, cli, "cli")
+    env["SPX_TEST_PERSISTENT_DESKTOP"] = "1"
+    desktop = subprocess.Popen([str(base / "Docker App/Docker Desktop.exe")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = None
+    log_path = data / "logs/gui.log"
+    try:
+        deadline = time.monotonic() + 5
+        while not (base / "ready").exists() and time.monotonic() < deadline:
+            assert desktop.poll() is None, "Owned Desktop fixture exited during startup"
+            time.sleep(.05)
+        assert (base / "ready").exists(), "Owned Desktop fixture did not start"
+        process = subprocess.Popen([*command, "--data", str(data), "gui"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW)
+        user, hwnd, text = window_api(), None, ""
+        deadline = time.monotonic() + 18
+        while process.poll() is None and time.monotonic() < deadline:
+            hwnd = find_window(user, process.pid)
+            if log_path.exists():
+                text = log_path.read_text(encoding="utf-8")
+            if hwnd and "docker-check-ready" in text:
+                break
+            time.sleep(.05)
+        assert process.poll() is None and hwnd and "docker-check-ready" in text, "GUI did not finish its read-only check"
+        assert not (base / "stops").exists(), "Opening the GUI stopped Desktop"
+        if "gui-tray-enabled" in text:
+            user.PostMessageW(hwnd, 0x0010, 0, 0)
+            deadline = time.monotonic() + 3
+            while user.IsWindowVisible(hwnd) and time.monotonic() < deadline:
+                time.sleep(.05)
+            assert process.poll() is None and not user.IsWindowVisible(hwnd), "X did not hide to tray"
+            assert desktop.poll() is None and not (base / "stops").exists(), "X stopped Desktop"
+            duplicate = subprocess.run([*command, "--data", str(data), "gui"], env=env, capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+            assert duplicate.returncode == 0
+            deadline = time.monotonic() + 3
+            while not user.IsWindowVisible(hwnd) and time.monotonic() < deadline:
+                time.sleep(.05)
+            assert user.IsWindowVisible(hwnd), "Tray restore failed"
+        quit_shortcut(user, hwnd)
+        stdout, stderr = process.communicate(timeout=12)
+        assert process.returncode == 0, f"GUI exit failed: {stdout}\n{stderr}"
+        text = log_path.read_text(encoding="utf-8")
+        assert "gui-exit-complete mode=stop" in text and "-error" not in text, text
+        assert (data / "account-sentinel").read_text() == "preserved"
+        assert (base / "launches").read_text().splitlines() == ["launch"], "App restarted the owned Desktop"
+        if enabled:
+            assert desktop.wait(timeout=3) == 0 and not (base / "ready").exists()
+            assert (base / "stops").read_text().splitlines() == ["normal-stop"]
+            assert (base / "desktop-closed").read_text() == "normal"
+            assert text.index("gui-exit-workspace-stopped") < text.index("gui-exit-desktop-stopped")
+        else:
+            assert desktop.poll() is None and (base / "ready").exists(), "Default exit closed Desktop"
+            assert not (base / "stops").exists()
+        print(f"Real entry point: {Path(command[0]).name}; optional Desktop exit={enabled}, X preserves Desktop, verified workspace first and data preserved (owned fixture)", flush=True)
+    except BaseException as error:
+        details = log_path.read_text(encoding="utf-8") if log_path.exists() else "no GUI log"
+        raise AssertionError(f"{error}\n{details}") from error
+    finally:
+        if process is not None and process.poll() is None:
+            process.kill()  # Only this test-owned GUI, never a user's process.
+            process.communicate(timeout=5)
+        if desktop.poll() is None:
+            (base / "stop-request").write_text("normal")
+            try:
+                desktop.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                desktop.kill()  # Only the Popen-owned fixture in this temp dir.
+                desktop.wait(timeout=3)

@@ -9,7 +9,7 @@ if os.name != "nt":
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QAbstractSpinBox
+from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QLabel
 from enge_spx.state import Store
 from enge_spx.ui import style
 from enge_spx.ui.controller import Controller
@@ -80,6 +80,37 @@ with tempfile.TemporaryDirectory() as directory:
     report["workspace_identity_controls_visible"] = True
     if target:
         window.grab().save(str(path / (name + "-workspaces.png")))
+        (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    window.show_page("settings")
+    page = window.pages["settings"]
+    QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), f"Settings page overflows horizontally: {page.content.width()} / {page.viewport().width()}"
+    for widget in page.findChildren(QLabel):
+        if widget.wordWrap():
+            assert widget.hasHeightForWidth(), "Settings explanation lost automatic wrap height"
+            rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
+            assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Settings explanation is clipped: {rect}"
+    controller.data_location.set(r"C:\Users\Example\AppData\Local\Temp\a-long-data-directory-without-spaces")
+    QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), "Long Windows path widens settings"
+    for widget in (window.close_desktop_check, window.save_exit_preferences_button, window.stop_exit_button):
+        page.ensureWidgetVisible(widget)
+        QTest.qWait(20)
+        rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
+        assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Exit setting is clipped: {rect}"
+    report["desktop_exit_controls_visible"] = True
+    controller.desktop_exit_supported = True  # Layout only; finish_close does not request shutdown.
+    controller.saved_close_desktop = True
+    controller.close_docker_desktop.set(True)
+    window.update_exit_actions(controller.view)
+    QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), "Enabled Desktop-exit text overflows settings"
+    page.ensureWidgetVisible(window.stop_exit_button)
+    QTest.qWait(20)
+    action = QRect(window.stop_exit_button.mapTo(page.viewport(), QPoint()), window.stop_exit_button.size())
+    assert action.left() >= 0 and action.right() <= page.viewport().width(), "Enabled exit action is clipped"
+    if target:
+        window.grab().save(str(path / (name + "-exit.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report), flush=True)
     window.finish_close()

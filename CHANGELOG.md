@@ -1,5 +1,23 @@
 # Changes
 
+## 0.12.1 optional Docker Desktop exit preview — 2026-11-11
+
+- Add a separate, versioned exit preference, off by default. Explicit Windows
+  genuine exit may normally close local Docker Desktop after verified owner
+  workspace shutdown and all resource-recording/query work has finished.
+- Keep X-to-tray, explicit keep-workspace exit, Engine.stop/shutdown, budget and
+  identity changes scoped to the existing behavior. Explain that the opt-in
+  Desktop shutdown also interrupts other Docker workloads, without deleting data.
+- Use bounded official Desktop management and require explicit stopped status;
+  unknown status/permissions/unsupported versions preserve the GUI for retry.
+  Never force Desktop or invoke global WSL shutdown. Pending preference-save
+  failures cancel exit instead of using a stale global choice. A failed status
+  confirmation can be retried/disabled without restarting a verified stopped
+  workspace; further Engine activity invalidates that prior proof.
+- Add native Windows owned-process fixtures for source/frozen X, Ctrl+Q, opt-in
+  and default behavior, plus lifecycle, recording-save and DPI regressions.
+  No production dependencies, image recipes, privileges or license changes.
+
 ## 0.12.0 field recording preview — 2026-11-11
 
 - Add explicit bounded resource recording in GUI/CLI using the existing monitor.

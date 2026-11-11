@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.0-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows">Download</a></p>
 
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
@@ -43,18 +43,19 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 ## Download and start
 
-Current release: **[0.12.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.12.1 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-**0.12.0 Preview** adds opt-in field resource recording in the existing resource page
-and CLI. Run your own Claude/Codex or browser workload and save an allowlisted,
-pseudonymized report separating app, containers, host and Desktop/WSL sources.
-Explicit recording continues in the tray; genuine exit ends and saves it. It is
-off by default and preserves 0.11.0 identities, project grants, diagnostics and all
-network protections. See [recording](docs/field-recording.zh-CN.md) and
-[validation scope](docs/validation-field-recording.zh-CN.md).
+**0.12.1 Preview** adds an optional setting to quit Docker Desktop on genuine app
+exit, after verified workspace shutdown and resource-recording completion. It is
+off by default; X-to-tray and explicit keep-workspace exit leave Desktop running.
+This global choice interrupts other Docker workloads. It uses normal Desktop
+management and never shuts down all WSL distributions or force-kills Desktop.
+See [exit behavior](docs/exit.zh-CN.md) and [validation](docs/validation-desktop-exit.zh-CN.md).
+It retains 0.12.0 [field recording](docs/field-recording.zh-CN.md), identities,
+project grants, diagnostics and all network protections.
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.12.0-windows/ENGE-SPX-Windows-x64-0.12.0-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.12.0-windows/ENGE-SPX-Windows-x64-0.12.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.12.1-windows/ENGE-SPX-Windows-x64-0.12.1-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.12.1-windows/ENGE-SPX-Windows-x64-0.12.1-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.

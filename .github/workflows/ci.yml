@@ -74,7 +74,7 @@ jobs:
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ENGE-SPX-UI-0.12.0
+          name: ENGE-SPX-UI-0.12.1
           path: ${{ runner.temp }}/spx-ui-checks
           if-no-files-found: error
       - if: runner.os == 'Windows'
@@ -139,7 +139,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = Join-Path $env:RUNNER_TEMP 'spx-installed'
-          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.12.0-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
+          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.12.1-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
           if ($setup.ExitCode -ne 0 -or -not (Test-Path "$appDir/ENGE-SPX.exe")) { throw 'Setup failed.' }
           & "$appDir/spx.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed.' }
@@ -153,10 +153,10 @@ jobs:
           if ((Get-Content (Join-Path $privateData 'uninstall-test.txt')) -ne 'preserved') { throw 'Uninstall removed private data.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: ENGE-SPX-Windows-x64-0.12.0
+          name: ENGE-SPX-Windows-x64-0.12.1
           path: |
-            dist/ENGE-SPX-Windows-x64-0.12.0-Portable.zip
-            dist/ENGE-SPX-Windows-x64-0.12.0-Setup.exe
+            dist/ENGE-SPX-Windows-x64-0.12.1-Portable.zip
+            dist/ENGE-SPX-Windows-x64-0.12.1-Setup.exe
             dist/*.sha256
           if-no-files-found: error
   containers:
@@ -194,7 +194,7 @@ jobs:
       - name: Verify real Chromium identity, accounts, diagnostics and fail-closed shutdown
         run: python -u tests/integration_profiles.py --context default --runtime-report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/workspace-profiles-results.json"
       - name: Measure same-runner baseline, normal and low-resource stages
-        run: python -u tools/benchmark_resources.py --baseline fdd319a4cf7947c9d8952ac752c12c721fb2d226 --context default --runtime-report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/resources-docker.json"
+        run: python -u tools/benchmark_resources.py --baseline 221f59fddeab2570bf462c76cb4965c7fd2e8dd9 --context default --runtime-report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/resources-docker.json"
       - name: Retain resource and stage measurements
         if: always()
         uses: actions/upload-artifact@v4
@@ -239,7 +239,7 @@ jobs:
         if: github.repository == 'engeeeee/ENGE-SPX' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: ENGE-SPX-Runtime-0.12.0
+          name: ENGE-SPX-Runtime-0.12.1
           path: ${{ runner.temp }}/runtime-package/*
           compression-level: 0
           retention-days: 1
@@ -254,11 +254,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: ENGE-SPX-Windows-x64-0.12.0
+          name: ENGE-SPX-Windows-x64-0.12.1
           path: verified-package
       - uses: actions/download-artifact@v4
         with:
-          name: ENGE-SPX-Runtime-0.12.0
+          name: ENGE-SPX-Runtime-0.12.1
           path: verified-runtime
       - name: Publish the verified ENGE SPX preview
         uses: actions/github-script@v7

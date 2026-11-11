@@ -142,6 +142,36 @@ class NativeWindowTests(unittest.TestCase):
                 faulthandler.dump_traceback(all_threads=True)
             self.assertEqual(closed.count(), 1, f"stage={self.controller.exit_stage} busy={self.controller.busy} sample={self.controller.resource_inflight} timer={self.controller.delivery.isActive()} operation={self.controller.operation.get()}")
 
+    def test_exit_preference_checkbox_saves_and_updates_exit_labels_without_engine_action(self):
+        c = self.controller
+        c.desktop_exit_supported = True
+        self.window.show_page("settings")
+        self.assertFalse(self.window.close_desktop_check.isChecked())
+        with patch("enge_spx.ui.controller.Engine", side_effect=AssertionError("Preference save constructed Engine")), patch("enge_spx.ui.controller.stop_desktop") as stop:
+            self.window.close_desktop_check.click()
+            self.assertFalse(c.saved_close_desktop)
+            self.window.save_exit_preferences_button.click()
+            until = time.monotonic() + 3
+            while c.busy and time.monotonic() < until:
+                QTest.qWait(20); time.sleep(.005)
+            self.assertFalse(c.busy)
+            self.assertTrue(c.saved_close_desktop)
+            self.assertIn("Docker Desktop", self.window.exit_action.text())
+            self.assertIn("Docker Desktop", self.window.stop_exit_button.text())
+            stop.assert_not_called()
+        from enge_spx.desktop_shutdown import load_preference
+        self.assertTrue(load_preference(c.store))
+
+    def test_opt_in_does_not_make_window_x_close_desktop(self):
+        self.controller.desktop_exit_supported = self.controller.saved_close_desktop = True
+        with patch("enge_spx.ui.window.QSystemTrayIcon.isSystemTrayAvailable", return_value=True), patch("enge_spx.ui.controller.stop_desktop") as stop:
+            self.window.install_tray()
+            self.window.close()
+            QTest.qWait(30)
+            self.assertFalse(self.window.isVisible())
+            self.assertIsNone(self.controller.exit_mode)
+            stop.assert_not_called()
+
     def test_legacy_terminal_reopens_as_custom_and_exe_picker_has_no_brand_special_case(self):
         store = Store(Path(self.folder.name) / "legacy-terminal")
         store.write("settings.json", {**store.settings(), "terminal": {"kind": "pebrel", "executable": "D:/Terminals/pebrel.exe"}})

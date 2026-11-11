@@ -698,17 +698,33 @@ class Window(QMainWindow):
 
     def build_settings(self):
         page = Page("偏好设置", "选择自己的终端，安排数据位置，让工作台适合你的习惯。")
+        responsive_rows = []
         panel = page.panel("启动行为")
         panel.layout.addWidget(label("打开软件只检测状态，由你决定何时启动 Docker。", wrap=True))
-        panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。退出软件不会关闭 Docker Desktop。", "Caption", True))
+        panel.layout.addWidget(label("点击“一键准备环境”或“启动并检测”才会启动 Docker Desktop。", "Caption", True))
         panel.layout.addWidget(label("关闭窗口后隐藏到系统托盘。托盘右键可恢复窗口、保留工作区退出界面，或停止工作区并退出。", "Caption", True))
-        panel.layout.addWidget(label("退出软件（Ctrl+Q）会先停止本实例的 CLI、浏览器、网关与后台服务；Docker Desktop 保持运行。", "Caption", True))
+        panel.layout.addWidget(label("退出软件（Ctrl+Q）会先停止本实例的 CLI、浏览器、网关与后台服务；默认保留 Docker Desktop。", "Caption", True))
+        self.close_desktop_check = check("退出时关闭 Docker Desktop", self.c.close_docker_desktop)
+        panel.layout.addWidget(self.close_desktop_check)
+        panel.layout.addWidget(label("会正常关闭 Docker Desktop，其它 Docker 容器也会中断。X 隐藏和“保留工作区退出”不触发；不关闭其它 WSL 发行版。", "Caption", True))
+        self.save_exit_preferences_button = self.action("保存退出偏好", self.c.save_exit_preferences, ghost=True)
+        panel.layout.addWidget(self.save_exit_preferences_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        panel.layout.addWidget(bind_text(label("", "Muted", True), self.c.exit_preferences_status))
+        if not self.c.desktop_exit_supported:
+            panel.layout.addWidget(label("联合关闭仅支持 Windows Docker Desktop。", "Caption", True))
+        self.close_desktop_check.setEnabled(self.c.desktop_exit_supported)
+        self.save_exit_preferences_button.setEnabled(self.c.desktop_exit_supported)
         for text, action in (("退出软件（停止工作区）", self.stop_and_exit), ("保留工作区退出界面…", self.exit_interface)):
             item = button(text, action, ghost=True)
             self.exit_buttons.append(item)
+            if action == self.stop_and_exit:
+                self.stop_exit_button = item
             panel.layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
-        panel.field("终端类型", combo(self.c.terminal_kind, list(terminal.PRESETS.items())))
+        terminal_box = combo(self.c.terminal_kind, list(terminal.PRESETS.items()))
+        terminal_box.setMinimumContentsLength(10)
+        terminal_box.setSizeAdjustPolicy(Combo.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        panel.field("终端类型", terminal_box)
         row = QHBoxLayout()
         self.terminal_path = entry(self.c.terminal_exe, "预设可自动寻找，或选择便携版 exe")
         row.addWidget(self.terminal_path, 1)
@@ -720,6 +736,7 @@ class Window(QMainWindow):
         self.c.terminal_kind.changed.connect(lambda unused: self.terminal_fields())
         self.terminal_fields()
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("检测终端", self.c.detect_terminal))
         row.addWidget(self.action("测试终端", lambda: self.c.terminal_action()))
         row.addWidget(self.action("保存终端", lambda: self.c.terminal_action(True), True))
@@ -731,6 +748,7 @@ class Window(QMainWindow):
         row.addWidget(entry(self.c.data_target, "选择专用的空目标文件夹"), 1)
         row.addWidget(self.action("选择目录", lambda: self.choose_storage(self.c.data_target)))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("检查并迁移应用数据", self.c.migrate_data, True))
         row.addWidget(self.action("打开当前目录", self.open_data, ghost=True))
         row.addStretch()
@@ -744,6 +762,7 @@ class Window(QMainWindow):
         row.addWidget(self.action("选择目录", lambda: self.choose_storage(self.c.docker_target)))
         panel.layout.addWidget(label("1. 检测位置并准备迁移。\n2. 在 Docker Desktop → Resources → Advanced → Disk image location 选择目标并 Apply。\n3. 回到这里核验原镜像、容器和数据卷。", "Caption", True))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("检测位置", self.c.detect_storage))
         row.addWidget(self.action("准备迁移", self.c.prepare_docker_move))
         row.addWidget(self.action("核验结果", self.c.verify_docker_move, True))
@@ -759,9 +778,27 @@ class Window(QMainWindow):
         panel.layout.addWidget(label(f"{__version__} Preview · engeeeee", "Muted"))
         panel.layout.addWidget(label("容器按项目共享文件，账号与浏览器资料会保留。容器不等同于完全隔离的独立电脑。", "Caption", True))
         row = panel.row()
+        responsive_rows.append(row)
         row.addWidget(self.action("项目仓库 ↗", lambda: webbrowser.open(PROJECT_URL), ghost=True))
         row.addWidget(self.action("复制诊断信息", self.copy_diagnostics, ghost=True))
         row.addStretch()
+        for item in page.findChildren(QLabel):
+            if item.wordWrap():
+                # Long Windows data paths must wrap within the viewport instead
+                # of making every settings panel wider than a high-DPI window.
+                policy = item.sizePolicy()
+                policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+                item.setSizePolicy(policy)
+        previous_narrow = None
+        def adapt(width, height):
+            nonlocal previous_narrow
+            narrow = width < 550
+            if narrow != previous_narrow:
+                previous_narrow = narrow
+                for layout in responsive_rows:
+                    layout.setDirection(QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight)
+        page.resized.connect(adapt)
+        adapt(page.viewport().width(), page.viewport().height())
         page.finish()
         return page
 
@@ -780,6 +817,7 @@ class Window(QMainWindow):
             if widget.isEnabled() != enabled:
                 widget.setEnabled(enabled)
         self.update_recording_controls()
+        self.update_exit_actions(view)
         for name in ("pause_button", "startup_cancel"):
             if hasattr(self, name):
                 getattr(self, name).setEnabled(view["busy"] and view["cancelable"])
@@ -983,7 +1021,15 @@ class Window(QMainWindow):
 
     def update_exit_actions(self, view):
         pending = self.c.exit_mode is not None
+        close_desktop = self.c.desktop_exit_supported and self.c.saved_close_desktop
+        text = "退出并关闭 Docker Desktop" if close_desktop else "退出软件（停止工作区）"
+        self.exit_action.setText(text)
+        if hasattr(self, "stop_exit_button"):
+            self.stop_exit_button.setText(text)
         self.exit_action.setEnabled(not pending)
+        if hasattr(self, "close_desktop_check"):
+            self.close_desktop_check.setEnabled(self.c.desktop_exit_supported and not pending and not self.c.busy)
+            self.save_exit_preferences_button.setEnabled(self.c.desktop_exit_supported and not pending and not self.c.busy)
         for item in self.exit_buttons:
             item.setEnabled(not pending)
         if self.tray is not None:
@@ -995,7 +1041,8 @@ class Window(QMainWindow):
     def show_exit_error(self, message):
         self.reveal()
         self.update_resource_activity()
-        self.c.notify("退出尚未完成", message + "\n\n未能确认停止，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。", True)
+        detail = "工作区已停止，Docker Desktop 尚未确认退出。可重试，或在设置中取消联合关闭并保存后退出。" if self.c.exit_workspace_stopped else "退出未完成，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。"
+        self.c.notify("退出尚未完成", message + "\n\n" + detail, True)
 
     def closeEvent(self, event):
         if not self._force_close and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():
