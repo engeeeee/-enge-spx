@@ -87,6 +87,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert page.content.width() <= page.viewport().width(), f"Settings page overflows horizontally: {page.content.width()} / {page.viewport().width()}"
     for widget in page.findChildren(QLabel):
         if widget.wordWrap():
+            assert widget.hasHeightForWidth(), "Settings explanation lost automatic wrap height"
             rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
             assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Settings explanation is clipped: {rect}"
     controller.data_location.set(r"C:\Users\Example\AppData\Local\Temp\a-long-data-directory-without-spaces")

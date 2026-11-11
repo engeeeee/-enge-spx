@@ -786,7 +786,9 @@ class Window(QMainWindow):
             if item.wordWrap():
                 # Long Windows data paths must wrap within the viewport instead
                 # of making every settings panel wider than a high-DPI window.
-                item.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+                policy = item.sizePolicy()
+                policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+                item.setSizePolicy(policy)
         previous_narrow = None
         def adapt(width, height):
             nonlocal previous_narrow
