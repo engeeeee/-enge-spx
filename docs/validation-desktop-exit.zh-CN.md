@@ -1,6 +1,6 @@
 # 可选联合退出交付与验证
 
-基线 0.12.0，`221f59fddeab2570bf462c76cb4965c7fd2e8dd9`；最终源码候选 `d02cd0f`。最终同次构建结果在完成后补记；跳过检查不计为通过。风险与文件方案见 [审计](desktop-exit-plan.zh-CN.md)。
+基线 0.12.0，`221f59fddeab2570bf462c76cb4965c7fd2e8dd9`；最终源码候选 `d02cd0f`。发布提交和同次构建及公开下载核验如下；跳过检查不计为通过。风险与文件方案见 [审计](desktop-exit-plan.zh-CN.md)。
 
 ## 1. 修改概述
 
@@ -50,7 +50,16 @@ python tools/benchmark_p0.py --kind host --baseline 221f59fddeab2570bf462c76cb49
 
 完整 PR CI 已全部成功：真实 cgroup/数据复用、记录生命周期、身份数据/递归只读、停止后网络迁移/回滚、DNS/UDP/IPv6 防泄漏、协议/TLS/Reality/gRPC/QUIC；真实 Chromium namespace/PID/network/seccomp 与 renderer 内核证据、中文 PTY/无中文系统字体、190 秒无 shell 输入续期、租约过期停止、独立浏览器停启与 Cookie/Storage 保留、数据搬迁、全部归属服务停止、沙箱初始化失败拒绝；固定双跳、独立出口变化与 Hysteria2 UDP 断线保护；七项真实浏览器身份/诊断及所有资源阶段均通过。
 
-PR 按规则跳过的导出、两种镜像存储导入和发布不计为通过。主分支会重新运行全部测试，并验证同次导出包在两种存储中的实际导入，全部通过才发布。最终发布与公开下载核验完成后补记；最终文档补记不改源码或测试。
+PR 按规则跳过的导出、两种镜像存储导入和发布不计为通过。最终文档补记不改源码或测试。
+
+发布提交 `7a1a6fe784b9a7f1e5fdc9254dc300e25e52c5a5` 的 [主分支同次发布 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/42981093861) 全部成功。Windows/Linux 344 项、全部严格 DPI、冻结 CLI/GUI、真实 DPAPI、默认手动启动、托盘/Ctrl+Q、新的默认保留/显式正常关闭夹具、安装卸载及所有真实容器/协议/身份/资源检查均重新通过。原生 containerd 和独立经典镜像存储分别实际下载、校验、导入同次导出包，并验证重复安装、已有标签和容器数据保留。发布仅使用同次验证制品。该次冻结 GUI 首绘 583 ms，仍不作无旧冻结包对照的性能结论。
+
+[0.12.1 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows) 已公开七个资产，实际 Git tag 指向上述发布提交。发布后实际下载安装版 32,433,985 B、便携版 50,924,277 B：大小、SHA-256 与公开摘要/校验文件相符，便携包全量 ZIP CRC 及检查资源完整性通过。运行镜像清单 schema、版本、平台、三种配方/标识、875,937,597 B 大小及公开摘要一致；未再次下载整个归档，其实际导入证据来自上述同次双存储门禁。
+
+| Windows 资产 | 实际下载 SHA-256 |
+| --- | --- |
+| Setup.exe | `4d9f41ef8cd7c31b76372830ce8ae77d8e0003a44b10a25850bbd753c7b37eec` |
+| Portable.zip | `9c2a2459a5473b6a3ddeee3e9b6fc41b84b9e2ee77480aac471b62f99ef95072` |
 
 ## 6. 修改前后性能对比
 
