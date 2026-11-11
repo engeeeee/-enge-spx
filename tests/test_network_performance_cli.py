@@ -31,7 +31,7 @@ class MeasurementCLITests(unittest.TestCase):
                     code, output, error = self.invoke(folder, "--output", str(target))
                 self.assertEqual(code, 0 if status in ("checked", "not_ready") else 2, error)
                 self.assertEqual(json.loads(output), report)
-                self.assertEqual(json.loads(target.read_text()), report)
+                self.assertEqual(json.loads(target.read_text(encoding="utf-8")), report)
                 collect.assert_called_once_with()
 
     def test_custom_target_arguments_are_rejected_without_echoing_a_secret_url(self):
