@@ -16,7 +16,7 @@
 
 Windows 两个 EXE 清除 VS_FF_PRERELEASE，产品和文件版本都为 0.13.1，冻结打包检查核对二者及预发布标志。Node.js 测试只用于开发/CI，没有加入应用依赖。
 
-发布工作流的 Linux 机器固定为 `ubuntu-24.04`。首次 `ubuntu-latest` 实际选择 Ubuntu 26.04，在应用测试前因 Ubuntu 软件源域名解析失败退出，单项重跑仍停在相同步骤；固定受支持的 OS 版本后重新执行完整门禁，不改变应用、容器配方、TLS 或测试要求。
+发布工作流的 Linux 机器固定为 `ubuntu-24.04`。首次 `ubuntu-latest` 实际选择 Ubuntu 26.04，在应用测试前因 Ubuntu 软件源域名解析失败退出，单项重跑仍停在相同步骤；固定 24.04 后也记录到相同域名解析错误。因此仅将临时 CI 机器的 Ubuntu mirror list 改为 Kernel.org HTTPS 镜像，保留原 Ubuntu 源发行版、官方签名密钥及 APT 验证，保留 HTTPS 证书验证，再重新执行完整门禁。这不改变应用、容器配方、代理下载设置或测试要求。
 
 ## 4. 已实现功能与兼容
 

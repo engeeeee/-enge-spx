@@ -84,6 +84,12 @@ engeeeee/ENGE-SPX. Run `node --test tests/test_release_publication.cjs` with
 Node.js 18+ to check release publication and immutable asset handling; Node is
 only a development/CI tool and is not bundled with the application.
 
+The ephemeral Linux test runner's Ubuntu mirror list uses the Kernel.org HTTPS
+mirror because the default Azure/Ubuntu mirror DNS failed during publication.
+Ubuntu's existing source suites, archive signing keys and signature checks are
+preserved; HTTPS certificate verification is not disabled. This affects only
+hosted test dependencies, not application downloads or production containers.
+
 The UI uses PySide6 Essentials rather than Qt WebEngine. CLI/background entry
 points do not import the GUI. The package keeps Qt's shared libraries as
 replaceable files and includes license texts, upstream notices and exact source
