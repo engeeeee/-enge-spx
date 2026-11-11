@@ -1,5 +1,24 @@
 # Changes
 
+## 0.13.0 bounded network measurement preview — 2026-11-11
+
+- Add explicit GUI/CLI final-chain HTTPS first-byte and bounded download tests.
+  Keep existing multi-request first-hop/final-exit verification durations separate
+  from RTT, bandwidth and AI/noVNC performance. Never auto-run a speed test.
+- Use the existing audited session/gateway, fixed HTTPS destination, certificate
+  and hostname verification, three requests and about 1 MiB payload. Reject
+  redirects, compression, oversized responses and unbounded drip-fed headers.
+  Proxy configuration is passed on exec stdin; no target/body/credential upload.
+- Revalidate exits/topology before and after, release the guard's operation lock
+  during transfer, and discard changed-session results without stopping the new
+  workspace. TLS or verification failure requests verified owned shutdown;
+  target refusal/timeouts remain incomplete samples if the connection is healthy.
+- Add allowlisted local reports, failure-aware exit codes, lazy UI controls,
+  cached export and genuine-exit queueing; retain optional Desktop exit and data.
+- Add real TLS/CONNECT/adapter fault fixtures under network-none, actual Engine
+  scope checks, frozen/DPI regressions and a physical Windows acceptance guide.
+  No production dependency, permission, listener, image recipe or license change.
+
 ## 0.12.1 optional Docker Desktop exit preview — 2026-11-11
 
 - Add a separate, versioned exit preference, off by default. Explicit Windows

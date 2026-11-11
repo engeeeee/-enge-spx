@@ -5,6 +5,7 @@ RUN apk add --no-cache ca-certificates openssl
 COPY --from=core /usr/local/bin/sing-box /usr/local/bin/sing-box
 COPY src/enge_spx /opt/spx-test/enge_spx
 COPY tests/integration_protocols.py /opt/spx-test/integration_protocols.py
+COPY tests/integration_network_transfer.py /opt/spx-test/integration_network_transfer.py
 ENV PYTHONPATH=/opt/spx-test
 USER 1000:1000
 ENTRYPOINT ["python3", "-u", "/opt/spx-test/integration_protocols.py", "--core", "/usr/local/bin/sing-box", "--output", "/tmp/protocols.json"]

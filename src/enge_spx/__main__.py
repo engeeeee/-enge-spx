@@ -48,6 +48,8 @@ def main():
     network = sub.add_parser("network-check", help="主动检查当前受控工作区并生成脱敏网络证据；不启动 Docker 或浏览器")
     network.add_argument("--skip-browser", action="store_true", help="不执行实际浏览器语言/时区/WebRTC 检查")
     network.add_argument("--output", type=Path, help="导出脱敏 JSON，不含代理凭据、项目路径或浏览器令牌")
+    network_test = sub.add_parser("network-test", help="主动测量最终受控链路的 HTTPS 耗时与约 1 MiB 下载；不启动 Docker，不测上传")
+    network_test.add_argument("--output", type=Path, help="保存脱敏测速报告；固定访问 Cloudflare，不上传报告")
     resources = sub.add_parser("resources", help="只读资源采样，或停止工作区后保存/恢复预算")
     resource_action = resources.add_mutually_exclusive_group()
     resource_action.add_argument("--apply", type=Path, help="保存 schema=1 JSON 预算；会停止本工作区，下次启动应用")
@@ -80,6 +82,8 @@ def main():
         item.add_argument("arguments", nargs=argparse.REMAINDER)
     args, forwarded = parser.parse_known_args()
     if forwarded and args.action not in ("claude", "codex", "exec"):
+        if args.action == "network-test":
+            parser.error("network-test 不接受自定义目标、代理或其它参数；仅支持 --output。")
         parser.error("unrecognized arguments: " + " ".join(forwarded))
     resource_query = args.action == "resources" and not (args.apply or args.restore or args.show_settings)
     try:
@@ -95,7 +99,7 @@ def main():
             assert tunnel_type() and (ASSETS / "app.ico").is_file() and (PACKAGE_RESOURCES / "checks/exit_probe.py").is_file()
             for name in ("browser-seccomp.json", "sandbox_status.py", "runtime_secret.py"):
                 assert (PACKAGE_RESOURCES / "containers" / name).is_file()
-            for name in ("environment_probe.py", "browser_probe.py", "browser_shutdown.py"):
+            for name in ("environment_probe.py", "browser_probe.py", "browser_shutdown.py", "network_probe.py"):
                 assert (PACKAGE_RESOURCES / "checks" / name).is_file()
             codec = CredentialCodec("000000000000")
             fixture = [{"password": "synthetic-self-test-only"}]
@@ -160,6 +164,13 @@ def main():
                 atomic_json(args.output, result)
             print(json.dumps(result, ensure_ascii=True, indent=2))
             return 2 if result.get("status") in ("unsafe", "failed") else 0
+        elif args.action == "network-test":
+            result = engine.network_performance()
+            if args.output:
+                from .state import atomic_json
+                atomic_json(args.output, result)
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0 if result.get("status") in ("checked", "not_ready") else 2
         elif args.action == "resources":
             from .resource_limits import validate
             if args.apply:

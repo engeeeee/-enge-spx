@@ -49,7 +49,7 @@ def run(context, runtime_report, output):
         project.mkdir(mode=0o777)
         project.chmod(0o777)
         secret = "synthetic-account-" + secrets.token_hex(16)
-        network_report = None
+        network_report = performance_report = None
         try:
             engine.networks()
             node_dir = root / "node"
@@ -167,6 +167,21 @@ def run(context, runtime_report, output):
             measurements["active_isolated_identity"] = {"running_roles": [row["role"] for row in running], "memory_bytes_sum": sum(row.get("memory_bytes", 0) for row in running), "scope": "one synthetic idle identity plus browser/local diagnostic tabs; not real AI service load"}
             passed("real browser language/timezone/WebRTC observation is scoped, redacted, preserves guard and leaves no new host listeners or published container ports")
 
+            performance_report = engine.network_performance()
+            assert performance_report["status"] in ("checked", "partial"), json.dumps(performance_report)
+            assert performance_report["verification_before"]["status"] == "verified"
+            assert performance_report["verification_after"]["status"] == "verified"
+            assert performance_report["budget"]["requests"] == 3
+            assert store.read("runtime.json")["phase"] == "ready"
+            assert sockets() == before_sockets, "Performance measurement left host sockets"
+            rendered = json.dumps(performance_report)
+            for value in (secret, password, state["browser_token"], str(project), address, state["proxy"], state["session"]):
+                assert value not in rendered, "Sensitive context appeared in measurement evidence"
+            for name in engine.managed():
+                assert not engine.docker.inspect("container", name)["HostConfig"].get("PortBindings")
+            measurements["network_measurement_target_status"] = {"status": performance_report["status"], "measurement": performance_report.get("measurement", {}).get("status"), "scope": "actual Engine final-chain public endpoint; service refusal/timeout may produce partial, not a successful speed measurement"}
+            passed("actual Engine bounded HTTPS measurement revalidates exits, retains guard, redacts evidence and adds no host listener; target outcome is reported separately")
+
             switch("shared", "rw", "alpha_to_shared")
             state, restored, restored_browser = connect()
             assert restored["Id"] == original_shared_id
@@ -184,7 +199,7 @@ def run(context, runtime_report, output):
             assert foreign.docker.inspect("container", outsider["Id"])["State"]["Running"]
             passed("actual gateway disconnection makes diagnostics fail closed and verifies owned shutdown without affecting another instance")
             assert engine.shutdown()["background_stopped"]
-            output.write_text(json.dumps({"schema": 1, "scope": "real sandboxed Chromium and protected Docker; synthetic account files/local Cookie fixture only; no real AI accounts", "passed": records, "measurements": measurements, "network_report": network_report}, indent=2) + "\n")
+            output.write_text(json.dumps({"schema": 1, "scope": "real sandboxed Chromium and protected Docker; synthetic account files/local Cookie fixture and explicit bounded public HTTPS measurement; no real AI accounts", "passed": records, "measurements": measurements, "network_report": network_report, "network_performance_report": performance_report}, indent=2) + "\n")
         finally:
             try:
                 engine.shutdown()
