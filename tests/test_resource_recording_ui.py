@@ -149,6 +149,31 @@ class RecordingUITests(unittest.TestCase):
             self.assertEqual(json.loads(self.output.read_text())["end_reason"], "storage_change")
             self.assertFalse(self.c.resource_inflight)
 
+    def test_optional_desktop_shutdown_runs_only_after_real_record_file_is_saved(self):
+        self.show_without_automatic_query()
+        self.c.desktop_exit_supported = self.c.saved_close_desktop = True
+        entered, release = threading.Event(), threading.Event()
+        def sample(*args):
+            entered.set(); release.wait(3)
+            return evidence()
+        def stop(docker, progress):
+            self.assertFalse(self.c.resource_inflight)
+            self.assertEqual(json.loads(self.output.read_text())["end_reason"], "app_exit")
+            self.assertFalse(list(self.root.glob("*.partial")))
+            return {"docker_desktop_stopped": True}
+        with patch("enge_spx.resource_monitor.Monitor.snapshot", side_effect=sample), patch("enge_spx.engine.Engine.shutdown", return_value={"workspace_stopped": True, "background_stopped": True}), patch("enge_spx.ui.controller.stop_desktop", side_effect=stop) as close:
+            try:
+                self.c.start_resource_recording(self.output)
+                self.assertTrue(entered.wait(2))
+                self.c.request_exit()
+                self.spin(lambda: self.c.exit_stage == "finalizing")
+                close.assert_not_called()
+                release.set()
+                self.spin(lambda: self.c.exit_desktop_done)
+                close.assert_called_once()
+            finally:
+                release.set()
+
     def test_save_failure_keeps_record_for_export_without_new_sampling(self):
         self.show_without_automatic_query()
         with patch("enge_spx.resource_monitor.Monitor.snapshot", return_value=evidence()), patch("enge_spx.resource_recording.atomic_json", side_effect=PermissionError("private-path")):

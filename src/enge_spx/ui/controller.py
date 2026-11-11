@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from .. import terminal
 from ..brand import PROJECT_URL
 from ..downloads import DownloadPaused
+from ..desktop_shutdown import load_preference as load_exit_preference, save_preference as save_exit_preference, stop_desktop
 from ..engine import Engine
 from ..gui_diagnostics import log
 from ..line_security import LINE_MODES, v2ray_rules
@@ -66,6 +67,17 @@ class Controller(QObject):
         self.busy = self.cancelable = self.close_pending = False
         self.exit_mode = None
         self.exit_stage = "idle"
+        self.exit_workspace_stopped = False
+        self.exit_desktop_done = False
+        self.exit_docker = None
+        self.exit_close_desktop = False
+        self.desktop_exit_supported = os.name == "nt"
+        try:
+            self.saved_close_desktop = load_exit_preference(store)
+            exit_message = "退出偏好已保存。" if self.saved_close_desktop else "默认保留 Docker Desktop；勾选并保存后，真正退出时一起关闭。"
+        except SPXError as error:
+            self.saved_close_desktop = False
+            exit_message = str(error)
         self.compatible = self.docker_ready = self.startup_active = False
         self.desktop_launch_pending = False
         self.runtime_ok = len(store.read("images.json", {})) == 3
@@ -125,6 +137,7 @@ class Controller(QObject):
             "resource_app_text": "等待采样。", "resource_system_text": "等待采样。", "resource_container_text": "等待采样。",
             "record_seconds": 900, "record_activity": "unspecified", "record_active": False, "record_available": False,
             "record_status": "主动记录真实使用过程；记录期间可继续操作工作区，最小化和托盘中也会继续。停止或退出时保存。",
+            "close_docker_desktop": self.saved_close_desktop, "exit_preferences_status": exit_message,
             "project_budget_enabled": False, "project_budget_cpu": 0, "project_budget_memory": 4096,
             "workspace_profile": self.workspace_config["selected"] if self.workspace_config else "",
             "workspace_access": "rw", "workspace_status": workspace_message,
@@ -141,6 +154,7 @@ class Controller(QObject):
         for name in ("selected", "line_selected", "timezone", "context", "relay_enabled", "relay_url", "relay_downloads", "line_mode", "line_server_ip", "line_expected_ip"):
             self.values[name].changed.connect(lambda unused: self.schedule_refresh())
         self.resource_mode.changed.connect(self.resource_preset_changed)
+        self.close_docker_desktop.changed.connect(lambda value: self.exit_preferences_status.set("更改尚未保存；点击“保存退出偏好”后生效。" if value != self.saved_close_desktop else "退出偏好已保存。"))
         for name, value in self.values.items():
             if name.startswith("budget_") or name == "auto_browser":
                 value.changed.connect(self.mark_resource_custom)
@@ -565,6 +579,9 @@ class Controller(QObject):
     def run(self, action, done=None, cancelable=False, description="正在处理…", done_on_exit=False):
         if self.busy or self.exit_mode is not None:
             return False
+        # Any further Engine operation invalidates an earlier shutdown proof.
+        self.exit_workspace_stopped = False
+        self.exit_docker = None
         self.busy, self.cancelable = True, cancelable
         self.cancel.clear()
         self.operation.set(description)
@@ -631,9 +648,36 @@ class Controller(QObject):
                 self.startup_detail.set(value)
             elif kind == "exit_done":
                 self.busy = self.cancelable = False
+                result, self.exit_docker = value
+                self.exit_workspace_stopped = True
                 self.exit_stage = "finalizing"
-                log.info("gui-exit-workspace-stopped background=stopped desktop-kept=True")
+                log.info("gui-exit-workspace-stopped background=stopped desktop-close-requested=%s", self.exit_close_desktop)
                 self.finish_exit_when_quiet()
+            elif kind == "desktop_exit_done":
+                self.busy = self.cancelable = False
+                self.exit_desktop_done = True
+                self.exit_stage = "finalizing"
+                log.info("gui-exit-desktop-stopped")
+                self.finish_exit_when_quiet()
+            elif kind == "desktop_exit_error":
+                self.busy = self.cancelable = self.close_pending = False
+                self.exit_mode = None
+                self.exit_stage = "failed"
+                self.operation.set("工作区已停止，Docker Desktop 未能确认退出；界面保留，可重试或取消联合关闭。")
+                self.exit_failed.emit(value)
+            elif kind == "exit_preferences_error":
+                self.busy = self.cancelable = False
+                self.close_docker_desktop.set(self.saved_close_desktop)
+                self.exit_preferences_status.set("退出偏好未保存；请检查数据目录权限和偏好文件，仍使用原设置。")
+                if self.exit_mode is not None and self.exit_stage == "waiting":
+                    # Never close Desktop under an old choice after saving a
+                    # newly selected keep/close preference failed.
+                    self.exit_mode = None
+                    self.close_pending = False
+                    self.exit_stage = "failed"
+                    self.exit_failed.emit("退出偏好保存失败，本次退出已取消。请检查设置后重试。")
+                else:
+                    self.notify("退出偏好未保存", self.exit_preferences_status.get(), True)
             elif kind == "exit_error":
                 self.busy = self.cancelable = self.close_pending = False
                 self.exit_mode = None
@@ -981,12 +1025,36 @@ class Controller(QObject):
         self.request_exit("stop")
         return False
 
+    def save_exit_preferences(self):
+        """Persist public preferences without constructing/decrypting an Engine."""
+        if self.busy or self.exit_mode is not None:
+            return False
+        enabled, store = self.close_docker_desktop.get(), self.store
+        self.busy, self.cancelable = True, False
+        self.operation.set("正在保存退出偏好…")
+        self.refresh()
+        def saved(value):
+            self.saved_close_desktop = value
+            self.exit_preferences_status.set("退出偏好已保存：真正退出时一起关闭 Docker Desktop。" if value else "退出偏好已保存：退出 ENGE SPX 后保留 Docker Desktop。")
+        def worker():
+            try:
+                result = save_exit_preference(store, enabled)
+                # Even a queued exit must observe a successfully saved choice.
+                self.events.put(("done", (result, saved, self.compatible, True)))
+            except Exception:
+                self.events.put(("exit_preferences_error", None))
+        self.delivery.start()
+        threading.Thread(target=worker, name="spx-exit-preferences", daemon=True).start()
+        return True
+
     def request_exit(self, mode="stop"):
         if mode not in ("stop", "keep") or self.exit_mode is not None:
             return False
         if mode == "keep" and not self.ask("仅退出界面", "工作区和安全监测若正在运行，将继续留在后台并占用资源，托盘图标也会关闭。需要重新打开软件才能管理。\n\n确认保留工作区，仅退出界面？"):
             return False
         self.exit_mode, self.exit_stage = mode, "waiting"
+        self.exit_desktop_done = False
+        self.exit_close_desktop = False
         self.record_after = None
         self.stop_resource_recording("app_exit")
         self.startup_active = self.desktop_launch_pending = False
@@ -1012,6 +1080,21 @@ class Controller(QObject):
             self.exit_stage = "finalizing"
             self.finish_exit_when_quiet()
             return
+        self.exit_close_desktop = self.desktop_exit_supported and self.saved_close_desktop
+        # Desktop may already have closed before a status query failed. Keep
+        # the verified result while no further Engine work has occurred; do not
+        # require starting Docker again merely to retry or disable joint exit.
+        try:
+            runtime = self.store.read("runtime.json", {})
+            still_stopped = isinstance(runtime, dict) and runtime.get("phase", "stopped") == "stopped"
+        except SPXError:
+            still_stopped = False
+        if self.exit_workspace_stopped and self.exit_docker is not None and still_stopped:
+            self.exit_stage = "finalizing"
+            self.finish_exit_when_quiet()
+            return
+        self.exit_workspace_stopped = False
+        self.exit_docker = None
         self.exit_stage = "stopping"
         self.busy, self.cancelable = True, False
         self.operation.set("正在停止本实例工作区并退出…")
@@ -1034,7 +1117,7 @@ class Controller(QObject):
                 result = engine.shutdown()
                 if not isinstance(result, dict) or result.get("workspace_stopped") is not True or result.get("background_stopped") is not True:
                     raise SPXError("未能取得完整的工作区与后台停止结果，界面会保留。")
-                self.events.put(("exit_done", result))
+                self.events.put(("exit_done", (result, engine.docker)))
             except Exception as error:
                 if self.report:
                     self.report.capture("gui-exit-error", type(error), error, error.__traceback__)
@@ -1048,9 +1131,26 @@ class Controller(QObject):
             self.operation.set("正在结束资源采样，随后关闭界面…")
             self.delivery.start()
             return
+        if self.exit_mode == "stop" and self.exit_close_desktop and not self.exit_desktop_done:
+            if self.exit_stage != "desktop_stopping":
+                self.exit_stage = "desktop_stopping"
+                self.busy, self.cancelable = True, False
+                self.operation.set("工作区与记录已收尾，正在关闭 Docker Desktop…")
+                def worker():
+                    try:
+                        result = stop_desktop(self.exit_docker, lambda text: self.events.put(("exit_progress", text)))
+                        if result.get("docker_desktop_stopped") is not True:
+                            raise SPXError("未取得 Docker Desktop 的完整停止结果。")
+                        self.events.put(("desktop_exit_done", result))
+                    except Exception as error:
+                        self.events.put(("desktop_exit_error", self.clean_message(error)))
+                self.delivery.start()
+                threading.Thread(target=worker, name="spx-desktop-stop", daemon=True).start()
+                self.refresh()
+            return
         if self.exit_stage != "closing":
             self.exit_stage = "closing"
-            log.info("gui-exit-complete mode=%s", self.exit_mode)
+            log.info("gui-exit-complete mode=%s desktop-stopped=%s", self.exit_mode, self.exit_desktop_done)
             self.close_requested.emit()
 
     def refresh(self):

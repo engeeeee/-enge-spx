@@ -81,5 +81,17 @@ with tempfile.TemporaryDirectory() as directory:
     if target:
         window.grab().save(str(path / (name + "-workspaces.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    window.show_page("settings")
+    page = window.pages["settings"]
+    QTest.qWait(80)
+    for widget in (window.close_desktop_check, window.save_exit_preferences_button, window.stop_exit_button):
+        page.ensureWidgetVisible(widget)
+        QTest.qWait(20)
+        rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
+        assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Exit setting is clipped: {rect}"
+    report["desktop_exit_controls_visible"] = True
+    if target:
+        window.grab().save(str(path / (name + "-exit.png")))
+        (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report), flush=True)
     window.finish_close()
