@@ -95,6 +95,7 @@ class Controller(QObject):
             self.workspace_config = None
             workspace_message = str(error)
         self.network_report = None
+        self.network_performance_report = None
         try:
             self.resource_config = validate_resources(settings.get("resources"))
             resource_message = "预算保存后在下次启动应用；不会重建项目容器。"
@@ -143,6 +144,9 @@ class Controller(QObject):
             "workspace_access": "rw", "workspace_status": workspace_message,
             "network_summary": "由你主动检查当前已应用的工作区。不自动启动 Docker 或浏览器，不更改语言或时区。",
             "network_evidence": "尚未检查。结果会标明宿主、容器、浏览器、第一跳和最终出口；导出时地址使用每份报告独立的代号。",
+            "network_performance_available": False,
+            "network_performance_summary": "尚未测量。通过最终出口访问 Cloudflare，最多 3 次测速请求、约 1 MiB 载荷；前后出口复核流量另计，不上传报告。",
+            "network_performance_evidence": "HTTPS 首字节耗时包含代理 CONNECT、TLS 与服务响应，不是 RTT。现有第一跳/最终出口复核耗时单独记录。",
         }
         for role in ROLES:
             defaults["budget_" + role + "_cpu"] = self.resource_config["budgets"][role]["cpus"]
@@ -277,6 +281,37 @@ class Controller(QObject):
             return False
         report = self.network_report
         return self.run(lambda engine: atomic_json(Path(path), report), lambda result: self.operation.set("脱敏报告已导出，不含项目路径、账号、代理凭据或原始 SDP。"), description="导出脱敏网络报告…")
+
+    def check_network_performance(self):
+        if self.busy or self.exit_mode is not None:
+            return False
+        self.network_performance_report = None
+        self.network_performance_available.set(False)
+        self.network_performance_summary.set("本次测量尚未产生可导出结果，请查看操作状态。")
+        self.network_performance_evidence.set("等待本次结果；不会使用上次测速冒充本次数据。")
+        def done(report):
+            self.network_performance_report = report
+            self.network_performance_available.set(True)
+            self.network_performance_evidence.set(json.dumps(report, ensure_ascii=False, indent=2))
+            status = report.get("status")
+            summary = {"checked": "测量完成，前后出口与拓扑已复核。", "partial": "目标测速未完整完成；出口已重新复核，失败样本不计为零速度。", "stale": "测量期间工作区已变化，结果已丢弃，未停止替换后的工作区。", "not_ready": "请先检查并确认工作区；没有启动 Docker、浏览器或进行测速。", "failed": "TLS、出口或拓扑检查失败，已请求停止本实例；请检查停止证据。"}.get(status, "测速结果不可用。")
+            result = report.get("measurement", {})
+            latency = result.get("cold_https_first_byte_ms", {}).get("median")
+            rate = result.get("download", {}).get("request_mbps")
+            if type(latency) in (int, float):
+                summary += f" HTTPS 首字节中位数 {latency:.1f} ms。"
+            if type(rate) in (int, float):
+                summary += f" 单次请求有效下载 {rate:.2f} Mbps。"
+            self.network_performance_summary.set(summary)
+            self.operation.set("网络测量结束，结果与范围已记录。")
+        return self.run(lambda engine: engine.network_performance(), done, description="复核连接并进行有界 HTTPS 测量；真正退出会等待收尾…")
+
+    def export_network_performance(self, path):
+        if self.network_performance_report is None:
+            self.notify("先运行测速", "请先生成本次网络测量报告。")
+            return False
+        report = self.network_performance_report
+        return self.run(lambda engine: atomic_json(Path(path), report), lambda result: self.operation.set("脱敏测速报告已保存，没有重新测量或上传。"), description="保存脱敏测速报告…")
 
     def mark_resource_custom(self, unused):
         if not self._loading_resources:

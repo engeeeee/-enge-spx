@@ -3,15 +3,15 @@
 <p align="center"><strong>Windows 上的 AI 编程隔离工作台</strong></p>
 <p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
 <p align="center">
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows">下载 Windows 版</a> ·
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.0-windows">下载 Windows 版</a> ·
   <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
   <a href="docs/security-model.zh-CN.md">隔离与安全</a> ·
   <a href="README.en.md">English</a>
 </p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml"><img src="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml/badge.svg" alt="Windows / Linux CI"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows"><img src="https://img.shields.io/badge/0.12.1-Preview-D49A33" alt="0.12.1 Preview"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.0-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.0-windows"><img src="https://img.shields.io/badge/0.13.0-Preview-D49A33" alt="0.13.0 Preview"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-6D5BD0" alt="PolyForm Noncommercial"></a>
 </p>
 
@@ -69,15 +69,15 @@ flowchart LR
 
 ## 下载并开始使用
 
-当前版本为 **[0.12.1 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
+当前版本为 **[0.13.0 Preview](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.0-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-**0.12.1 Preview** 增加可选联合退出：在“偏好设置 → 启动行为”勾选“退出时关闭 Docker Desktop”并保存，先停止工作区、结束性能记录，再正常关闭 Docker Desktop。默认关闭此选项；X 隐藏和“保留工作区退出”不触发。联合关闭会中断其它 Docker 容器，不执行全局 WSL 关闭。见 [退出与失败恢复](docs/exit.zh-CN.md)和 [实际验证](docs/validation-desktop-exit.zh-CN.md)。保留 0.12.0 的[实机记录](docs/field-recording.zh-CN.md)、独立身份、项目授权、网络诊断及全部网络保护。
+**0.13.0 Preview** 增加按需 HTTPS 速度测量：在“网络检查 → 测试 HTTPS 速度”查看最终受控链路的首字节耗时和单次下载速率，前后独立核验出口，报告只在本地保存。测速最多 3 次请求、约 1 MiB 应用载荷，出口复核的时间与流量另计；不自动启动 Docker、修改线路或回退直连。见 [测速范围与单位](docs/network-measurement.zh-CN.md)、[实际验证](docs/validation-network-measurement.zh-CN.md)及 [Windows 长时验收](docs/windows-acceptance.zh-CN.md)。保留可选[同时关闭 Docker Desktop](docs/exit.zh-CN.md)、[实机资源记录](docs/field-recording.zh-CN.md)、身份隔离和全部网络保护。
 
 | 下载方式 | 适合谁 |
 | --- | --- |
-| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.12.1-windows/ENGE-SPX-Windows-x64-0.12.1-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
-| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.12.1-windows/ENGE-SPX-Windows-x64-0.12.1-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
-| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.12.1-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
+| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.0-windows/ENGE-SPX-Windows-x64-0.13.0-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
+| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.0-windows/ENGE-SPX-Windows-x64-0.13.0-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
+| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.0-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
 
 1. **安装一次 Docker Desktop**：按 [官方安装说明](https://docs.docker.com/desktop/setup/install/windows-install/)完成许可、WSL 和 Linux 引擎初始化。
 2. **点击“一键准备环境”**：软件自动启动已安装的 Docker，等待引擎就绪，再复用已有运行环境，或下载、校验并导入。

@@ -613,9 +613,11 @@ class Window(QMainWindow):
 
     def build_network(self):
         page = Page("网络环境检查", "按对象查看实际证据，区分已验证、未运行和不可用；不自动更改环境。")
+        rows = []
         panel = page.panel("检查当前工作区", "公网检测只在受控容器中执行，宿主只读路由，浏览器不会自动启动。出口复核失败、发现直连或安全条件变化时，会停止本实例并核验结果。")
         panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.network_summary))
         row = panel.row()
+        rows.append(row)
         row.addWidget(self.action("检查网络环境", self.c.check_network, True))
         row.addWidget(self.action("导出脱敏报告", self.save_network_report))
         row.addWidget(self.action("查看时区设置", lambda: self.show_page("settings"), ghost=True))
@@ -627,9 +629,49 @@ class Window(QMainWindow):
         evidence.setPlainText(self.c.network_evidence.get())
         self.c.network_evidence.changed.connect(evidence.setPlainText)
         panel.layout.addWidget(evidence)
-        page.resized.connect(lambda width, height: row.setDirection(QBoxLayout.Direction.TopToBottom if width < 550 else QBoxLayout.Direction.LeftToRight))
+        panel = page.panel("链路速度 · 按需测量", "通过最终受控链路访问 Cloudflare：最多 3 次测速请求、约 1 MiB 载荷，测量阶段 15 秒预算。前后出口复核另需时间和流量；不测上传、不上传报告。TLS 证书、出口或拓扑异常时停止本实例。")
+        panel.layout.addWidget(bind_text(label(kind="Muted", wrap=True), self.c.network_performance_summary))
+        row = panel.row()
+        rows.append(row)
+        self.network_measure_button = self.action("测试 HTTPS 速度", self.c.check_network_performance, True, ready=True)
+        self.network_measure_export_button = self.action("导出测速报告", self.save_network_performance)
+        row.addWidget(self.network_measure_button)
+        row.addWidget(self.network_measure_export_button)
+        panel.layout.addWidget(label("HTTPS 首字节含代理、TLS 和服务端响应，不是 RTT；单次小下载不代表线路上限、AI 请求速度或 noVNC 流畅度。第一跳不新增测速通道。", "Caption", True))
+        performance = QPlainTextEdit()
+        performance.setReadOnly(True)
+        performance.setMinimumHeight(280)
+        performance.setPlainText(self.c.network_performance_evidence.get())
+        self.c.network_performance_evidence.changed.connect(performance.setPlainText)
+        panel.layout.addWidget(performance)
+        self.c.network_performance_available.changed.connect(lambda unused: self.update_network_measurement_controls())
+        previous_narrow = None
+        def adapt(width, height):
+            nonlocal previous_narrow
+            narrow = width < 550
+            if previous_narrow != narrow:
+                previous_narrow = narrow
+                for layout in rows:
+                    layout.setDirection(QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight)
+        page.resized.connect(adapt)
+        adapt(page.viewport().width(), page.viewport().height())
+        self.update_network_measurement_controls()
         page.finish()
         return page
+
+    def update_network_measurement_controls(self):
+        if not hasattr(self, "network_measure_button"):
+            return
+        enabled = not self.c.busy and self.c.exit_mode is None
+        self.network_measure_button.setEnabled(enabled and self.c.view.get("ready", False))
+        self.network_measure_export_button.setEnabled(enabled and self.c.network_performance_available.get())
+
+    def save_network_performance(self):
+        if self.c.network_performance_report is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "保存脱敏测速报告", "ENGE-SPX-network-performance.json", "JSON (*.json)")
+        if path:
+            self.c.export_network_performance(path)
 
     def save_network_report(self):
         if self.c.network_report is None:
@@ -817,6 +859,7 @@ class Window(QMainWindow):
             if widget.isEnabled() != enabled:
                 widget.setEnabled(enabled)
         self.update_recording_controls()
+        self.update_network_measurement_controls()
         self.update_exit_actions(view)
         for name in ("pause_button", "startup_cancel"):
             if hasattr(self, name):

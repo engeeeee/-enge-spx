@@ -112,5 +112,18 @@ with tempfile.TemporaryDirectory() as directory:
     if target:
         window.grab().save(str(path / (name + "-exit.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    window.show_page("network")
+    page = window.pages["network"]
+    QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), "Network measurement page overflows horizontally"
+    for widget in (window.network_measure_button, window.network_measure_export_button):
+        page.ensureWidgetVisible(widget)
+        QTest.qWait(20)
+        rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
+        assert rect.left() >= 0 and rect.right() <= page.viewport().width(), "Network measurement action is clipped"
+    report["network_measurement_controls_visible"] = True
+    if target:
+        window.grab().save(str(path / (name + "-network.png")))
+        (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report), flush=True)
     window.finish_close()

@@ -794,6 +794,10 @@ class Engine:
         from .network_diagnostics import collect
         return collect(self, browser=browser)
 
+    def network_performance(self):
+        from .network_performance import collect
+        return collect(self)
+
     def _save_workspace_locked(self, config, previous):
         from .workspace_profiles import FILE, MARKER, PREVIOUS, policy
         if config == previous:

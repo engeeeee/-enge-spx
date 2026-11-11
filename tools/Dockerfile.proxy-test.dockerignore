@@ -4,5 +4,6 @@
 !src/enge_spx/**
 !tests/
 !tests/integration_protocols.py
+!tests/integration_network_transfer.py
 **/__pycache__
 **/*.pyc

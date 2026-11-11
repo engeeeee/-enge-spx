@@ -1,0 +1,55 @@
+name: ENGE SPX Network Measurements
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/bounded-network-measurement]
+    paths: ['src/**', 'tests/**', 'tools/**', '.github/workflows/network-measurement.yml']
+permissions:
+  contents: read
+concurrency:
+  group: spx-network-measurement-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONPATH: src
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
+      - run: python tools/check_repository.py
+      - run: python -m unittest discover -s tests -p "test_network_performance*.py" -v
+      - name: Three 0.12.1 and candidate host pairs
+        shell: python
+        run: |
+          import subprocess, sys
+          for index in range(3):
+              command = [sys.executable, 'tools/benchmark_p0.py', '--kind', 'host', '--baseline', '04b64bb450090e51246764bef8de8825146e2caf', '--output', f'host-network-measurement-{index}.json']
+              if index % 2:
+                  command.append('--candidate-first')
+              subprocess.run(command, check=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Network-measurement-native-${{ runner.os }}
+          path: host-network-measurement-*.json
+          if-no-files-found: warn
+  bounded-transfer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build disposable TLS and proxy fixture
+        run: docker build -f tools/Dockerfile.proxy-test -t spx-proxy-test .
+      - name: Measure and reject over the real backend without external networking
+        run: docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 512m --entrypoint python3 spx-proxy-test -u /opt/spx-test/integration_network_transfer.py --core /usr/local/bin/sing-box --output /tmp/network-transfer.json
