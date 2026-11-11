@@ -295,12 +295,13 @@ def exercise_desktop_exit(command, base, cli, enabled, closed_first=False):
         if closed_first:
             # Seed an installed workspace after the initial read-only check, so
             # shutdown must encounter the missing pipe, not the no-images path.
-            (data / "images.json").write_text(json.dumps({"gateway": "fixture"}), encoding="utf-8")
-            (data / "runtime.json").write_text(json.dumps({"phase": "ready"}), encoding="utf-8")
-            gateway = data / "gateway"
-            gateway.mkdir(exist_ok=True)
-            (gateway / "config.json").write_text("{}", encoding="utf-8")
-            (data / "relay.json").write_text("{}", encoding="utf-8")
+            # Use real DPAPI/atomic storage even when testing a frozen child.
+            from enge_spx.state import Store
+            store = Store(data)
+            store.write("images.json", {"gateway": "fixture"})
+            store.write("runtime.json", {"phase": "ready"})
+            store.write("gateway/config.json", {})
+            store.write("relay.json", {})
             # Simulate the user gracefully closing only our owned fake Desktop.
             (base / "stop-request").write_text("manual-normal")
             assert desktop.wait(timeout=5) == 0 and not (base / "ready").exists()
@@ -313,10 +314,10 @@ def exercise_desktop_exit(command, base, cli, enabled, closed_first=False):
         assert (base / "launches").read_text().splitlines() == ["launch"], "App restarted the owned Desktop"
         if closed_first:
             assert not (base / "stops").exists(), "Exit sent another Desktop stop after it was already closed"
-            assert json.loads((data / "runtime.json").read_text())["phase"] == "stopped"
-            assert json.loads((gateway / "lease.json").read_text())["expires"] == 0
-            assert json.loads((data / "images.json").read_text()) == {"gateway": "fixture"}
-            assert not (gateway / "config.json").exists() and not (data / "relay.json").exists()
+            assert store.read("runtime.json")["phase"] == "stopped"
+            assert store.read("gateway/lease.json")["expires"] == 0
+            assert store.read("images.json") == {"gateway": "fixture"}
+            assert not (data / "gateway/config.json").exists() and not (data / "relay.json").exists()
             assert "desktop-stopped=True" in text
         elif enabled:
             assert desktop.wait(timeout=3) == 0 and not (base / "ready").exists()

@@ -39,6 +39,8 @@ node --test tests/test_release_publication.cjs
 
 Windows 夹具仅启动测试自建的 Desktop.exe/CLI 进程，不操作用户 Docker。覆盖联合关闭开/关、X 隐藏与恢复、先手动正常关闭 Desktop 再退出以及账号/镜像保留，并在冻结 GUI 重新执行。
 
+首次 Windows CI 的新增夹具绕过 Store 直接写明文 runtime，触发现有 DPAPI 格式保护，两个“先关闭 Desktop”子案例因日志中记录了拒绝明文的错误而失败；退出本身已完成。夹具改用实际 Store/DPAPI 和原子写入、读取解密后的状态，安全检查与生产逻辑不变，重新执行完整门禁。
+
 ## 6. 性能对比
 
 没有新增常驻进程、轮询定时器、监听端口或运行依赖。正常使用期不发起新的 Desktop 管理查询，只在退出故障路径核验；异步关闭请求的 CLI 上限 12 秒，独立核验与旧版回退共用总 60 秒上限。实际关闭耗时依赖 Desktop，不能以单元测试推断用户机器提升。
