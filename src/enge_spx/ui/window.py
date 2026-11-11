@@ -782,6 +782,11 @@ class Window(QMainWindow):
         row.addWidget(self.action("项目仓库 ↗", lambda: webbrowser.open(PROJECT_URL), ghost=True))
         row.addWidget(self.action("复制诊断信息", self.copy_diagnostics, ghost=True))
         row.addStretch()
+        for item in page.findChildren(QLabel):
+            if item.wordWrap():
+                # Long Windows data paths must wrap within the viewport instead
+                # of making every settings panel wider than a high-DPI window.
+                item.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         previous_narrow = None
         def adapt(width, height):
             nonlocal previous_narrow

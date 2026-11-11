@@ -84,11 +84,14 @@ with tempfile.TemporaryDirectory() as directory:
     window.show_page("settings")
     page = window.pages["settings"]
     QTest.qWait(80)
-    assert page.content.width() <= page.viewport().width(), "Settings page overflows horizontally"
+    assert page.content.width() <= page.viewport().width(), f"Settings page overflows horizontally: {page.content.width()} / {page.viewport().width()}"
     for widget in page.findChildren(QLabel):
         if widget.wordWrap():
             rect = QRect(widget.mapTo(page.viewport(), QPoint()), widget.size())
             assert rect.left() >= 0 and rect.right() <= page.viewport().width(), f"Settings explanation is clipped: {rect}"
+    controller.data_location.set(r"C:\Users\Example\AppData\Local\Temp\a-long-data-directory-without-spaces")
+    QTest.qWait(80)
+    assert page.content.width() <= page.viewport().width(), "Long Windows path widens settings"
     for widget in (window.close_desktop_check, window.save_exit_preferences_button, window.stop_exit_button):
         page.ensureWidgetVisible(widget)
         QTest.qWait(20)
