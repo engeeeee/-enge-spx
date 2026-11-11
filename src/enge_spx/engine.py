@@ -709,7 +709,7 @@ class Engine:
         else:
             self.store.write("gateway/lease.json", {"expires": expires})
 
-    def _stop(self, reason="环境已停止，账号和项目数据已保留。"):
+    def _stop(self, reason="环境已停止，账号和项目数据已保留。", *, _desktop_stopped=False):
         try:
             state = self.store.read("runtime.json", {})
         except SPXError:
@@ -727,7 +727,7 @@ class Engine:
             self.set_lease(0, state)
         except (OSError, SPXError) as error:
             write_error = error
-        if not self.docker.executable or not self.store.read("images.json"):
+        if _desktop_stopped or not self.docker.executable or not self.store.read("images.json"):
             self.clear_runtime_references()
             if write_error:
                 raise write_error
@@ -770,7 +770,16 @@ class Engine:
         """Caller holds the operation lock through stop, services and verification."""
         installed = bool(self.store.read("images.json", {}))
         self.log("正在撤销连接授权并停止本实例工作区…")
-        self._stop()
+        desktop_stopped = False
+        try:
+            self._stop()
+        except SPXError:
+            from .desktop_shutdown import stopped_for_context
+            if not installed or not stopped_for_context(self.docker):
+                raise
+            self.log("Docker Desktop 已确认停止，正在撤销本实例授权并清理本机服务…")
+            self._stop(_desktop_stopped=True)
+            desktop_stopped = True
         if installed and not self.docker.executable:
             raise SPXError("未找到 Docker 命令行工具，已撤销本实例连接授权，但无法核验容器是否停止。界面会保留。")
         deadline = time.monotonic() + 45
@@ -778,13 +787,23 @@ class Engine:
         for name in ("guard", "forward", "relay"):
             with self.store.lock(name, timeout=max(0, deadline - time.monotonic())):
                 pass
-        if self.docker.executable and self.store.read("images.json", {}):
-            for identifier in self.managed():
-                obj = self.owned(self.docker.inspect("container", identifier))
-                if obj["State"]["Running"]:
-                    raise SPXError("仍检测到本实例的运行容器，界面会保留，请重试退出。")
+        if desktop_stopped:
+            from .desktop_shutdown import stopped_for_context
+            if not stopped_for_context(self.docker):
+                raise SPXError("Docker Desktop 状态已变化，无法确认工作区停止；请重试退出。")
+        elif self.docker.executable and self.store.read("images.json", {}):
+            try:
+                remaining = [self.owned(self.docker.inspect("container", identifier)) for identifier in self.managed()]
+            except SPXError:
+                from .desktop_shutdown import stopped_for_context
+                if not stopped_for_context(self.docker):
+                    raise
+                desktop_stopped = True
+                remaining = []
+            if any(obj["State"]["Running"] for obj in remaining):
+                raise SPXError("仍检测到本实例的运行容器，界面会保留，请重试退出。")
         self.log("工作区与后台服务已停止，项目和账号数据保留。")
-        return {"workspace_stopped": True, "background_stopped": True, "docker_desktop_kept": True}
+        return {"workspace_stopped": True, "background_stopped": True, "docker_desktop_kept": not desktop_stopped, "docker_desktop_stopped": desktop_stopped}
 
     def workspace_profiles(self):
         from .workspace_profiles import load

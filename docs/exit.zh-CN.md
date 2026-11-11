@@ -22,7 +22,9 @@ Windows 用户在 **偏好设置 → 启动行为** 勾选 **退出时关闭 Doc
 
 关闭 Desktop 不等于清理磁盘、压缩虚拟盘或保证共享 WSL2 缓存立即归零。磁盘位置仍由 [存储迁移](storage-terminal.zh-CN.md) 管理。
 
-采用 [Docker 官方 stop](https://docs.docker.com/reference/cli/docker/desktop/stop/) 的同步正常关闭，随后核对 [status JSON](https://docs.docker.com/reference/cli/docker/desktop/status/) 明确为 stopped；连接失败和错误返回不能当作停止证据。旧版本不支持管理接口、权限不足或超时时保留窗口。请处理 Desktop 提示后重试，也可取消联合关闭并保存，再仅退出工作台。
+采用 [Docker 官方 stop](https://docs.docker.com/reference/cli/docker/desktop/stop/) 的 `--detach` 正常关闭请求，让命令先返回，再独立核对 [status JSON](https://docs.docker.com/reference/cli/docker/desktop/status/) 明确为 stopped。整个流程最多等待 60 秒；关闭期间状态接口短暂不可读时继续有界核验，不能把错误当作停止。只有旧 CLI 明确拒绝 `--detach` 时，才回退到有界的普通同步关闭；不会启用 `--force`。
+
+若你先手动关闭 Docker Desktop，再退出 ENGE SPX，软件会核实选定 context 确实指向本机 Desktop Linux 命名管道，且管理状态明确为 stopped，然后撤销租约、清理运行时凭据引用、等待本实例后台服务退出并再次核验。无需为退出重新打开 Docker。管道不存在、普通连接失败、远程 context 或未知状态本身均不能作为工作区停止证据。
 
 偏好存于当前数据目录的非敏感 `exit-preferences.json`（schema=1）；旧数据缺失时关闭，旧程序忽略该文件。取消勾选并保存即可回滚，不需要修改代理、账号或重建镜像。损坏/未知版本不能启用该功能；保存失败仍使用旧值，并取消已排队的退出以避免执行旧的全局选择。
 
@@ -36,8 +38,10 @@ Windows 用户在 **偏好设置 → 启动行为** 勾选 **退出时关闭 Doc
 
 停止、后台收尾或容器核验失败时，保留并恢复主窗口，显示原因，允许重试，不显示为已退出。如果已有运行环境但找不到 Docker CLI，会先撤销本实例授权并报告无法核验，不会声称容器已停止。退出流程不为了停止而自动启动 Docker Desktop。
 
-如果工作区已经核验停止，仅 Desktop 的关闭确认失败，界面会区分这两种状态。重试或取消联合关闭时，在没有后续 Engine 操作且运行记录仍为停止的条件下保留原停止结果，避免为退出而重新启动 Docker；任何新的工作区操作或非停止状态都会使该结果失效。
+如果工作区已经核验停止，仅 Desktop 的关闭确认失败，界面提供 **重试确认 Docker Desktop**、**仅退出 ENGE SPX** 和 **返回软件**。返回为默认选项。一次性“仅退出”只跳过本次 Desktop 等待，不改变已保存的联合关闭偏好，也不声称 Desktop 已关闭；先前发出的正常关闭请求可能仍在执行。
+
+重试或一次性退出只在没有后续 Engine 操作、运行记录仍明确为停止时复用原停止结果；新工作区操作、状态变化或记录不可读会使结果失效，必须重新停止并核验。工作区本身停止失败时不提供这条快捷退出路径。仍可在设置中取消联合关闭并保存，使之后的正常退出都保留 Desktop。
 
 如确实只想关闭界面，可明确选择保留工作区的选项；该选择不会替你启动或重新确认连接。普通 X 隐藏不触发停止；CLI 工具命令自然结束也不自动停止其它工作区。
 
-默认流程只管理当前数据目录所属实例。只有明确启用的联合退出会关闭整个 Docker Desktop；安全监测和无 DIRECT 回退机制保持原有规则。不执行 prune 或删除项目、账号/Profile 卷。实际检查与实机范围见 [交付验证](validation-desktop-exit.zh-CN.md)。
+默认流程只管理当前数据目录所属实例。只有明确启用的联合退出会关闭整个 Docker Desktop；安全监测和无 DIRECT 回退机制保持原有规则。不执行 prune 或删除项目、账号/Profile 卷。原始功能见 [交付验证](validation-desktop-exit.zh-CN.md)，本次修复见 [0.13.2 验证](validation-0.13.2.zh-CN.md)。

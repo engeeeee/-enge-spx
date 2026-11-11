@@ -140,10 +140,12 @@ class ExitLifecycleTests(unittest.TestCase):
     def test_exit_uses_last_verified_context_if_editing_settings_broke_engine_creation(self):
         self.store.write("controller-context.json", {"instance": self.store.instance, "context": "desktop-linux"})
         self.make_engine.side_effect = [SPXError("invalid edited settings"), self.fake_engine]
-        self.controller.request_exit()
-        self.wait_for(lambda: self.closed.count() == 1)
+        with patch("enge_spx.docker_env.require_local_context", return_value="npipe:////./pipe/dockerDesktopLinuxEngine") as local:
+            self.controller.request_exit()
+            self.wait_for(lambda: self.closed.count() == 1)
+        local.assert_called_once_with(self.fake_engine.docker)
         self.assertEqual(self.make_engine.call_args.kwargs["stop_context"], "desktop-linux")
-        self.fake_engine.doctor.assert_called_once()
+        self.fake_engine.doctor.assert_not_called()
         self.fake_engine.shutdown.assert_called_once()
 
     def test_incomplete_stop_result_is_failure_and_does_not_close(self):
@@ -244,6 +246,53 @@ class ExitLifecycleTests(unittest.TestCase):
             stop.assert_called_once()
             self.fake_engine.shutdown.assert_called_once()
 
+    def test_one_time_app_exit_preserves_saved_choice_and_verified_stop(self):
+        from enge_spx.desktop_shutdown import PREFERENCES, save_preference
+        c = self.controller
+        c.desktop_exit_supported = c.saved_close_desktop = True
+        c.close_docker_desktop.set(True)
+        save_preference(self.store, True)
+        preference = (self.store.home / PREFERENCES).read_bytes()
+        self.store.write("runtime.json", {"phase": "stopped"})
+        with patch("enge_spx.ui.controller.stop_desktop", side_effect=SPXError("fixture timeout")) as stop:
+            c.request_exit()
+            self.wait_for(lambda: c.exit_stage == "failed")
+            self.make_engine.side_effect = AssertionError("Verified workspace must not need Docker again")
+            self.assertTrue(c.exit_without_desktop_once())
+            self.wait_for(lambda: self.closed.count() == 1)
+            stop.assert_called_once()
+            self.fake_engine.shutdown.assert_called_once()
+        self.assertTrue(c.saved_close_desktop)
+        self.assertTrue(c.close_docker_desktop.get())
+        self.assertFalse(c.exit_desktop_done)
+        self.assertEqual((self.store.home / PREFERENCES).read_bytes(), preference)
+
+    def test_app_only_recovery_rejects_unverified_or_changed_workspace(self):
+        c = self.controller
+        c.notify = Mock()
+        c.exit_stage = "failed"
+        self.assertFalse(c.exit_without_desktop_once())
+        for state in ({"phase": "ready"}, {}, []):
+            self.store.write("runtime.json", state)
+            c.exit_workspace_stopped, c.exit_docker = True, self.fake_engine.docker
+            self.assertFalse(c.exit_without_desktop_once())
+            self.assertFalse(c.exit_workspace_stopped)
+        c.exit_workspace_stopped, c.exit_docker = True, self.fake_engine.docker
+        with patch.object(self.store, "read", side_effect=SPXError("unreadable")):
+            self.assertFalse(c.exit_without_desktop_once())
+        self.assertEqual(self.closed.count(), 0)
+        self.fake_engine.shutdown.assert_not_called()
+
+    def test_already_closed_desktop_result_skips_another_global_stop(self):
+        c = self.controller
+        c.desktop_exit_supported = c.saved_close_desktop = True
+        self.fake_engine.shutdown.return_value["docker_desktop_stopped"] = True
+        with patch("enge_spx.ui.controller.stop_desktop") as stop:
+            c.request_exit()
+            self.wait_for(lambda: self.closed.count() == 1)
+            self.assertTrue(c.exit_desktop_done)
+            stop.assert_not_called()
+
     def test_new_engine_operation_invalidates_old_shutdown_proof(self):
         c = self.controller
         c.desktop_exit_supported = c.saved_close_desktop = True
@@ -316,6 +365,86 @@ class ExitLifecycleTests(unittest.TestCase):
 
 
 class EngineShutdownTests(unittest.TestCase):
+    def fixture(self, folder):
+        store = Store(Path(folder))
+        store.write("images.json", {"gateway": "fixture"})
+        store.write("runtime.json", {"phase": "ready"})
+        for name in ("gateway/config.json", "relay.json", "browser-token.json"):
+            store.write(name, {"private": "fixture"})
+        (store.home / "account-sentinel").write_text("preserved")
+        engine = Engine(store)
+        engine.docker = Mock(executable="docker.exe", secret_env={"TOKEN": "fixture"})
+        engine.managed = Mock(side_effect=SPXError("missing Desktop Linux pipe"))
+        return store, engine
+
+    def test_closed_desktop_completes_local_cleanup_and_waits_for_background(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store, engine = self.fixture(folder)
+            entered, release = threading.Event(), threading.Event()
+            def service():
+                with store.lock("guard"):
+                    entered.set()
+                    release.wait(2)
+                    time.sleep(.08)
+            thread = threading.Thread(target=service)
+            thread.start()
+            self.assertTrue(entered.wait(1))
+            def proof(docker):
+                release.set()
+                return True
+            try:
+                with patch("enge_spx.desktop_shutdown.stopped_for_context", side_effect=proof) as stopped:
+                    result = engine.shutdown()
+                self.assertTrue(result["docker_desktop_stopped"])
+                self.assertTrue(result["workspace_stopped"] and result["background_stopped"])
+                self.assertFalse(result["docker_desktop_kept"])
+                self.assertEqual(stopped.call_count, 2)
+                engine.managed.assert_called_once()
+                thread.join(1)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(store.read("runtime.json")["phase"], "stopped")
+                self.assertEqual(store.read("gateway/lease.json")["expires"], 0)
+                self.assertTrue(store.read("guard-stop.json")["requested"])
+                for name in ("gateway/config.json", "relay.json", "browser-token.json"):
+                    self.assertFalse((store.home / name).exists())
+                self.assertEqual(engine.docker.secret_env, {})
+                self.assertEqual(store.read("images.json"), {"gateway": "fixture"})
+                self.assertEqual((store.home / "account-sentinel").read_text(), "preserved")
+            finally:
+                release.set()
+                thread.join(2)
+
+    def test_missing_pipe_with_unknown_desktop_is_not_shutdown_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store, engine = self.fixture(folder)
+            with patch("enge_spx.desktop_shutdown.stopped_for_context", return_value=False):
+                with self.assertRaisesRegex(SPXError, "missing Desktop"):
+                    engine.shutdown()
+
+    def test_desktop_restart_during_cleanup_prevents_offline_success(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store, engine = self.fixture(folder)
+            with patch("enge_spx.desktop_shutdown.stopped_for_context", side_effect=[True, False]):
+                with self.assertRaisesRegex(SPXError, "状态已变化"):
+                    engine.shutdown()
+
+    def test_offline_cleanup_cannot_mask_persistent_data_permission_failure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store, engine = self.fixture(folder)
+            with patch.object(store, "write", side_effect=PermissionError("denied")), patch("enge_spx.desktop_shutdown.stopped_for_context", return_value=True):
+                with self.assertRaises(PermissionError):
+                    engine.shutdown()
+
+    def test_desktop_closes_between_container_stop_and_final_verification(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store, engine = self.fixture(folder)
+            engine.managed.side_effect = [[], SPXError("missing Desktop Linux pipe")]
+            with patch("enge_spx.desktop_shutdown.stopped_for_context", return_value=True) as stopped:
+                result = engine.shutdown()
+            self.assertTrue(result["docker_desktop_stopped"])
+            self.assertEqual(engine.managed.call_count, 2)
+            stopped.assert_called_once_with(engine.docker)
+
     def test_missing_docker_cannot_claim_installed_workspace_was_stopped(self):
         with tempfile.TemporaryDirectory() as folder:
             store = Store(Path(folder))

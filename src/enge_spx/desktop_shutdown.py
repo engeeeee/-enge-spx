@@ -4,7 +4,7 @@ import os
 import subprocess
 import time
 
-from .docker_env import environment
+from .docker_env import environment, require_local_context
 from .state import SPXError
 
 PREFERENCES = "exit-preferences.json"
@@ -44,12 +44,58 @@ class DesktopShutdownError(SPXError):
             "stop": "Docker Desktop 未完成正常关闭，请检查其窗口提示并重试。",
             "timeout": "等待 Docker Desktop 正常关闭超时；未强制结束进程。",
         }
-        super().__init__(messages[code] + " 工作区已停止；可在设置中取消联合关闭并保存，再仅退出 ENGE SPX。")
+        super().__init__(messages[code])
         self.code = code
 
 
+def _command(docker, *args, timeout):
+    if not docker.executable:
+        raise DesktopShutdownError("missing")
+    if timeout <= 0:
+        raise DesktopShutdownError("timeout")
+    try:
+        return subprocess.run([docker.executable, "desktop", *args], capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                              env=environment(docker.executable),
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                              stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        raise DesktopShutdownError("timeout") from None
+    except OSError:
+        raise DesktopShutdownError("status" if args[0] == "status" else "stop") from None
+
+
+def _status(docker, timeout):
+    result = _command(docker, "status", "--format", "json", timeout=timeout)
+    try:
+        raw = json.loads(result.stdout) if len(result.stdout) <= 16384 else None
+        state = raw.get("Status", raw.get("status")) if isinstance(raw, dict) else None
+    except (ValueError, TypeError):
+        state = None
+    if state not in ("stopped", "running", "paused", "starting", "stopping") or result.returncode and state != "stopped":
+        raise DesktopShutdownError("status")
+    return state
+
+
+def stopped_for_context(docker, windows=None):
+    """Offline proof only for the local Desktop Linux pipe, never another daemon.
+
+    A missing pipe alone is not proof. Context metadata is local, then the
+    management CLI must explicitly report stopped; unknown states stay unknown.
+    """
+    if not (os.name == "nt" if windows is None else windows) or not docker.executable:
+        return False
+    try:
+        endpoint = require_local_context(docker, timeout=4)
+        if endpoint.lower() not in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine"):
+            return False
+        return _status(docker, 4) == "stopped"
+    except (SPXError, OSError):
+        return False
+
+
 def stop_desktop(docker, progress=lambda message: None, timeout=60, windows=None):
-    """Use only the supported, synchronous stop; never start or force Desktop.
+    """Request normal asynchronous stop, then independently verify completion.
 
     Status failure is unknown, not stopped. A successful stop is independently
     followed by a stopped status. The bound includes preflight and final polling.
@@ -61,36 +107,14 @@ def stop_desktop(docker, progress=lambda message: None, timeout=60, windows=None
     if not docker.executable:
         raise DesktopShutdownError("missing")
     deadline = time.monotonic() + timeout
-    hidden = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    process_environment = environment(docker.executable)
-
     def command(*args, limit=8):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise DesktopShutdownError("timeout")
-        try:
-            # Management addresses the local Desktop, never a selected context.
-            return subprocess.run([docker.executable, "desktop", *args], capture_output=True,
-                                  text=True, encoding="utf-8", errors="replace",
-                                  timeout=min(limit, remaining), env=process_environment,
-                                  creationflags=hidden, stdin=subprocess.DEVNULL)
-        except subprocess.TimeoutExpired:
-            raise DesktopShutdownError("timeout") from None
-        except OSError:
-            raise DesktopShutdownError("status" if args[0] == "status" else "stop") from None
+        return _command(docker, *args, timeout=min(limit, remaining))
 
     def status():
-        result = command("status", "--format", "json")
-        try:
-            raw = json.loads(result.stdout) if len(result.stdout) <= 16384 else None
-            state = raw.get("Status", raw.get("status")) if isinstance(raw, dict) else None
-        except (ValueError, TypeError):
-            state = None
-        if state not in ("stopped", "running", "paused", "starting", "stopping"):
-            raise DesktopShutdownError("status")
-        if result.returncode and state != "stopped":
-            raise DesktopShutdownError("status")
-        return state
+        return _status(docker, min(8, max(0, deadline - time.monotonic())))
 
     progress("工作区与记录已收尾，正在读取 Docker Desktop 状态…")
     state = status()
@@ -98,24 +122,41 @@ def stop_desktop(docker, progress=lambda message: None, timeout=60, windows=None
         return {"docker_desktop_stopped": True, "already_stopped": True}
     if state != "stopping":
         progress("正在正常关闭 Docker Desktop；不会关闭其它 WSL 发行版…")
-        seconds = max(1, min(45, int(deadline - time.monotonic())))
+        seconds = max(1, min(10, int(deadline - time.monotonic())))
         try:
-            result = command("stop", "--timeout", str(seconds), limit=50)
+            result = command("stop", "--detach", "--timeout", str(seconds), limit=12)
+            # Older management CLIs may not support --detach. Only a parser
+            # rejection permits the existing normal synchronous command.
+            if result.returncode and "unknown flag: --detach" in result.stderr.lower():
+                seconds = max(1, min(30, int(deadline - time.monotonic() - 8)))
+                result = command("stop", "--timeout", str(seconds), limit=seconds + 2)
         except DesktopShutdownError:
-            # A CLI timeout/error may occur after the request was accepted. Only
-            # explicit stopped evidence can turn that result into success.
-            if status() != "stopped":
+            # A CLI timeout/error may occur after the request was accepted.
+            # Stopping permits polling; only stopped permits success.
+            current = status()
+            if current == "stopped":
+                return {"docker_desktop_stopped": True, "already_stopped": False}
+            if current != "stopping":
                 raise
-            return {"docker_desktop_stopped": True, "already_stopped": False}
         else:
             if result.returncode:
-                if status() != "stopped":
+                current = status()
+                if current == "stopped":
+                    return {"docker_desktop_stopped": True, "already_stopped": False}
+                if current != "stopping":
                     raise DesktopShutdownError("stop")
-                return {"docker_desktop_stopped": True, "already_stopped": False}
     progress("正在确认 Docker Desktop 已停止…")
-    while status() != "stopped":
+    while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise DesktopShutdownError("timeout")
-        time.sleep(min(.5, remaining))
-    return {"docker_desktop_stopped": True, "already_stopped": False}
+        try:
+            if status() == "stopped":
+                return {"docker_desktop_stopped": True, "already_stopped": False}
+        except DesktopShutdownError:
+            # The management endpoint can briefly disappear during shutdown.
+            # Keep polling within the same deadline, never infer stopped.
+            pass
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(.5, remaining))

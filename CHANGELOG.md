@@ -1,5 +1,22 @@
 # Changes
 
+## 0.13.2 verified Desktop exit fixes — 2026-11-11
+
+- Request normal Docker Desktop shutdown with `--detach`, then independently
+  verify its stopped status within the existing global deadline. Tolerate
+  transient management endpoint gaps; retain a bounded normal-stop fallback
+  only when an older CLI explicitly rejects the detach flag.
+- Allow verified local cleanup after Desktop was manually closed: require both
+  the exact local Desktop Linux pipe context and an explicit stopped management
+  status. Revoke the lease, clear runtime secret references and wait for owned
+  host services; a missing pipe or unknown state alone is never success.
+- When only Desktop confirmation fails after a verified workspace stop, offer
+  retry, return, or a guarded one-time app-only exit. Keep saved preferences and
+  user data unchanged; do not force Desktop or shut down other WSL distributions.
+- Cover source and frozen Windows GUI exits, the manually-closed-first case,
+  stale stop proofs, timeout recovery and high-DPI recovery controls. Keep
+  terminal launch behavior, network policy, recipes, dependencies and license.
+
 ## 0.13.1 formal release — 2026-11-11
 
 - Publish the current feature set as a full GitHub release and mark it Latest

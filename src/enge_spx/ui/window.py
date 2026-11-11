@@ -1084,8 +1084,32 @@ class Window(QMainWindow):
     def show_exit_error(self, message):
         self.reveal()
         self.update_resource_activity()
-        detail = "工作区已停止，Docker Desktop 尚未确认退出。可重试，或在设置中取消联合关闭并保存后退出。" if self.c.exit_workspace_stopped else "退出未完成，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。"
-        self.c.notify("退出尚未完成", message + "\n\n" + detail, True)
+        if not self.c.exit_workspace_stopped:
+            self.c.notify("退出尚未完成", message + "\n\n退出未完成，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。", True)
+            return
+        dialog = Dialog(self, "工作区已停止", width=560)
+        dialog.setObjectName("desktop-exit-recovery")
+        dialog.body.addWidget(label(str(message), "Muted", True))
+        dialog.body.addWidget(label("Docker Desktop 尚未确认关闭，关闭请求可能仍在执行。可以重试确认，或仅本次退出 ENGE SPX；已保存的联合关闭偏好保持不变。", "Caption", True))
+        choice = [None]
+        def choose(value):
+            choice[0] = value
+            dialog.accept()
+        retry = button("重试确认 Docker Desktop", lambda: choose("retry"))
+        retry.setObjectName("desktop-exit-retry")
+        only_app = button("仅退出 ENGE SPX", lambda: choose("app"), True)
+        only_app.setObjectName("desktop-exit-app-only")
+        cancel = button("返回软件", dialog.reject, ghost=True)
+        cancel.setObjectName("desktop-exit-return")
+        cancel.setDefault(True)
+        cancel.setFocus()
+        for widget in (retry, only_app, cancel):
+            dialog.body.addWidget(widget)
+        dialog.exec()
+        if choice[0] == "retry":
+            self.c.request_exit()
+        elif choice[0] == "app":
+            self.c.exit_without_desktop_once()
 
     def closeEvent(self, event):
         if not self._force_close and self.tray is not None and self.tray.isVisible() and QSystemTrayIcon.isSystemTrayAvailable():

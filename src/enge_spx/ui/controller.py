@@ -71,6 +71,7 @@ class Controller(QObject):
         self.exit_desktop_done = False
         self.exit_docker = None
         self.exit_close_desktop = False
+        self.exit_skip_desktop = False
         self.desktop_exit_supported = os.name == "nt"
         try:
             self.saved_close_desktop = load_exit_preference(store)
@@ -685,6 +686,7 @@ class Controller(QObject):
                 self.busy = self.cancelable = False
                 result, self.exit_docker = value
                 self.exit_workspace_stopped = True
+                self.exit_desktop_done = result.get("docker_desktop_stopped") is True
                 self.exit_stage = "finalizing"
                 log.info("gui-exit-workspace-stopped background=stopped desktop-close-requested=%s", self.exit_close_desktop)
                 self.finish_exit_when_quiet()
@@ -698,7 +700,7 @@ class Controller(QObject):
                 self.busy = self.cancelable = self.close_pending = False
                 self.exit_mode = None
                 self.exit_stage = "failed"
-                self.operation.set("工作区已停止，Docker Desktop 未能确认退出；界面保留，可重试或取消联合关闭。")
+                self.operation.set("工作区已停止；可重试确认 Docker Desktop，或仅本次退出 ENGE SPX。")
                 self.exit_failed.emit(value)
             elif kind == "exit_preferences_error":
                 self.busy = self.cancelable = False
@@ -1082,7 +1084,7 @@ class Controller(QObject):
         threading.Thread(target=worker, name="spx-exit-preferences", daemon=True).start()
         return True
 
-    def request_exit(self, mode="stop"):
+    def request_exit(self, mode="stop", *, skip_desktop=False):
         if mode not in ("stop", "keep") or self.exit_mode is not None:
             return False
         if mode == "keep" and not self.ask("仅退出界面", "工作区和安全监测若正在运行，将继续留在后台并占用资源，托盘图标也会关闭。需要重新打开软件才能管理。\n\n确认保留工作区，仅退出界面？"):
@@ -1090,6 +1092,7 @@ class Controller(QObject):
         self.exit_mode, self.exit_stage = mode, "waiting"
         self.exit_desktop_done = False
         self.exit_close_desktop = False
+        self.exit_skip_desktop = skip_desktop
         self.record_after = None
         self.stop_resource_recording("app_exit")
         self.startup_active = self.desktop_launch_pending = False
@@ -1108,6 +1111,21 @@ class Controller(QObject):
         self.refresh()
         return True
 
+    def exit_without_desktop_once(self):
+        """A recovery choice, never a persisted setting or unverified workspace exit."""
+        if self.busy or self.exit_mode is not None or self.exit_stage != "failed" or not self.exit_workspace_stopped or self.exit_docker is None:
+            return False
+        try:
+            state = self.store.read("runtime.json", {})
+            if not isinstance(state, dict) or state.get("phase") != "stopped":
+                raise SPXError("工作区状态已改变，请重新执行正常退出。")
+        except (SPXError, OSError):
+            self.exit_workspace_stopped = False
+            self.exit_docker = None
+            self.notify("请重新停止工作区", "工作区状态已改变或暂不可读，不能沿用先前的停止结果。请重试正常退出。", True)
+            return False
+        return self.request_exit("stop", skip_desktop=True)
+
     def advance_exit(self):
         if self.busy or self.exit_mode is None:
             return
@@ -1115,7 +1133,7 @@ class Controller(QObject):
             self.exit_stage = "finalizing"
             self.finish_exit_when_quiet()
             return
-        self.exit_close_desktop = self.desktop_exit_supported and self.saved_close_desktop
+        self.exit_close_desktop = self.desktop_exit_supported and self.saved_close_desktop and not self.exit_skip_desktop
         # Desktop may already have closed before a status query failed. Keep
         # the verified result while no further Engine work has occurred; do not
         # require starting Docker again merely to retry or disable joint exit.
@@ -1147,7 +1165,9 @@ class Controller(QObject):
                     if context.get("instance") != self.store.instance or not context.get("context"):
                         raise
                     engine = Engine(self.store, progress, stop_context=context["context"])
-                    engine.doctor()
+                    # Exit must validate local IPC without needing a live daemon.
+                    from ..docker_env import require_local_context
+                    require_local_context(engine.docker)
                 log.info("gui-exit-engine-ready")
                 result = engine.shutdown()
                 if not isinstance(result, dict) or result.get("workspace_stopped") is not True or result.get("background_stopped") is not True:
@@ -1185,7 +1205,7 @@ class Controller(QObject):
             return
         if self.exit_stage != "closing":
             self.exit_stage = "closing"
-            log.info("gui-exit-complete mode=%s desktop-stopped=%s", self.exit_mode, self.exit_desktop_done)
+            log.info("gui-exit-complete mode=%s desktop-stopped=%s desktop-wait-skipped=%s", self.exit_mode, self.exit_desktop_done, self.exit_skip_desktop)
             self.close_requested.emit()
 
     def refresh(self):

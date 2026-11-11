@@ -65,7 +65,7 @@ class DesktopShutdownTests(unittest.TestCase):
         self.assertTrue(outcome["docker_desktop_stopped"])
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands[0], ["docker.exe", "desktop", "status", "--format", "json"])
-        self.assertEqual(commands[1][:4], ["docker.exe", "desktop", "stop", "--timeout"])
+        self.assertEqual(commands[1][:5], ["docker.exe", "desktop", "stop", "--detach", "--timeout"])
         self.assertEqual(commands[2], commands[0])
         self.assertGreaterEqual(int(commands[1][-1]), 1)
         for call in run.call_args_list:
@@ -76,6 +76,47 @@ class DesktopShutdownTests(unittest.TestCase):
             self.assertNotIn("shell", call.kwargs)
         self.assertTrue(progress)
         self.assertFalse(outcome["already_stopped"])
+
+    def test_detach_releases_command_wait_and_status_can_recover_during_shutdown(self):
+        replies = [result("running"), result(output=""), result(output="temporary-management-gap", code=1), result("stopping"), result("stopped")]
+        with patch.object(desktop.subprocess, "run", side_effect=replies) as run, patch.object(desktop.time, "sleep"):
+            self.assertTrue(desktop.stop_desktop(self.docker, windows=True)["docker_desktop_stopped"])
+        self.assertIn("--detach", run.call_args_list[1].args[0])
+        self.assertLessEqual(run.call_args_list[1].kwargs["timeout"], 12)
+        self.assertEqual(sum(call.args[0][2] == "stop" for call in run.call_args_list), 1)
+
+    def test_old_cli_unknown_detach_uses_bounded_normal_stop_without_force(self):
+        unsupported = subprocess.CompletedProcess([], 1, "", "unknown flag: --detach")
+        with patch.object(desktop.subprocess, "run", side_effect=[result("running"), unsupported, result(output=""), result("stopped")]) as run:
+            self.assertTrue(desktop.stop_desktop(self.docker, windows=True)["docker_desktop_stopped"])
+        self.assertEqual(run.call_args_list[2].args[0][2:4], ["stop", "--timeout"])
+        self.assertLessEqual(run.call_args_list[2].kwargs["timeout"], 32)
+        self.assertFalse(any("--force" in call.args[0] for call in run.call_args_list))
+
+    def test_stop_cli_timeout_while_stopping_continues_independent_confirmation(self):
+        with patch.object(desktop.subprocess, "run", side_effect=[result("running"), subprocess.TimeoutExpired([], 1), result("stopping"), result("stopped")]):
+            self.assertTrue(desktop.stop_desktop(self.docker, windows=True)["docker_desktop_stopped"])
+
+    def test_offline_proof_requires_exact_local_desktop_pipe_and_explicit_stopped(self):
+        docker = Mock(executable="docker.exe", context="desktop-linux")
+        for endpoint in ("npipe:////./pipe/dockerDesktopLinuxEngine", "npipe://./pipe/dockerDesktopLinuxEngine"):
+            docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": endpoint}}}])
+            with patch.object(desktop.subprocess, "run", return_value=result("stopped")) as run:
+                self.assertTrue(desktop.stopped_for_context(docker, windows=True))
+            self.assertEqual(run.call_args.args[0], ["docker.exe", "desktop", "status", "--format", "json"])
+        for endpoint in ("tcp://127.0.0.1:2375", "ssh://user:password@host", "npipe:////server/pipe/dockerDesktopLinuxEngine", "npipe:////./pipe/docker_engine", "unix:///var/run/docker.sock", "unix:///pipe/dockerDesktopLinuxEngine"):
+            docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": endpoint}}}])
+            with patch.object(desktop.subprocess, "run") as run:
+                self.assertFalse(desktop.stopped_for_context(docker, windows=True))
+                run.assert_not_called()
+
+    def test_offline_unknown_or_running_is_never_stopped_and_never_starts_desktop(self):
+        docker = Mock(executable="docker.exe", context="desktop-linux")
+        docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/dockerDesktopLinuxEngine"}}}])
+        for reply in (result("running"), result("stopping"), result(output="private-secret", code=1), result(output="[]")):
+            with patch.object(desktop.subprocess, "run", return_value=reply) as run:
+                self.assertFalse(desktop.stopped_for_context(docker, windows=True))
+                self.assertTrue(all(call.args[0][2] == "status" for call in run.call_args_list))
 
     def test_already_stopped_requires_explicit_evidence_and_sends_no_stop(self):
         with patch.object(desktop.subprocess, "run", return_value=result("stopped", code=1)) as run:

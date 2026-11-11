@@ -68,9 +68,10 @@ class Desktop {
             Console.WriteLine(File.Exists(marker) ? "{\"Status\":\"running\"}" : "{\"Status\":\"stopped\"}");
             return 0;
         }
-        if (command.StartsWith("desktop stop --timeout ")) {
+        if (command.StartsWith("desktop stop --timeout ") || command.StartsWith("desktop stop --detach --timeout ")) {
             File.AppendAllText(Path.Combine(root, "stops"), "normal-stop\n");
             File.WriteAllText(Path.Combine(root, "stop-request"), "normal");
+            if (command.Contains("--detach")) return 0;
             for (int i = 0; i < 60 && File.Exists(marker); i++) System.Threading.Thread.Sleep(50);
             return File.Exists(marker) ? 1 : 0;
         }
@@ -90,6 +91,10 @@ class Desktop {
             if (!File.Exists(marker)) return 1;
             Console.WriteLine("{\"OSType\":\"linux\",\"ServerVersion\":\"29.0.0\",\"Architecture\":\"x86_64\"}");
             return 0;
+        }
+        if (command.Contains(" ps ") && !File.Exists(marker)) {
+            Console.Error.WriteLine("failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.");
+            return 1;
         }
         return 4;
     }
@@ -244,9 +249,9 @@ def exercise_entry_point(command, base, cli, mode):
         raise AssertionError(f"{error}\n{text}\n{details}\n{stdout}\n{stderr}") from error
 
 
-def exercise_desktop_exit(command, base, cli, enabled):
+def exercise_desktop_exit(command, base, cli, enabled, closed_first=False):
     """Actual Windows GUI/process shutdown against our owned Desktop fixture."""
-    data = base / ("joint-exit-on" if enabled else "joint-exit-off")
+    data = base / (("closed-first-" if closed_first else "joint-exit-") + ("on" if enabled else "off"))
     data.mkdir()
     if enabled:
         (data / "exit-preferences.json").write_text(json.dumps({"schema": 1, "close_docker_desktop": True}), encoding="utf-8")
@@ -287,6 +292,18 @@ def exercise_desktop_exit(command, base, cli, enabled):
             while not user.IsWindowVisible(hwnd) and time.monotonic() < deadline:
                 time.sleep(.05)
             assert user.IsWindowVisible(hwnd), "Tray restore failed"
+        if closed_first:
+            # Seed an installed workspace after the initial read-only check, so
+            # shutdown must encounter the missing pipe, not the no-images path.
+            (data / "images.json").write_text(json.dumps({"gateway": "fixture"}), encoding="utf-8")
+            (data / "runtime.json").write_text(json.dumps({"phase": "ready"}), encoding="utf-8")
+            gateway = data / "gateway"
+            gateway.mkdir(exist_ok=True)
+            (gateway / "config.json").write_text("{}", encoding="utf-8")
+            (data / "relay.json").write_text("{}", encoding="utf-8")
+            # Simulate the user gracefully closing only our owned fake Desktop.
+            (base / "stop-request").write_text("manual-normal")
+            assert desktop.wait(timeout=5) == 0 and not (base / "ready").exists()
         quit_shortcut(user, hwnd)
         stdout, stderr = process.communicate(timeout=12)
         assert process.returncode == 0, f"GUI exit failed: {stdout}\n{stderr}"
@@ -294,7 +311,14 @@ def exercise_desktop_exit(command, base, cli, enabled):
         assert "gui-exit-complete mode=stop" in text and "-error" not in text, text
         assert (data / "account-sentinel").read_text() == "preserved"
         assert (base / "launches").read_text().splitlines() == ["launch"], "App restarted the owned Desktop"
-        if enabled:
+        if closed_first:
+            assert not (base / "stops").exists(), "Exit sent another Desktop stop after it was already closed"
+            assert json.loads((data / "runtime.json").read_text())["phase"] == "stopped"
+            assert json.loads((gateway / "lease.json").read_text())["expires"] == 0
+            assert json.loads((data / "images.json").read_text()) == {"gateway": "fixture"}
+            assert not (gateway / "config.json").exists() and not (data / "relay.json").exists()
+            assert "desktop-stopped=True" in text
+        elif enabled:
             assert desktop.wait(timeout=3) == 0 and not (base / "ready").exists()
             assert (base / "stops").read_text().splitlines() == ["normal-stop"]
             assert (base / "desktop-closed").read_text() == "normal"
@@ -302,7 +326,7 @@ def exercise_desktop_exit(command, base, cli, enabled):
         else:
             assert desktop.poll() is None and (base / "ready").exists(), "Default exit closed Desktop"
             assert not (base / "stops").exists()
-        print(f"Real entry point: {Path(command[0]).name}; optional Desktop exit={enabled}, X preserves Desktop, verified workspace first and data preserved (owned fixture)", flush=True)
+        print(f"Real entry point: {Path(command[0]).name}; optional Desktop exit={enabled}, Desktop closed first={closed_first}, X preserves Desktop, verified workspace first and data preserved (owned fixture)", flush=True)
     except BaseException as error:
         details = log_path.read_text(encoding="utf-8") if log_path.exists() else "no GUI log"
         raise AssertionError(f"{error}\n{details}") from error
