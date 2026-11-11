@@ -56,6 +56,18 @@ with tempfile.TemporaryDirectory() as directory:
     if target:
         window.grab().save(str(path / (name + "-resources.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    window.select_resource_view("record")
+    page.verticalScrollBar().setValue(0)
+    QTest.qWait(80)
+    for widget in (window.record_duration, window.record_activity, window.record_start, window.record_stop, window.record_export):
+        page.ensureWidgetVisible(widget)
+        QTest.qWait(10)
+        rect = QRect(widget.mapTo(viewport, QPoint()), widget.size())
+        assert rect.left() >= 0 and rect.right() <= viewport.width(), f"Recording control is horizontally clipped: {rect}"
+    report["resource_recording_controls_visible"] = True
+    if target:
+        window.grab().save(str(path / (name + "-recording.png")))
+        (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     window.show_page("workspace")
     QTest.qWait(80)
     page = window.pages["workspace"]

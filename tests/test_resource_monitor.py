@@ -72,6 +72,9 @@ class MonitorTests(unittest.TestCase):
         self.store = Store(Path(temporary.name))
         self.engine = Engine(self.store)
         self.engine.docker = Mock()
+        context = patch("enge_spx.resource_monitor.require_local_context")
+        context.start()
+        self.addCleanup(context.stop)
         self.identifier = "a" * 64
 
     def fixture(self, owner=None, running=True):

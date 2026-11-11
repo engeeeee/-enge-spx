@@ -1,6 +1,46 @@
 """Environment for the Docker CLI and its sibling credential helper programs."""
 import os
+import json
 from pathlib import Path
+import re
+from urllib.parse import urlsplit
+
+
+def local_endpoint(value):
+    """Only absolute local Unix sockets or the Windows local-machine pipe form."""
+    if not isinstance(value, str) or len(value) > 4096 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return False
+    if re.fullmatch(r"npipe://(?:\./pipe/|//\./pipe/)[A-Za-z0-9_.-]+", value, re.IGNORECASE):
+        return True
+    try:
+        parsed = urlsplit(value)
+        return parsed.scheme == "unix" and not parsed.netloc and parsed.path.startswith("/") and not parsed.path.startswith("//") and not parsed.query and not parsed.fragment
+    except ValueError:
+        return False
+
+
+def require_local_context(docker, timeout=6):
+    """Read local metadata only; reject remote endpoints before daemon access."""
+    from .state import SPXError
+    from .startup import DockerUnavailable, DockerContextUnavailable, DockerConfigurationError
+    if not docker.executable:
+        raise DockerUnavailable("未找到 Docker Desktop 命令行工具。")
+    try:
+        raw = docker.run("context", "inspect", docker.context, timeout=timeout)
+    except SPXError as error:
+        raise DockerContextUnavailable("Docker 上下文尚不可用，请检查 Docker Desktop 是否已完成初始化。") from error
+    try:
+        contexts = json.loads(raw)
+        if not isinstance(contexts, list) or len(contexts) != 1 or not isinstance(contexts[0], dict):
+            raise ValueError()
+        endpoint = contexts[0]["Endpoints"]["docker"]["Host"]
+        if not isinstance(endpoint, str):
+            raise ValueError()
+    except (ValueError, KeyError, TypeError) as error:
+        raise DockerConfigurationError("Docker 上下文信息无效，请检查 Docker 安装和上下文设置。") from error
+    if not local_endpoint(endpoint):
+        raise DockerConfigurationError("请选择本机 Docker Desktop 上下文；此版本不支持远程 Docker。")
+    return endpoint
 
 
 def desktop_application(executable=None):

@@ -95,6 +95,12 @@ class Controller(QObject):
         self.resource_epoch = 0
         self.resource_monitor = None
         self.resource_cancel = threading.Event()
+        self.record_pending = self.record_after = None
+        self.record_running = False
+        self.record_cancel = threading.Event()
+        self.record_reason = "user_stop"
+        self.record_id = 0
+        self.last_record_report = None
         self.resource_projects = dict(self.resource_config["projects"])
         relay, term = settings["relay"], terminal.validate(settings["terminal"])
         defaults = {
@@ -117,6 +123,8 @@ class Controller(QObject):
             "resource_mode": self.resource_config["mode"], "auto_browser": self.resource_config["auto_browser"],
             "resource_status": resource_message, "resource_caption": "仅此页可见时采样；不会自动启动 Docker。",
             "resource_app_text": "等待采样。", "resource_system_text": "等待采样。", "resource_container_text": "等待采样。",
+            "record_seconds": 900, "record_activity": "unspecified", "record_active": False, "record_available": False,
+            "record_status": "主动记录真实使用过程；记录期间可继续操作工作区，最小化和托盘中也会继续。停止或退出时保存。",
             "project_budget_enabled": False, "project_budget_cpu": 0, "project_budget_memory": 4096,
             "workspace_profile": self.workspace_config["selected"] if self.workspace_config else "",
             "workspace_access": "rw", "workspace_status": workspace_message,
@@ -358,17 +366,114 @@ class Controller(QObject):
         self.resource_inflight = True
         self.resource_cancel.clear()
         epoch, store, ready = self.resource_epoch, self.store, self.docker_ready
+        context = (self.last_docker_info or {}).get("context")
         def worker():
             try:
-                from ..resource_monitor import Monitor
+                from ..resource_monitor import Monitor, sampling_target
                 if self.resource_monitor is None:
                     self.resource_monitor = Monitor()
-                value = self.resource_monitor.snapshot(Engine(store), ready, self.resource_cancel)
+                target = sampling_target(store, context)
+                value = self.resource_monitor.snapshot(target, ready and target.ready, self.resource_cancel)
             except Exception:
                 value = None
             self.events.put(("resources", (epoch, value)))
         self.delivery.start()
         threading.Thread(target=worker, name="spx-resource-sample", daemon=True).start()
+
+    def start_resource_recording(self, path):
+        from ..resource_recording import settings
+        if self.resource_closed or self.exit_mode is not None or self.record_active.get() or self.record_after:
+            return False
+        try:
+            config = settings(self.record_seconds.get(), 10, self.record_activity.get())
+        except SPXError as error:
+            self.notify("检查记录设置", error, True)
+            return False
+        self.record_id += 1
+        self.record_pending = (Path(path), config, self.record_id)
+        self.record_active.set(True)
+        self.resource_timer.stop()
+        self.record_status.set("等待当前操作或采样结束后开始记录…" if self.resource_inflight or self.busy else "正在开始记录…")
+        self.delivery.start()
+        self._start_pending_recording()
+        return True
+
+    def _start_pending_recording(self):
+        if self.record_pending is None or self.resource_inflight or self.busy or self.resource_closed or self.exit_mode is not None:
+            return
+        path, config, identifier = self.record_pending
+        self.record_pending = None
+        self.resource_inflight = self.record_running = True
+        self.last_record_report = None
+        self.record_available.set(False)
+        self.record_cancel.clear()
+        self.record_reason = "user_stop"
+        store = self.store
+        def worker():
+            report, failed, recorder = None, False, None
+            try:
+                from ..resource_monitor import Monitor, sampling_target
+                from .. import resource_recording as recorder
+                monitor = Monitor()
+                def sample(cancel):
+                    target = sampling_target(store, (self.last_docker_info or {}).get("context"))
+                    return monitor.snapshot(target, self.docker_ready and target.ready and not self.busy, cancel)
+                report = recorder.record(sample, output=path,
+                                **config, source="gui", cancel=self.record_cancel, stop_reason=lambda: self.record_reason,
+                                on_sample=lambda raw, count, elapsed: self.events.put(("record_sample", (identifier, raw, count, elapsed))))
+            except Exception as error:
+                failed = True
+                if recorder is not None and isinstance(error, recorder.RecordingError):
+                    report = error.report
+                elif self.report:
+                    self.report.capture("resource-recording-error", type(error), error, error.__traceback__)
+            self.events.put(("record_done", (identifier, report, failed)))
+        self.record_status.set("正在记录；可使用 Claude/Codex 或浏览器。停止或真正退出时保存结果。")
+        self.delivery.start()
+        threading.Thread(target=worker, name="spx-resource-record", daemon=True).start()
+
+    def stop_resource_recording(self, reason="user_stop"):
+        if not self.record_active.get():
+            return
+        self.record_reason = reason
+        if self.record_pending is not None:
+            self.record_pending = None
+            self.record_active.set(False)
+            self.record_status.set("已取消等待，尚未开始记录。")
+            if self.resource_visible and not self.resource_closed and self.exit_mode is None:
+                self.resource_timer.start()
+        else:
+            self.record_cancel.set()
+            self.record_status.set("正在结束采样并保存已收集的脱敏记录…")
+        self.delivery.start()
+
+    def resource_recording_done(self, identifier, report, failed):
+        if identifier != self.record_id:
+            return
+        self.record_running = self.resource_inflight = False
+        self.record_active.set(False)
+        self.resource_monitor = None
+        failed = failed or not isinstance(report, dict)
+        if report is not None:
+            self.last_record_report = report
+            self.record_available.set(True)
+        if failed:
+            self.record_status.set("报告未能保存；可重新导出已采集的结果。选定文件旁的 .partial 中间记录会保留。" if report is not None else "本次未能生成报告。已写入的 .partial 中间文件可保留排障；安全监测不受影响。")
+            if self.exit_mode is None:
+                self.notify("性能记录保存未完成", self.record_status.get(), True)
+        else:
+            self.record_status.set(f"已保存 {report['sample_count']} 份采样，实际记录 {report['elapsed_seconds']:.1f} 秒。活动标签由用户选择，未读取 AI 输入或账号。")
+        if self.resource_visible and not self.resource_closed and self.exit_mode is None:
+            self.resource_timer.start()
+        if self.exit_mode is not None and self.exit_stage == "finalizing":
+            self.finish_exit_when_quiet()
+
+    def export_resource_recording(self, path):
+        if self.last_record_report is None or self.record_active.get():
+            self.notify("先结束记录", "停止记录后可以重新导出最近一次结果。")
+            return False
+        report = self.last_record_report
+        return self.run(lambda engine: atomic_json(Path(path), report), lambda result: self.operation.set("脱敏性能记录已导出。"), description="导出已采集的性能记录…")
 
     def resources_received(self, evidence):
         if evidence is None:
@@ -404,6 +509,8 @@ class Controller(QObject):
         self.resource_container_text.set("\n\n".join(lines) if lines else "本实例没有容器。" if data["available"] else data["reason"])
         sampled = datetime.fromtimestamp(evidence["sampled"]).strftime("%H:%M:%S")
         self.resource_caption.set(f"采样 {sampled} · 仅资源页可见时每 {self.resource_timer.interval() // 1000} 秒刷新；进程/容器 CPU 以单核 100% 计。" + (" 容器过多，仅展示前 256 个。" if data.get("truncated") else ""))
+        if self.record_active.get():
+            self.resource_caption.set(f"采样 {sampled} · 正在手动记录；查询之间至少间隔 10 秒，最小化/托盘中继续。CPU 以单核 100% 计。")
 
     def stop_resource_monitor(self):
         self.resource_closed = True
@@ -411,6 +518,7 @@ class Controller(QObject):
         self.resource_epoch += 1
         self.resource_timer.stop()
         self.resource_cancel.set()
+        self.stop_resource_recording("app_exit")
 
     def schedule_refresh(self):
         self.refresh_timer.start()
@@ -507,8 +615,17 @@ class Controller(QObject):
                 epoch, evidence = value
                 if epoch == self.resource_epoch and self.resource_visible and not self.resource_closed:
                     self.resources_received(evidence)
+                self._start_pending_recording()
                 if self.exit_mode is not None and self.exit_stage == "finalizing":
                     self.finish_exit_when_quiet()
+            elif kind == "record_sample":
+                identifier, evidence, count, elapsed = value
+                if identifier == self.record_id and self.record_running and not self.resource_closed and not self.record_cancel.is_set():
+                    if self.resource_visible:
+                        self.resources_received(evidence)
+                    self.record_status.set(f"正在记录 · {count} 份采样 · {elapsed:.0f} 秒；停止或退出时保存。")
+            elif kind == "record_done":
+                self.resource_recording_done(*value)
             elif kind == "exit_progress":
                 self.operation.set(value)
                 self.startup_detail.set(value)
@@ -563,6 +680,10 @@ class Controller(QObject):
             self.logs_added.emit("\n".join(lines))
         if changed:
             self.refresh()
+        self._start_pending_recording()
+        if self.record_after and not self.resource_inflight and not self.busy and self.exit_mode is None:
+            action, self.record_after = self.record_after, None
+            action()
         if not self.busy and not self.resource_inflight and self.events.empty():
             self.delivery.stop()
 
@@ -763,6 +884,14 @@ class Controller(QObject):
 
     def migrate_data(self):
         target = self.data_target.get().strip()
+        if self.record_active.get():
+            self.record_after = lambda: self._migrate_data(target)
+            self.stop_resource_recording("storage_change")
+            self.operation.set("等待性能记录收尾，再检查数据迁移…")
+            return
+        self._migrate_data(target)
+
+    def _migrate_data(self, target):
         def reviewed(plan):
             text = f"当前位置：{plan['source']}\n目标位置：{plan['target']}\n数据大小：{size_text(plan['bytes'])}\n可用空间：{size_text(plan['free'])}\n\n会停止工作区，复制校验后切换默认位置并清理已校验的副本。继续？"
             if not self.ask("迁移应用数据", text):
@@ -858,6 +987,8 @@ class Controller(QObject):
         if mode == "keep" and not self.ask("仅退出界面", "工作区和安全监测若正在运行，将继续留在后台并占用资源，托盘图标也会关闭。需要重新打开软件才能管理。\n\n确认保留工作区，仅退出界面？"):
             return False
         self.exit_mode, self.exit_stage = mode, "waiting"
+        self.record_after = None
+        self.stop_resource_recording("app_exit")
         self.startup_active = self.desktop_launch_pending = False
         self.close_pending = True
         self.set_resource_visible(False)

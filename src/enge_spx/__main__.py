@@ -10,6 +10,13 @@ from .nodes import fetch_subscription, parse_nodes
 from .state import Store, SPXError
 
 
+def record_number(value):
+    try:
+        return int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("记录时长和间隔需填写整数。") from error
+
+
 def main():
     # Frozen Windows CLI pipes may use a non-CJK code page. Keep machine JSON
     # ASCII-escaped and human error messages printable instead of crashing.
@@ -46,6 +53,11 @@ def main():
     resource_action.add_argument("--apply", type=Path, help="保存 schema=1 JSON 预算；会停止本工作区，下次启动应用")
     resource_action.add_argument("--restore", action="store_true", help="恢复上次预算，会停止本工作区")
     resource_action.add_argument("--show-settings", action="store_true", help="输出有效预算，不启动 Docker")
+    resource_action.add_argument("--record", type=Path, help="显式记录真实使用期间的资源占用到脱敏 JSON；不启动 Docker，Ctrl+C 保存已采集结果")
+    resources.add_argument("--seconds", type=record_number, default=900, help="记录时长 5–3600 秒，默认 900")
+    resources.add_argument("--interval", type=record_number, default=10, help="记录的最短间隔 5–60 秒，查询耗时单独计入")
+    resources.add_argument("--activity", default="unspecified", help="活动标签：unspecified/gui_idle/workspace_idle/claude/codex/browser/stopped；不读取 AI 输入或账号")
+    resources.add_argument("--docker-context", help="显式选择本机 Docker 上下文；缺省使用已核验的公开记录，不读取代理设置")
     installer = sub.add_parser("install")
     installer.add_argument("--from-source", action="store_true", help="从源码构建，不下载预构建环境")
     starter = sub.add_parser("start", help="自动准备 Docker、运行环境和连接检查，等待出口确认")
@@ -69,6 +81,7 @@ def main():
     args, forwarded = parser.parse_known_args()
     if forwarded and args.action not in ("claude", "codex", "exec"):
         parser.error("unrecognized arguments: " + " ".join(forwarded))
+    resource_query = args.action == "resources" and not (args.apply or args.restore or args.show_settings)
     try:
         if args.self_test:
             from .downloads import client
@@ -93,7 +106,7 @@ def main():
         # Internal children may be started while the parent holds the operation
         # lock (notably the display relay). Their Store still encrypts every new
         # secret write, but they must not wait for a second migration lock.
-        if args.action not in ("stop", "credentials", "guard", "relay", "forward", "attach"):
+        if not resource_query and args.action not in ("stop", "credentials", "guard", "relay", "forward", "attach"):
             store.migrate_credentials()
         if args.action in (None, "gui"):
             try:
@@ -103,7 +116,11 @@ def main():
             launch(store, smoke=args.smoke_gui)
             return 0
         try:
-            engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True))
+            if resource_query:
+                from .resource_monitor import sampling_target
+                engine = sampling_target(store, args.docker_context)
+            else:
+                engine = Engine(store, lambda text: print(text, file=sys.stderr, flush=True))
         except SPXError:
             if args.action != "stop":
                 raise
@@ -162,9 +179,19 @@ def main():
                 result = engine.restore_resources()
             elif args.show_settings:
                 result = validate(store.settings().get("resources"))
+            elif args.record:
+                from .resource_monitor import Monitor
+                from .resource_recording import record, settings as record_settings
+                monitor = Monitor()
+                config = record_settings(args.seconds, args.interval, args.activity)
+                print(f"开始性能记录：最多 {args.seconds} 秒，查询之间至少间隔 {args.interval} 秒。Ctrl+C 会保存已采集结果。", file=sys.stderr, flush=True)
+                result = record(lambda cancel: monitor.snapshot(engine, docker_ready=engine.ready and bool(engine.docker.executable), cancel=cancel), output=args.record, **config, source="cli",
+                                on_sample=lambda raw, count, elapsed: print(f"已记录 {count} 份采样 · {elapsed:.0f} 秒", file=sys.stderr, flush=True))
+                print(json.dumps({key: result[key] for key in ("schema", "kind", "end_reason", "elapsed_seconds", "sample_count", "coverage", "summary")}, ensure_ascii=True, indent=2))
+                return 130 if result["end_reason"] == "interrupted" else 0
             else:
                 from .resource_monitor import Monitor
-                result = Monitor().snapshot(engine, docker_ready=bool(engine.docker.executable))
+                result = Monitor().snapshot(engine, docker_ready=engine.ready and bool(engine.docker.executable))
         elif args.action == "credentials":
             if args.operation == "status":
                 result = {"schema": 1, "mode": "dpapi-current-user" if store.credentials.enabled else "private-files", "pending": store.credentials.pending(store.home)}
