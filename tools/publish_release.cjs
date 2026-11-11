@@ -37,7 +37,7 @@ module.exports = async ({github, context, core}) => {
     files.push([name, directory], [name + '.sha256', directory]);
   }
   const tag = `v${version}-windows`;
-  const releaseName = `ENGE SPX ${version} Preview`;
+  const releaseName = `ENGE SPX ${version}`;
   const body = [
     '**ENGE SPX** — Windows 上的 AI 编程隔离工作台，让 Claude Code、Codex 和浏览器通过指定代理出口工作。',
     '',
@@ -63,8 +63,11 @@ module.exports = async ({github, context, core}) => {
     `[使用说明](https://github.com/${owner}/${repo}/blob/${tag}/README.md) · [线路保护](https://github.com/${owner}/${repo}/blob/${tag}/docs/line-protection.zh-CN.md) · [来源与许可](https://github.com/${owner}/${repo}/blob/${tag}/NOTICE.md) · [本次构建](https://github.com/${owner}/${repo}/actions/runs/${context.runId})`,
   ].join('\n');
   let release = (await github.rest.repos.listReleases({owner, repo, per_page: 100})).data.find(r => r.tag_name === tag);
+  if (release && release.target_commitish !== context.sha) {
+    throw new Error('Existing release belongs to a different source commit.');
+  }
   if (!release) {
-    release = (await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: context.sha, name: releaseName, body, draft: true, prerelease: true})).data;
+    release = (await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: context.sha, name: releaseName, body, draft: true, prerelease: false})).data;
   }
   const assets = (await github.rest.repos.listReleaseAssets({owner, repo, release_id: release.id})).data;
   for (const [name, directory] of files) {
@@ -80,8 +83,8 @@ module.exports = async ({github, context, core}) => {
     const data = fs.readFileSync(file);
     await github.rest.repos.uploadReleaseAsset({owner, repo, release_id: release.id, name, data, headers: {'content-type': name.endsWith('.json') ? 'application/json' : 'application/octet-stream', 'content-length': size}});
   }
-  if (release.draft) {
-    release = (await github.rest.repos.updateRelease({owner, repo, release_id: release.id, name: releaseName, body, draft: false, prerelease: true, make_latest: 'false'})).data;
+  if (release.draft || release.prerelease || release.name !== releaseName) {
+    release = (await github.rest.repos.updateRelease({owner, repo, release_id: release.id, name: releaseName, body, draft: false, prerelease: false, make_latest: 'true'})).data;
   }
   core.notice('Published ' + release.html_url);
   if (version === '0.7.1') {

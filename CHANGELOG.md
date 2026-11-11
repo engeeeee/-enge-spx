@@ -1,5 +1,17 @@
 # Changes
 
+## 0.13.1 formal release — 2026-11-11
+
+- Publish the current feature set as a full GitHub release and mark it Latest
+  after the existing Windows/Linux, packaging and Docker gates pass.
+- Remove Preview from the application footer, About page and Windows product
+  metadata, and clear the executable prerelease flags. Keep versioned assets
+  immutable and reject a release that belongs to another source commit.
+- Keep the 0.13.0 network, sandbox, credential, identity, resource and exit
+  behavior, data formats, image recipes and dependencies unchanged.
+- Retain the unsigned executable and real-device acceptance limitations; gather
+  actual-use feedback before further feature or performance changes.
+
 ## 0.13.0 bounded network measurement preview — 2026-11-11
 
 - Add explicit GUI/CLI final-chain HTTPS first-byte and bounded download tests.

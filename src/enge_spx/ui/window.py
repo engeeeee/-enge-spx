@@ -128,7 +128,7 @@ class Window(QMainWindow):
         footer = QVBoxLayout()
         footer.setContentsMargins(12, 12, 0, 0)
         footer.setSpacing(8)
-        self.footer_labels = [label("●  本地隔离工作台", "Muted"), label(f"ENGE SPX  {__version__} Preview", "Caption")]
+        self.footer_labels = [label("●  本地隔离工作台", "Muted"), label(f"ENGE SPX  {__version__}", "Caption")]
         for item in self.footer_labels:
             footer.addWidget(item)
         side.addLayout(footer)
@@ -817,7 +817,7 @@ class Window(QMainWindow):
         panel.field("本机 Docker 上下文", entry(self.c.context))
         panel.layout.addWidget(self.action("保存环境设置", self.c.save_settings, True), alignment=Qt.AlignmentFlag.AlignLeft)
         panel = page.panel("关于 ENGE SPX", "Windows 上的 AI 编程隔离工作台。")
-        panel.layout.addWidget(label(f"{__version__} Preview · engeeeee", "Muted"))
+        panel.layout.addWidget(label(f"{__version__} · engeeeee", "Muted"))
         panel.layout.addWidget(label("容器按项目共享文件，账号与浏览器资料会保留。容器不等同于完全隔离的独立电脑。", "Caption", True))
         row = panel.row()
         responsive_rows.append(row)

@@ -9,7 +9,7 @@ body:
     id: version
     attributes:
       label: ENGE SPX 版本与安装方式
-      placeholder: 例如 0.6.0 Preview，安装版 / 便携版 / 源码
+      placeholder: 例如 0.13.1，安装版 / 便携版 / 源码
     validations:
       required: true
   - type: textarea

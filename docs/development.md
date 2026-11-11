@@ -78,7 +78,10 @@ for Docker image-store compatibility. Published assets are not silently replaced
 The CI workflow builds and tests on Windows and Linux, runs actual Linux x64
 containers and tests both Docker image stores. On the independent maintained
 repository's main branch, successful Windows and container jobs enable a
-versioned prerelease. The publication script is scoped to engeeeee/ENGE-SPX.
+versioned full release marked as Latest. The publication script is scoped to
+engeeeee/ENGE-SPX. Run `node --test tests/test_release_publication.cjs` with
+Node.js 18+ to check release publication and immutable asset handling; Node is
+only a development/CI tool and is not bundled with the application.
 
 The UI uses PySide6 Essentials rather than Qt WebEngine. CLI/background entry
 points do not import the GUI. The package keeps Qt's shared libraries as

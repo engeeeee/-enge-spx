@@ -1,6 +1,6 @@
 # 参与 ENGE SPX
 
-欢迎中文或英文的问题报告、文档改进和代码贡献。项目目前处于 Preview 阶段，贡献内容遵循现有 [PolyForm Noncommercial 1.0.0](LICENSE)，提交前请确认有权贡献所用代码和素材。
+欢迎中文或英文的问题报告、文档改进和代码贡献。项目已发布正式版，贡献内容遵循现有 [PolyForm Noncommercial 1.0.0](LICENSE)，提交前请确认有权贡献所用代码和素材。
 
 ## 开始之前
 
@@ -8,7 +8,7 @@
 
 ## 本地开发
 
-需要 Python 3.12+ 和 Tcl/Tk。在 Windows PowerShell 中执行：
+需要 Python 3.12+ 和 PySide6。在 Windows PowerShell 中执行：
 
 ```powershell
 python -m venv .venv
