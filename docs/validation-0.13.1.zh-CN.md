@@ -1,6 +1,6 @@
 # 0.13.1 正式版交付与验证
 
-按维护者要求，将当前功能发布为正式版，随后根据实际使用反馈继续优化。基线为 0.13.0 及其发布后文档提交 `0e18a3d9cba9502bbcc7098d6edaddaa5e0b7d8a`。本页按实际进展补充 CI 与公开下载证据；未运行、跳过和待实机验收不算通过。
+按维护者要求，将当前功能发布为正式版，随后根据实际使用反馈继续优化。2026-11-11 已发布 [ENGE SPX 0.13.1](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.1-windows)，GitHub `prerelease=false`、`draft=false`，并由 `/releases/latest` 确认其为 Latest。发布提交/标签为 `e27f6579d0033915e6bd98808cee10a77496e5d1`。基线为 0.13.0 及其发布后文档提交 `0e18a3d9cba9502bbcc7098d6edaddaa5e0b7d8a`。未运行、跳过和待实机验收不算通过。
 
 ## 1. 修改概述
 
@@ -34,11 +34,38 @@ QT_SCALE_FACTOR=2 PYTHONPATH=src python tools/check_ui_dpi.py
 
 新增发布助手的 9 项测试已在本地 Node.js 22 通过：全部附件上传后正式发布、已验证预览版提升、正式版重复执行不重传或回退 Latest、附件不符/缺失拒绝、错误来源提交拒绝、本地 Windows 校验和/运行归档异常在 API 请求前失败、其它仓库/分支拒绝。
 
-本地 Linux ARM64 的 Python 测试发现 365 项，353 通过、12 项 Windows 专用跳过；Qt smoke 和 200% DPI 全部既有控件检查通过。仓库版本、元数据、65 篇文档链接与 diff 检查通过。Windows 打包、完整 Docker 和公开下载结果待本次 CI 执行后补记。发布继续经过原有门禁，不以正式版标识替代这些检查。
+本地 Linux ARM64 的 Python 测试发现 365 项，353 通过、12 项 Windows 专用跳过；Qt smoke 和 200% DPI 全部既有控件检查通过。仓库版本、元数据、65 篇文档链接与 diff 检查通过。
+
+[最终同次完整 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/43041332357)全部通过：Windows 365 项（361 通过、4 跳过），Linux 365 项（353 通过、12 跳过），两平台各 9 项发布助手测试，Windows Qt smoke、125%/150%/200% 布局、冻结 Python 3.12、GUI/CLI 的 0.13.1 FileVersion/ProductVersion 与非预发布标志、真实 DPAPI 迁移/删除、手动 Docker 启动、安装及卸载保留数据。冻结 GUI 首屏记录 799 ms，仅为该次 runner 的观察。
+
+实际 Docker 门禁保留所有断言，通过资源预算/记录、只读项目/身份卷、网络迁移回滚、DNS/UDP/IPv6/宿主阻断、真实协议/TLS/Reality/QUIC 及断线、Chromium 内核沙箱、拒绝无沙箱回退、中文 PTY、190 秒浏览器独立续期、Cookie/Storage 与账号恢复、双跳出口异常停机、身份/诊断/按需测速，以及导出归档在 containerd 和经典 Docker 镜像存储中的再次导入。公网测速结果为 `checked`，前后核验均 `verified`；不冒充真实 AI 账号或用户设备验收。
+
+发布在全部门禁完成后执行。七个公开附件齐全；安装版和便携版已实际下载，文件大小、公开 SHA-256/GitHub digest、ZIP CRC 与必需资源核验通过。便携包两个 EXE 的 PE 固定版本均为 `0.13.1.0`，flags 均为 0；测速脚本与已测试源码一致（规范化行尾）。原 0.13.0 的附件 ID、大小、digest 和来源提交保持原样。
+
+| 公开附件 | bytes | SHA-256 |
+| --- | ---: | --- |
+| `ENGE-SPX-Windows-x64-0.13.1-Setup.exe` | 32,448,615 | `5f998a434970e3d7e1472c3c7b4628413c186f4cbefa75abf31b77a0dc2a1008` |
+| `ENGE-SPX-Windows-x64-0.13.1-Portable.zip` | 50,969,405 | `e08e58a2f9c632d65c7bcd21c7b97749fe25a2c003a26a9d2f3355593eb06ef2` |
+| `ENGE-SPX-Runtime-linux-amd64-0.13.1.tar.gz` | 875,936,804 | `b42d7762fe95cde8a8ac1c6d43fc35cb120ecc9afaf3d08716b591dd710add3d` |
+
+公开 runtime manifest 的平台、镜像/config 标识和配方核验通过，大小与 digest 对照同次 CI 已导入验证的导出 SHA 一致，没有再次下载整份 runtime。配方仍为 gateway `9aa8a7818569`、work `6e3fcfa5633c`、browser `1bca0984bc51`。
 
 ## 6. 性能与磁盘
 
-只有版本/展示/发布标识变化，不增加后台任务、生产依赖、端口或完整虚拟机。本次不以标识变化声称速度、CPU、内存或磁盘收益。同次 CI 继续保留 0.13.0 基线、候选正常与低资源容器阶段原始对照；不等同于真实 Windows/WSL2 或 AI/noVNC 性能。
+只有版本/展示/发布标识变化，不增加后台任务、生产依赖、端口或完整虚拟机。同次 Linux Docker runner 依次运行 0.13.0（`859e75b`）正常、0.13.1 正常和低资源独立 worker，共用已验证的镜像；各阶段两份样本均值如下。内存仅为运行中的本实例容器 Docker 统计之和，CPU 为单核百分比，不能与主机/WSL2 内存相加。
+
+| 观察 | 0.13.0 正常 | 0.13.1 正常 | 0.13.1 低资源 |
+| --- | ---: | ---: | ---: |
+| 默认 CLI 启动后容器内存（MiB） | 249.924 | 249.505 | 17.923 |
+| 该阶段容器 CPU 合计（%） | 0.375 | 0.315 | 0.030 |
+| Chromium canvas 内存（MiB） | 282.156 | 280.578 | 282.867 |
+| 默认 CLI 启动（ms） | 3,717.222 | 3,526.707 | 1,243.825 |
+| 工作区完全停止（ms） | 1,132.590 | 676.265 | 1,207.017 |
+| 完全停止后运行容器 / 内存 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+低资源已有浏览器延迟启动，因此 CLI 阶段少一个浏览器，canvas 阶段已显式启动；不是本批新增节省。三组项目层均为 8,413,184 B（含合成 8 MiB 写入），browser/session/gateway 层分别为 4,096/4,096/8,192 B。资源 artifact ZIP SHA 已核验为 `923debc90940a4d14e3d02f79be6e8ddd40ccf8b02f76c4d2fe28975532cf661`，其中保存完整 JSON。
+
+短样本、启动残留活动和缓存会影响数字，不以版本标识变化声称收益。不包含真实模型请求、已连接 noVNC 客户端、物理 Windows/WSL2 性能或所有卷/虚拟磁盘；长期数据增长和体验按用户后续实际使用反馈验证。
 
 ## 7. 遗留边界
 
