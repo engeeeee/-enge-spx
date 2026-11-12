@@ -81,7 +81,8 @@ def stopped_for_context(docker, windows=None):
     """Offline proof only for the local Desktop Linux pipe, never another daemon.
 
     A missing pipe alone is not proof. Context metadata is local, then the
-    management CLI must explicitly report stopped; unknown states stay unknown.
+    management CLI reports stopped, or an independently stopped WSL2 backend
+    is verified when that management API has disappeared.
     """
     if not (os.name == "nt" if windows is None else windows) or not docker.executable:
         return False
@@ -89,7 +90,11 @@ def stopped_for_context(docker, windows=None):
         endpoint = require_local_context(docker, timeout=4)
         if endpoint.lower() not in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine"):
             return False
-        return _status(docker, 4) == "stopped"
+        try:
+            return _status(docker, 4) == "stopped"
+        except DesktopShutdownError:
+            from .desktop_offline import stopped
+            return stopped()
     except (SPXError, OSError):
         return False
 
@@ -97,8 +102,9 @@ def stopped_for_context(docker, windows=None):
 def stop_desktop(docker, progress=lambda message: None, timeout=60, windows=None):
     """Request normal asynchronous stop, then independently verify completion.
 
-    Status failure is unknown, not stopped. A successful stop is independently
-    followed by a stopped status. The bound includes preflight and final polling.
+    Status failure alone is unknown. A successful stop is independently followed
+    by stopped status or complete local WSL2 evidence. The same global deadline
+    includes preflight, independent evidence and final polling.
     subprocess.run may reap its own timed-out CLI child, never Desktop/backend.
     """
     windows = os.name == "nt" if windows is None else windows
@@ -114,7 +120,22 @@ def stop_desktop(docker, progress=lambda message: None, timeout=60, windows=None
         return _command(docker, *args, timeout=min(limit, remaining))
 
     def status():
-        return _status(docker, min(8, max(0, deadline - time.monotonic())))
+        try:
+            return _status(docker, min(8, max(0, deadline - time.monotonic())))
+        except DesktopShutdownError:
+            # A manual/normal quit can remove the management API as well as
+            # the engine pipe. Independently verify that exact local backend.
+            from .desktop_offline import stopped
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                try:
+                    endpoint = require_local_context(docker, timeout=min(4, remaining))
+                    remaining = deadline - time.monotonic()
+                    if endpoint.lower() in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine") and stopped(timeout=min(8, remaining)):
+                        return "stopped"
+                except (SPXError, OSError):
+                    pass
+            raise
 
     progress("工作区与记录已收尾，正在读取 Docker Desktop 状态…")
     state = status()

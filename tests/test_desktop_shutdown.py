@@ -16,7 +16,9 @@ def result(state=None, code=0, output=None):
 
 class DesktopShutdownTests(unittest.TestCase):
     def setUp(self):
-        self.docker = SimpleNamespace(executable="docker.exe", secret_env={"PRIVATE_SESSION": "never-pass-this"})
+        self.docker = SimpleNamespace(executable="docker.exe", secret_env={"PRIVATE_SESSION": "never-pass-this"},
+                                      context="desktop-linux", run=Mock(return_value=json.dumps([
+                                          {"Endpoints": {"docker": {"Host": "npipe:////./pipe/dockerDesktopLinuxEngine"}}}])))
 
     def test_default_and_explicit_preferences_do_not_read_or_rewrite_secrets(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -114,7 +116,7 @@ class DesktopShutdownTests(unittest.TestCase):
         docker = Mock(executable="docker.exe", context="desktop-linux")
         docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/dockerDesktopLinuxEngine"}}}])
         for reply in (result("running"), result("stopping"), result(output="private-secret", code=1), result(output="[]")):
-            with patch.object(desktop.subprocess, "run", return_value=reply) as run:
+            with patch.object(desktop.subprocess, "run", return_value=reply) as run, patch("enge_spx.desktop_offline.stopped", return_value=False):
                 self.assertFalse(desktop.stopped_for_context(docker, windows=True))
                 self.assertTrue(all(call.args[0][2] == "status" for call in run.call_args_list))
 
@@ -126,12 +128,37 @@ class DesktopShutdownTests(unittest.TestCase):
 
     def test_unknown_status_and_unsupported_cli_never_attempt_stop_or_echo_output(self):
         for reply in (result(output="private-fixture-secret", code=1), result(output="[]"), result("unknown"), result("running", code=1)):
-            with self.subTest(reply=reply), patch.object(desktop.subprocess, "run", return_value=reply) as run:
+            with self.subTest(reply=reply), patch.object(desktop.subprocess, "run", return_value=reply) as run, patch("enge_spx.desktop_offline.stopped", return_value=False):
                 with self.assertRaises(desktop.DesktopShutdownError) as caught:
                     desktop.stop_desktop(self.docker, windows=True)
                 self.assertEqual(caught.exception.code, "status")
                 self.assertNotIn("private-fixture-secret", str(caught.exception))
                 self.assertEqual(run.call_count, 1)
+
+    def test_unavailable_management_api_uses_independent_offline_backend_proof(self):
+        docker = Mock(executable="docker.exe", context="desktop-linux")
+        docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/dockerDesktopLinuxEngine"}}}])
+        with patch.object(desktop.subprocess, "run", return_value=result(code=1, output="")), patch("enge_spx.desktop_offline.stopped", return_value=True) as proof:
+            self.assertTrue(desktop.stopped_for_context(docker, windows=True))
+            proof.assert_called_once_with()
+        for state in ("running", "starting", "stopping", "paused"):
+            with self.subTest(state=state), patch.object(desktop.subprocess, "run", return_value=result(state)), patch("enge_spx.desktop_offline.stopped", return_value=True) as proof:
+                self.assertFalse(desktop.stopped_for_context(docker, windows=True))
+                proof.assert_not_called()
+
+    def test_closed_backend_with_gone_management_api_does_not_receive_another_stop(self):
+        docker = Mock(executable="docker.exe", context="desktop-linux")
+        docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/dockerDesktopLinuxEngine"}}}])
+        with patch.object(desktop.subprocess, "run", return_value=result(code=1, output="")) as run, patch("enge_spx.desktop_offline.stopped", return_value=True) as proof:
+            self.assertTrue(desktop.stop_desktop(docker, windows=True)["already_stopped"])
+            self.assertEqual(run.call_count, 1)
+            self.assertGreater(proof.call_args.kwargs["timeout"], 0)
+            self.assertLessEqual(proof.call_args.kwargs["timeout"], 8)
+        docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/docker_engine"}}}])
+        with patch.object(desktop.subprocess, "run", return_value=result(code=1, output="")), patch("enge_spx.desktop_offline.stopped", return_value=True) as proof:
+            with self.assertRaises(desktop.DesktopShutdownError):
+                desktop.stop_desktop(docker, windows=True)
+            proof.assert_not_called()
 
     def test_paused_desktop_is_closed_normally(self):
         with patch.object(desktop.subprocess, "run", side_effect=[result("paused"), result(output=""), result("stopped")]) as run:

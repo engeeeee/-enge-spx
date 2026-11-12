@@ -1,10 +1,12 @@
 import os
+import json
 from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -376,6 +378,23 @@ class EngineShutdownTests(unittest.TestCase):
         engine.docker = Mock(executable="docker.exe", secret_env={"TOKEN": "fixture"})
         engine.managed = Mock(side_effect=SPXError("missing Desktop Linux pipe"))
         return store, engine
+
+    def test_missing_pipe_and_gone_management_api_complete_verified_offline_exit(self):
+        from enge_spx import desktop_shutdown
+        with tempfile.TemporaryDirectory() as folder:
+            store, engine = self.fixture(folder)
+            engine.docker.context = "desktop-linux"
+            engine.docker.run.return_value = json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/dockerDesktopLinuxEngine"}}}])
+            with patch.object(desktop_shutdown, "os", SimpleNamespace(name="nt")), patch.object(desktop_shutdown, "_status", side_effect=desktop_shutdown.DesktopShutdownError("status")), patch("enge_spx.desktop_offline.stopped", return_value=True) as proof:
+                result = engine.shutdown()
+            self.assertTrue(result["workspace_stopped"] and result["background_stopped"] and result["docker_desktop_stopped"])
+            self.assertEqual(proof.call_count, 2)
+            self.assertEqual(store.read("gateway/lease.json")["expires"], 0)
+            self.assertEqual(store.read("runtime.json")["phase"], "stopped")
+            self.assertEqual((store.home / "account-sentinel").read_text(), "preserved")
+            for name in ("gateway/config.json", "relay.json", "browser-token.json"):
+                self.assertFalse((store.home / name).exists())
+            self.assertEqual(engine.docker.secret_env, {})
 
     def test_closed_desktop_completes_local_cleanup_and_waits_for_background(self):
         with tempfile.TemporaryDirectory() as folder:

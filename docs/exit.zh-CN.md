@@ -24,7 +24,9 @@ Windows 用户在 **偏好设置 → 启动行为** 勾选 **退出时关闭 Doc
 
 采用 [Docker 官方 stop](https://docs.docker.com/reference/cli/docker/desktop/stop/) 的 `--detach` 正常关闭请求，让命令先返回，再独立核对 [status JSON](https://docs.docker.com/reference/cli/docker/desktop/status/) 明确为 stopped。整个流程最多等待 60 秒；关闭期间状态接口短暂不可读时继续有界核验，不能把错误当作停止。只有旧 CLI 明确拒绝 `--detach` 时，才回退到有界的普通同步关闭；不会启用 `--force`。
 
-若你先手动关闭 Docker Desktop，再退出 ENGE SPX，软件会核实选定 context 确实指向本机 Desktop Linux 命名管道，且管理状态明确为 stopped，然后撤销租约、清理运行时凭据引用、等待本实例后台服务退出并再次核验。无需为退出重新打开 Docker。管道不存在、普通连接失败、远程 context 或未知状态本身均不能作为工作区停止证据。
+若你先手动关闭 Docker Desktop，再退出 ENGE SPX，软件先核实选定 context 确实指向本机 Desktop Linux 命名管道。管理状态明确为 stopped 时按原流程收尾。0.13.3 补充处理连后台管理接口也已退出的情况：只有本机设置明确为 WSL2、完整进程枚举确认没有 Desktop 后台、Win32 明确报告引擎管道不存在、已注册的 `docker-desktop` 不在 WSL 运行列表，且进程和管道复查仍一致时，才接受独立停止证据。
+
+随后撤销租约、清理运行时凭据引用、等待本实例后台服务退出并再次核验，无需为退出重新打开 Docker。WSL 查询只列出已注册/运行的发行版，不启动发行版，不执行终止或全局关闭。其它 WSL 发行版可以继续运行；原始发行版名称、设置文件内容及命令错误不写入日志。管道不存在、普通连接失败、权限不足、部分进程列表、远程/通用 context 或未知状态本身仍不能作为停止证据。该独立路径不适用于 Hyper-V 或无法确认后端类型的安装，管理接口正常时仍沿用原核验方式。
 
 偏好存于当前数据目录的非敏感 `exit-preferences.json`（schema=1）；旧数据缺失时关闭，旧程序忽略该文件。取消勾选并保存即可回滚，不需要修改代理、账号或重建镜像。损坏/未知版本不能启用该功能；保存失败仍使用旧值，并取消已排队的退出以避免执行旧的全局选择。
 
@@ -44,4 +46,4 @@ Windows 用户在 **偏好设置 → 启动行为** 勾选 **退出时关闭 Doc
 
 如确实只想关闭界面，可明确选择保留工作区的选项；该选择不会替你启动或重新确认连接。普通 X 隐藏不触发停止；CLI 工具命令自然结束也不自动停止其它工作区。
 
-默认流程只管理当前数据目录所属实例。只有明确启用的联合退出会关闭整个 Docker Desktop；安全监测和无 DIRECT 回退机制保持原有规则。不执行 prune 或删除项目、账号/Profile 卷。原始功能见 [交付验证](validation-desktop-exit.zh-CN.md)，本次修复见 [0.13.2 验证](validation-0.13.2.zh-CN.md)。
+默认流程只管理当前数据目录所属实例。只有明确启用的联合退出会关闭整个 Docker Desktop；安全监测和无 DIRECT 回退机制保持原有规则。不执行 prune 或删除项目、账号/Profile 卷。原始功能见 [交付验证](validation-desktop-exit.zh-CN.md)，本次修复见 [0.13.3 验证](validation-0.13.3.zh-CN.md)。

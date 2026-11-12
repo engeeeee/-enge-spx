@@ -93,25 +93,35 @@ def system():
         return None
 
 
-def desktop_processes():
-    """Enumerate names/PIDs only; shared WSL memory is not app-owned memory."""
+def desktop_processes(*, strict=False):
+    """Enumerate names/PIDs only; strict absence requires a complete snapshot."""
     if os.name != "nt":
+        if strict:
+            raise OSError("Windows process enumeration is unavailable")
         return []
     kernel, _, _, Process, _ = _windows()
     snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
     if snapshot in (None, ctypes.c_void_p(-1).value):
+        if strict:
+            raise OSError("Windows process snapshot is unavailable")
         return []
     try:
         item = Process()
         item.dwSize = ctypes.sizeof(item)
         result = []
+        if strict:
+            ctypes.set_last_error(0)
         available = kernel.Process32FirstW(snapshot, ctypes.byref(item))
         while available:
             name = item.szExeFile
             normalized = name.lower().removesuffix(".exe")
-            if normalized in ("vmmem", "vmmemwsl", "docker desktop", "com.docker.backend", "com.docker.proxy", "vpnkit"):
+            if normalized in ("vmmem", "vmmemwsl", "docker desktop", "com.docker.backend", "com.docker.proxy", "com.docker.engine", "com.docker.virtualization", "vpnkit"):
                 result.append({"pid": item.th32ProcessID, "name": name, "scope": "wsl" if normalized in ("vmmem", "vmmemwsl") else "desktop"})
+            if strict:
+                ctypes.set_last_error(0)
             available = kernel.Process32NextW(snapshot, ctypes.byref(item))
+        if strict and ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+            raise OSError("Windows process enumeration is incomplete")
         return result
     finally:
         kernel.CloseHandle(snapshot)

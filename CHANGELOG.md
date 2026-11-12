@@ -1,5 +1,20 @@
 # Changes
 
+## 0.13.3 fully closed Desktop exit fix — 2026-11-12
+
+- Fix the missing-pipe exit failure when Docker Desktop and its background
+  management API were both closed before ENGE SPX. Preserve explicit stopped
+  status as the primary path; add independent read-only WSL2 evidence only for
+  the exact local Desktop Linux context when the management API is unavailable.
+- Require explicit WSL2 settings, a complete Desktop process snapshot, Win32
+  file-not-found for the engine pipe, the registered Docker distro absent from
+  WSL's running list, and repeated process/pipe observations. Denied, partial,
+  running, restarted, Hyper-V and unknown evidence still cannot claim stopped.
+- Reuse lease revocation, runtime-secret cleanup and owned service waits;
+  handle the same management-endpoint disappearance during optional joint exit.
+  Never start/force Docker or stop other WSL distributions. No data migration,
+  runtime recipe, dependency, terminal behavior or license change.
+
 ## 0.13.2 verified Desktop exit fixes — 2026-11-11
 
 - Request normal Docker Desktop shutdown with `--detach`, then independently
