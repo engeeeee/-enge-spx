@@ -4995,8 +4995,7 @@ section[id] {
         gap: 72px;
     }
 }
-/* A low-DPI panel cannot resolve tilted GUI text as well as a Retina panel.
-   Tilt only the decorative backplates there; keep every screenshot pixel flat. */
+/* Keep a single, flat screenshot on low-DPI panels so GUI text stays readable. */
 @media (max-resolution: 1.25dppx) {
     .hero-visual {
         perspective: none;
@@ -5005,26 +5004,6 @@ section[id] {
     .connection-shot,
     .resources-shot {
         transform: none !important;
-    }
-    .hero-frame::before,
-    .hero-frame::after {
-        content: "";
-        position: absolute;
-        inset: 0 0 30px;
-        z-index: -1;
-        border: 1px solid #b7926b30;
-        border-radius: 12px;
-        background: #29251f;
-        pointer-events: none;
-    }
-    .hero-frame::before {
-        transform: perspective(1800px) rotateY(-7deg) rotateZ(-2deg)
-            translate(12px, 14px);
-    }
-    .hero-frame::after {
-        transform: perspective(1800px) rotateY(-4deg) rotateZ(-1deg)
-            translate(6px, 7px);
-        background: #24221d;
     }
 }
 

@@ -72,4 +72,4 @@ $env:QT_SCALE_FACTOR = '3'
 python docs/screenshots/capture.py --profile website --output .\build\website-screenshots
 ```
 
-官网首页展示区允许裁切窗口底部，点击可查看完整 PNG。普通 DPI 屏幕不对软件图片做透视变换，立体效果由独立背板和阴影承担；高 DPI 屏幕保留轻微透视。1×、2× 和本批原图分别保留，README 仍引用完整导航的 2× 图。
+官网首页展示区允许裁切窗口底部，点击可查看完整 PNG。普通 DPI 屏幕不对软件图片做透视变换，单个窗口仅配柔和阴影；高 DPI 屏幕保留轻微透视。1×、2× 和本批原图分别保留，README 仍引用完整导航的 2× 图。
