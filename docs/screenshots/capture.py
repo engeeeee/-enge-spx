@@ -30,6 +30,8 @@ from enge_spx.ui.window import Window
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--profile", choices=("readme", "website"), default="readme",
+                        help="Use the real responsive window at the website's display sizes")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     app = QApplication([])
@@ -44,12 +46,17 @@ def main():
                 window.show_page(page)
                 if page == "resources":
                     window.select_resource_view("budget")
-                window.resize(1280, 1000)
+                sizes = {"overview": (960, 840), "workspace": (1120, 1050),
+                         "connection": (840, 1050), "resources": (840, 1000)}
+                window.resize(*(sizes[page] if args.profile == "website" else (1280, 1000)))
                 window.pages[page].verticalScrollBar().setValue(0)
                 QTest.qWait(150)
-                assert not window.compact, "Gallery requires the full navigation"
-                assert window.brand_label.width() >= window.brand_label.sizeHint().width(), "Product name is cropped"
-                assert window.brand_label.height() >= window.brand_label.sizeHint().height(), "Product name is cropped"
+                if window.compact:
+                    assert window.titlebar.caption.text().startswith("ENGE SPX"), "Compact product title is missing"
+                    assert window.titlebar.caption.width() >= window.titlebar.caption.sizeHint().width(), "Compact title is cropped"
+                else:
+                    assert window.brand_label.width() >= window.brand_label.sizeHint().width(), "Product name is cropped"
+                    assert window.brand_label.height() >= window.brand_label.sizeHint().height(), "Product name is cropped"
                 if page == "workspace":
                     viewport = window.pages[page].viewport()
                     for title in ("Claude Code", "Codex"):
@@ -62,7 +69,7 @@ def main():
                 captures.append({"file": target.name, "page": page, "width": picture.width(), "height": picture.height(), "logical_width": window.width(), "logical_height": window.height(), "device_pixel_ratio": window.devicePixelRatioF(), "bytes": target.stat().st_size, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
         finally:
             window.finish_close()
-    report = {"version": __version__, "source_commit": os.environ.get("GITHUB_SHA"), "platform": platform.system(), "python": platform.python_version(), "qt": PySide6.__version__, "captured_utc": datetime.now(timezone.utc).isoformat(), "state": "unconfigured temporary data; no accounts, proxies or Docker workspace started", "captures": captures}
+    report = {"version": __version__, "profile": args.profile, "source_commit": os.environ.get("GITHUB_SHA"), "platform": platform.system(), "python": platform.python_version(), "qt": PySide6.__version__, "captured_utc": datetime.now(timezone.utc).isoformat(), "state": "unconfigured temporary data; no accounts, proxies or Docker workspace started", "captures": captures}
     (args.output / "capture.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False), flush=True)
 

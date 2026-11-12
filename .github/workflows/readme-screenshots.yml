@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 10
     env:
       PYTHONPATH: src
-      QT_SCALE_FACTOR: '2'
+      QT_SCALE_FACTOR: '3'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,7 +28,7 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - name: Capture unconfigured native Windows UI
         shell: pwsh
-        run: python docs/screenshots/capture.py --output "$env:RUNNER_TEMP/spx-readme"
+        run: python docs/screenshots/capture.py --profile website --output "$env:RUNNER_TEMP/spx-readme"
       - uses: actions/upload-artifact@v4
         with:
           name: ENGE-SPX-README-${{ github.run_id }}
