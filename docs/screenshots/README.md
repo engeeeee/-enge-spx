@@ -36,3 +36,13 @@ python docs/screenshots/capture.py --output .\build\readme-screenshots
 [专用 workflow](../../.github/workflows/readme-screenshots.yml)可手动运行；修改截图脚本时也会自动运行。它只生成文档截图，不构建或发布软件版本。其它平台可运行脚本预览排版，`capture.json` 会如实记录平台；更新 README 的 Windows 图时应使用 Windows 产物。
 
 历史图片仍保留在 `docs/images/spx-*.png`，供旧版本文档引用。
+
+## 官网高清版本（2×）
+
+官网使用原生 Windows 2× DPI 重新截取的 2560×2000 PNG，逻辑窗口仍为 1280×1000，软件内部布局不改动。它们是软件重新渲染的截图，不是对 1× 图片进行插值或 AI 放大。
+
+- [原生 Windows 任务 43168136679](https://github.com/engeeeee/ENGE-SPX/actions/runs/43168136679)
+- [高清文件清单、逻辑尺寸、DPR 与 SHA-256](../images/0.13.2/2x/capture.json)
+- [工作台](../images/0.13.2/2x/overview.png) · [项目工作区](../images/0.13.2/2x/workspace.png) · [连接与代理](../images/0.13.2/2x/connection.png) · [资源预算](../images/0.13.2/2x/resources.png)
+
+捕获时间 2026-11-12 06:27 UTC，源码 `f607efda4fbbd839a2ed710fce48e7637d73fe20`，应用版本 0.13.2。复现时设置 `QT_SCALE_FACTOR=2`；专用截图 workflow 默认也使用 2×。原始 1× 文件保留供历史记录使用。

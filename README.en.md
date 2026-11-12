@@ -4,6 +4,8 @@
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.2-windows">Download</a></p>
 
+[Official website](https://enge1337.cn/) · [Website source](website/README.md)
+
 **ENGE SPX brings AI coding tools, a workspace browser and proxy routing into one Windows desktop workflow.** Select a project, configure a route, review the exits, then open your tools. Commands run inside Linux containers while your selected project stays on your own disk and your preferred terminal hosts the interactive window.
 
 It is intended for people who want to reduce exposure of their everyday Windows environment, keep workspace dependencies and browser data separate, and control how the workspace reaches external services. You supply the AI accounts, line and landing proxies.
@@ -39,11 +41,11 @@ This diagram shows managed chaining. The browser does not mount the project or t
 
 **Start from one workspace dashboard.** Prepare the runtime, review the selected route and exits, then open your project and tools. Opening the app checks status; you choose when Docker starts.
 
-![ENGE SPX 0.13.2 running on Windows: preparation steps, exit information and workspace route](docs/images/0.13.2/overview.png)
+![ENGE SPX 0.13.2 running on Windows: preparation steps, exit information and workspace route](docs/images/0.13.2/2x/overview.png)
 
 | Projects, identities and tools | Lines and landing proxies |
 | --- | --- |
-| [![Windows workspace page with project grants and Claude Code, Codex and Chromium launch controls](docs/images/0.13.2/workspace.png)](docs/images/0.13.2/workspace.png) | [![Windows proxy page with landing selection and managed line settings](docs/images/0.13.2/connection.png)](docs/images/0.13.2/connection.png) |
+| [![Windows workspace page with project grants and Claude Code, Codex and Chromium launch controls](docs/images/0.13.2/2x/workspace.png)](docs/images/0.13.2/2x/workspace.png) | [![Windows proxy page with landing selection and managed line settings](docs/images/0.13.2/2x/connection.png)](docs/images/0.13.2/2x/connection.png) |
 | Select a local project, apply an identity and read-only/read-write grant, then use the tool and browser controls after connection confirmation. | Import nodes, choose a managed fixed chain or local-v2ray compatibility, and configure the line, landing and download proxy separately. |
 
 These are actual **0.13.2 native Windows UI captures** using temporary data without accounts, proxy nodes or a running Docker workspace. Click an image for full size. [Capture provenance and reproduction](docs/screenshots/README.md) includes the source commit, Windows run and image hashes. The UI is currently Chinese.
@@ -127,7 +129,7 @@ Downloads support pause, resume, speed/progress display, SHA-256 and exact image
 
 Set CPU and memory limits separately for the gateway, session, CLI projects and Chromium, including a budget for the current project. Choose normal or low-resource mode; limits are not reservations, and small budgets may slow compilation.
 
-![Windows resource budget page with per-container CPU, memory and browser startup controls](docs/images/0.13.2/resources.png)
+![Windows resource budget page with per-container CPU, memory and browser startup controls](docs/images/0.13.2/2x/resources.png)
 
 - **Understand usage**: distinguish application processes, owned containers, Docker Desktop and WSL2. These readings are not additive.
 - **Reduce idle work**: open Chromium on demand or stop it separately while keeping the CLI running. Low-resource mode delays browser startup by default.
