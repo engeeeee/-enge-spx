@@ -28,10 +28,23 @@ python tools/check_repository.py
 node --test tests/test_release_publication.cjs
 ```
 
-Linux ARM64 专项：Desktop 34 项（32 通过、2 项 Win32 专用跳过）；退出 34 项通过。完整本地回归 401 项：386 通过、15 项 Windows 专用跳过，用时约 11.6 秒；9 项发布助手测试、Qt smoke 和 70 篇文档/版本元数据检查通过。Windows、冻结包及发布门禁在执行完成后补充，未执行/跳过不记为通过。独立 WSL 状态组合使用注入结果，不能冒充在用户 Docker Desktop 4.99.0 / WSL2 设备上实际验收。
+Linux ARM64 专项：Desktop 34 项（32 通过、2 项 Win32 专用跳过）；退出 34 项通过。完整本地回归 401 项：386 通过、15 项 Windows 专用跳过，用时约 11.6 秒；9 项发布助手测试、Qt smoke 和 70 篇文档/版本元数据检查通过。未执行/跳过不记为通过。
+
+同次 [完整 CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/43195721077) 的 Windows 回归 401 项：397 通过、4 跳过；Linux 401 项：386 通过、15 跳过。两平台各 9 项发布助手测试通过。Windows 实际创建/检查/关闭独立测试管道并执行严格进程快照；Qt smoke 与 125%/150%/200% 布局通过。冻结 Python 3.12.10 EXE、DPAPI 迁移和删除、手动启动、托盘、联合退出开/关、先关闭 Desktop 后退出及安装卸载数据保留检查通过。Desktop 退出夹具为测试自建进程，不操作真实用户 Docker；独立 WSL 成功/失败组合使用注入结果。实际 Linux Docker 门禁已通过资源预算/记录、项目与身份隔离、递归只读挂载、DNS/UDP/IPv6/宿主直连阻断、TLS/Reality/gRPC/QUIC 和固定链路故障、受限 HTTPS 请求、Chromium 内核沙箱及失败拒绝降级、中文 PTY、190 秒浏览器独立续期、双出口核验与异常停机。运行归档已在 containerd 和经典镜像存储导入后重复验证。[0.13.3 正式版](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.3-windows) 已公开发布，`draft=false`、`prerelease=false`，由 `/releases/latest` 确认 Latest；标签/来源提交为 `8c78678ce5a91a9653cff856c5e470cbf1639d8e`。公开安装包与便携包已经实际下载，大小、SHA-256 与 GitHub digest 一致；便携 ZIP CRC、两份 EXE 的固定版本 `0.13.3.0` 和正式版标志通过。额外只读解析两份 EXE 的 PyInstaller 模块表，确认都包含 `enge_spx.desktop_offline`、`desktop_shutdown` 和 `process_metrics`，避免只更新版本号却漏装修复。独立 WSL 状态组合使用注入结果，不能冒充在用户 Docker Desktop 4.99.0 / WSL2 设备上实际验收。
 
 ## 性能与边界
 
 无常驻进程、轮询、监听端口或新增运行依赖；正常运行与管理接口可用时不进入新增 WSL 查询。失败路径每次独立证据最多两次只读 WSL 列表，单条子命令最多 3 秒，证据预算最多 8 秒，联合退出继续受原总时限约束；Engine 收尾后的复核重新取证。没有测量用户设备退出耗时或持续 CPU/内存变化，不声称提升百分比。
 
 真实设备反馈尚待用户升级后确认；暂不处理既有终端偶发拒绝访问。保持未知状态可重试，不用不安全的跳过核验替代本修复。
+
+
+## 公开附件核验
+
+| 附件 | bytes | SHA-256 |
+| --- | ---: | --- |
+| `ENGE-SPX-Windows-x64-0.13.3-Setup.exe` | 34,384,697 | `a314207f8376aabce1ec8bcbd54948501601d9977a1eded79fbf8b1bacccca51` |
+| `ENGE-SPX-Windows-x64-0.13.3-Portable.zip` | 52,930,249 | `93572aad3816e267709553dd28cb7ee8fdee4bdfb318ab3c6779afdbc0c4cd50` |
+| `ENGE-SPX-Runtime-linux-amd64-0.13.3.tar.gz` | 875,949,180 | `a3e11593d2d59e1dcb9acd627d67ea5d3b65b95f67f53d67e7c14610e2584a98` |
+
+公开 runtime manifest 的大小、SHA 与本次 CI 的实际导出一致，归档已在同次门禁的两种 Docker 存储导入验证，没有再次下载整份运行归档。配方仍为 gateway `9aa8a7818569`、work `6e3fcfa5633c`、browser `1bca0984bc51`，现有合规镜像可继续使用。

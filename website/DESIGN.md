@@ -2,7 +2,7 @@
 
 ## 产品调研
 
-设计前核对了仓库中英文 README、`assets/logo.svg`、`docs/branding.zh-CN.md`、最新 `docs/images/0.13.2/` 截图，代理与线路保护、工作区身份、资源预算、安全模型、快速入门、退出文档和 CHANGELOG，并阅读 Qt 样式、工作区页面和 Engine 收尾代码。下载指向 2026-11-12 核实的真实 `v0.13.2-windows` Release。
+设计前核对了仓库中英文 README、`assets/logo.svg`、`docs/branding.zh-CN.md`、最新 `docs/images/0.13.2/` 截图，代理与线路保护、工作区身份、资源预算、安全模型、快速入门、退出文档和 CHANGELOG，并阅读 Qt 样式、工作区页面和 Engine 收尾代码。下载指向 2026-11-12 核实的真实 `v0.13.3-windows` Release。
 
 | 产品事实 | 网站表达与约束 |
 | --- | --- |

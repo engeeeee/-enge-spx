@@ -33,8 +33,9 @@ export function FaqSection() {
                             <ArrowUpRight size={18} />
                         </div>
                         <p>
-                            优化 Docker Desktop 联合关闭、先关闭 Docker
-                            后退出，以及一次性仅退出软件的恢复流程。
+                            修复 Docker Desktop
+                            及后台完全退出后，软件无法完成退出的问题。
+                            保留原有数据和退出偏好。
                         </p>
                         <span className="release-note-link">
                             查看更新记录
