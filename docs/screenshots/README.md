@@ -45,4 +45,31 @@ python docs/screenshots/capture.py --output .\build\readme-screenshots
 - [高清文件清单、逻辑尺寸、DPR 与 SHA-256](../images/0.13.2/2x/capture.json)
 - [工作台](../images/0.13.2/2x/overview.png) · [项目工作区](../images/0.13.2/2x/workspace.png) · [连接与代理](../images/0.13.2/2x/connection.png) · [资源预算](../images/0.13.2/2x/resources.png)
 
-捕获时间 2026-11-12 06:27 UTC，源码 `f607efda4fbbd839a2ed710fce48e7637d73fe20`，应用版本 0.13.2。复现时设置 `QT_SCALE_FACTOR=2`；专用截图 workflow 默认也使用 2×。原始 1× 文件保留供历史记录使用。
+捕获时间 2026-11-12 06:27 UTC，源码 `f607efda4fbbd839a2ed710fce48e7637d73fe20`，应用版本 0.13.2。复现时设置 `QT_SCALE_FACTOR=2`；这是当时的 2× 捕获配置；当前专用 workflow 使用下面的官网适配配置。原始 1× 文件保留供历史记录使用。
+
+## 官网尺寸适配版本（3×）
+
+为避免在普通 1080p 显示器上将完整宽窗口过度缩小，官网使用真实软件的响应式窗口重新截取各页面。工作台、连接和资源页面显示软件本身已有的紧凑导航；项目页保留完整导航。仅改变真实窗口尺寸和 Windows Qt DPI，没有改变字体、控件、状态或应用源码。
+
+| 页面 | 逻辑窗口 | PNG 原始像素 |
+| --- | --- | --- |
+| 工作台 | 960×840 | 2880×2520 |
+| 项目工作区 | 1120×1050 | 3360×3150 |
+| 连接与代理 | 840×1050 | 2520×3150 |
+| 资源预算 | 840×1000 | 2520×3000 |
+
+- Windows 捕获时间：2026-11-12 07:12 UTC。
+- [原生 Windows 任务 43173501032](https://github.com/engeeeee/ENGE-SPX/actions/runs/43173501032)，源码 `90a7fec5be471c24b0ff2edffb69d9972232c790`，应用仍为 0.13.2。
+- [原图清单与 SHA-256](../images/0.13.2/web-3x/capture.json)。
+- 原始 artifact SHA-256：`f9837bbb0b5de333971ec03f6bbf317a850baa76af68c8eec508f2edb7d23eeb`。
+- [工作台](../images/0.13.2/web-3x/overview.png) · [项目工作区](../images/0.13.2/web-3x/workspace.png) · [连接与代理](../images/0.13.2/web-3x/connection.png) · [资源预算](../images/0.13.2/web-3x/resources.png)。
+
+复现：
+
+```powershell
+$env:PYTHONPATH = 'src'
+$env:QT_SCALE_FACTOR = '3'
+python docs/screenshots/capture.py --profile website --output .\build\website-screenshots
+```
+
+官网首页展示区允许裁切窗口底部，点击可查看完整 PNG。普通 DPI 屏幕不对软件图片做透视变换，立体效果由独立背板和阴影承担；高 DPI 屏幕保留轻微透视。1×、2× 和本批原图分别保留，README 仍引用完整导航的 2× 图。

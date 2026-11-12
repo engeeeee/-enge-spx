@@ -1,0 +1,56 @@
+{
+  "version": "0.13.2",
+  "profile": "website",
+  "source_commit": "90a7fec5be471c24b0ff2edffb69d9972232c790",
+  "platform": "Windows",
+  "python": "3.12.10",
+  "qt": "6.12.0",
+  "captured_utc": "2026-11-12T07:12:49.180940+00:00",
+  "state": "unconfigured temporary data; no accounts, proxies or Docker workspace started",
+  "captures": [
+    {
+      "file": "overview.png",
+      "page": "overview",
+      "width": 2880,
+      "height": 2520,
+      "logical_width": 960,
+      "logical_height": 840,
+      "device_pixel_ratio": 3.0,
+      "bytes": 200135,
+      "sha256": "8847c6d5dad7a16c35f1f6feb1af92fd94de1b2a6892549f01098dc28a5bfc56"
+    },
+    {
+      "file": "workspace.png",
+      "page": "workspace",
+      "width": 3360,
+      "height": 3150,
+      "logical_width": 1120,
+      "logical_height": 1050,
+      "device_pixel_ratio": 3.0,
+      "bytes": 307625,
+      "sha256": "40a1b26a7e908b7c30072184fbdd20d87cfe1df836ab5f608b48404af8b7657b"
+    },
+    {
+      "file": "connection.png",
+      "page": "connection",
+      "width": 2520,
+      "height": 3150,
+      "logical_width": 840,
+      "logical_height": 1050,
+      "device_pixel_ratio": 3.0,
+      "bytes": 260098,
+      "sha256": "7f00fa94f5b6dc4fe035bc3fa94d67a8d3757338e775b9953064b7907e41cdcd"
+    },
+    {
+      "file": "resources.png",
+      "page": "resources",
+      "width": 2520,
+      "height": 3000,
+      "logical_width": 840,
+      "logical_height": 1000,
+      "device_pixel_ratio": 3.0,
+      "bytes": 239582,
+      "sha256": "ac0396723192a19df15e6062153c81b28d4816907d0edf645ae57bbdeeb17573"
+    }
+  ]
+}

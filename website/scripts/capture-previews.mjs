@@ -137,6 +137,10 @@ try {
     });
     await page.setViewportSize({ width: 1920, height: 1080 });
     await capture("desktop-1920.png", "宽屏首页 · 1920px");
+    await page.getByRole("button", { name: "放大查看工作台真实截图" }).click();
+    await page.getByRole("button", { name: "放大阅读" }).click();
+    await capture("high-resolution-reading.png", "原始逻辑尺寸阅读 · 1080p");
+    await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 768, height: 1024 });
     assert(
         (await page.evaluate(() => document.documentElement.scrollWidth)) <=

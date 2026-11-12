@@ -7,6 +7,7 @@ import {
     useRef,
     useState,
     type ReactNode,
+    type CSSProperties,
 } from "react";
 import {
     ArrowDownToLine,
@@ -135,12 +136,18 @@ export function SiteInteractions({ children }: { children: ReactNode }) {
                         key={selected}
                         className={`gallery-image-viewport ${reading ? "is-reading" : ""}`}
                         tabIndex={0}
+                        style={
+                            {
+                                "--shot-width": `${picture.width}px`,
+                                "--shot-height": `${picture.height}px`,
+                            } as CSSProperties
+                        }
                         aria-label="高清软件截图，放大后可滚动阅读"
                     >
                         <img
                             src={asset(picture.source)}
-                            width="2560"
-                            height="2000"
+                            width={picture.width * picture.pixelRatio}
+                            height={picture.height * picture.pixelRatio}
                             alt={picture.alt}
                             className="gallery-image"
                         />
@@ -175,7 +182,9 @@ export function SiteInteractions({ children }: { children: ReactNode }) {
                         </div>
                     </div>
                     <p className="gallery-caption">
-                        Windows 原生 2× 截图 · 2560 × 2000 ·{" "}
+                        Windows 原生 {picture.pixelRatio}× 截图 ·{" "}
+                        {picture.width * picture.pixelRatio} ×{" "}
+                        {picture.height * picture.pixelRatio} ·{" "}
                         <a
                             href={docs.screenshots}
                             target="_blank"
@@ -213,8 +222,8 @@ export function Screenshot({
                 <img
                     src={asset(item.source)}
                     alt={item.alt}
-                    width="1280"
-                    height="1000"
+                    width={item.width}
+                    height={item.height}
                     loading={priority ? "eager" : "lazy"}
                     fetchPriority={priority ? "high" : "auto"}
                     decoding="async"
@@ -251,7 +260,7 @@ export function HeroVisual() {
                 <Screenshot id="overview" priority />
                 <div className="hero-underlabel">
                     <span>YOUR PROJECT. ITS OWN WORKSPACE.</span>
-                    <span>WINDOWS / NATIVE 2×</span>
+                    <span>WINDOWS / NATIVE 3×</span>
                 </div>
             </div>
         </div>
