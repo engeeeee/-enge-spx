@@ -59,7 +59,7 @@ def main():
                 target = args.output / (page + ".png")
                 picture = window.grab()
                 assert picture.save(str(target))
-                captures.append({"file": target.name, "page": page, "width": picture.width(), "height": picture.height(), "bytes": target.stat().st_size, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+                captures.append({"file": target.name, "page": page, "width": picture.width(), "height": picture.height(), "logical_width": window.width(), "logical_height": window.height(), "device_pixel_ratio": window.devicePixelRatioF(), "bytes": target.stat().st_size, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
         finally:
             window.finish_close()
     report = {"version": __version__, "source_commit": os.environ.get("GITHUB_SHA"), "platform": platform.system(), "python": platform.python_version(), "qt": PySide6.__version__, "captured_utc": datetime.now(timezone.utc).isoformat(), "state": "unconfigured temporary data; no accounts, proxies or Docker workspace started", "captures": captures}

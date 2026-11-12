@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 10
     env:
       PYTHONPATH: src
-      QT_SCALE_FACTOR: '1'
+      QT_SCALE_FACTOR: '2'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
