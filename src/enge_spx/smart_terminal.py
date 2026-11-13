@@ -141,6 +141,8 @@ class OrderedInput:
         self.thread.start()
 
     def put(self, kind, value):
+        if self.closed.is_set():
+            return False
         try:
             self.queue.put_nowait((kind, value))
         except queue.Full:
@@ -205,6 +207,9 @@ class OrderedInput:
                 value = None
 
     def paste(self, clipboard):
+        if self.closed.is_set():
+            self.report("终端连接已结束，请从 ENGE SPX 重新打开工具后粘贴。")
+            return
         if not self.pastes.acquire(blocking=False):
             self.report("已有 8 次粘贴等待处理，请稍候。")
             return
@@ -213,8 +218,15 @@ class OrderedInput:
             self.pastes.release()
             return
         def capture():
+            if not result.set_running_or_notify_cancel():
+                return
             try:
-                result.set_result(clipboard.read(sequence))
+                if self.closed.is_set():
+                    raise SPXError("终端已关闭。")
+                snapshot = clipboard.read(sequence)
+                if self.closed.is_set():
+                    raise SPXError("终端已关闭。")
+                result.set_result(snapshot)
             except BaseException as error:
                 result.set_exception(error)
         threading.Thread(target=capture, name="spx-clipboard-snapshot", daemon=True).start()
@@ -223,6 +235,14 @@ class OrderedInput:
         if self.closed.is_set():
             return
         self.closed.set()
+        while True:
+            try:
+                kind, value = self.queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "paste":
+                value.cancel()
+                self.pastes.release()
         if self.transfer is not None:
             self.transfer.close()
         # Closing the owned PTY may wait for output draining; never block Qt.
@@ -409,6 +429,9 @@ class TerminalView(QWidget):
         self.selection = None
 
     def paste(self):
+        if self.stopping.is_set():
+            self.status.emit("终端连接已结束，请从 ENGE SPX 重新打开工具后粘贴。")
+            return
         if self.clipboard is None:
             self.status.emit("系统剪贴板桥接仅在 Windows 中启用。")
             return

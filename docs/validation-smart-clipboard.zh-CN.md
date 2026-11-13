@@ -9,6 +9,7 @@
 - 官方原生 Linux ARM64 Claude Code **2.1.319** 与 Codex **0.167.0**，独立测试 HOME、合成图片、真实 PTY/TUI：同一草稿中保留前后中文，分别出现两个原生 `[Image #N]`，不发送 Enter，不重启 CLI。Codex 使用 `--no-daemon` 研究夹具消除包外 server 依赖；产品不添加该参数。
 - 新增真实原生 CLI → 合成 API 检查：两款 CLI 均在同一草稿保留混合中文和两张原生图片标记；粘贴不提交，明确 Enter 后，Claude 请求内含两个 `image`，Codex 请求内含两个 `input_image`。解码图像的尺寸 160×100、两种像素颜色逐项一致。测试不使用真实账号或模型，也不读取系统剪贴板。
 - 初轮原生 Windows CI 已通过 475 项测试（459 通过、16 平台跳过）及打包/GUI/DPI；确认 CF_UNICODETEXT、CF_HDROP、CF_DIB、CF_DIBV5、PNG、中间 junction 阻断及真实 ConPTY 输入。修正了重定向父进程标准句柄误传给子进程的问题。[CI 记录](https://github.com/engeeeee/ENGE-SPX/actions/runs/43413424271)。后续新增键盘、GUI、缓存迁移与 4K 测试的最终结果另补。
+- 扩展验证的 Windows CI 通过 **487 项（470 通过、17 跳过）**，Linux Python 3.12 通过 **487 项（460 通过、27 跳过）**；Windows GUI、125/150/200% DPI、验收夹具生成与冻结打包通过。[对应记录](https://github.com/engeeeee/ENGE-SPX/actions/runs/43419524777)。该轮 Docker 图像测试因 CI 主机缺少 `libEGL.so.1` 中断，已为测试主机补齐 Qt 图像系统库；不改变生产容器。最新全部检查以 [PR #9](https://github.com/engeeeee/ENGE-SPX/pull/9) 为准。
 - **真实模型是否理解图片仍未验收**。合成 API 证明的是 CLI 已编码视觉输入，不能把接收夹具当作模型识图结果。真实 Windows + Docker Desktop + 已登录账号的操作仍需下表人工验收。
 
 ```bash
@@ -45,5 +46,7 @@ PYTHONPATH=src python tests/integration_cli_clipboard.py \
 ## 性能状态
 
 目前没有真实 Windows 上修改前/后的 CPU、内存或粘贴延迟对比，不提供提升百分比。新增终端使用现有 Qt DLL 和两个小型纯 Python 包，不新增常驻剪贴板服务、宿主监听端口或浏览器引擎。文件 1 MiB 分块复制，单个受控导入最长 120 秒，操作不占 GUI 主线程；每次粘贴使用当前容器和 AI 会话。
+
+已测单项成本：上述 Windows CI 把 **3840×2160 CF_DIBV5** 读取并编码为 PNG，用时 **331.44 ms**，输出 **37561 字节**，像素与原始分辨率一致。这是合成纯色 4K 图片的一次剪贴板转换，**不包括 Docker、CLI 和模型耗时**，不能代表所有截图或机器。输出不含原始图片/剪贴板内容。终端停止后拒绝继续读取系统剪贴板；已处理快照会释放，活动缓存锁不妨碍应用数据复制迁移。
 
 真实测量应记录同一项目/图片、同一 Docker/WSL2/CLI 版本，分别比较外部终端与智能终端的空闲占用、截图到标记耗时、10/128 MiB 文件导入、连续输入期间的响应及全部关闭后的回收。使用现有 Resources 记录机制区分主 GUI、终端进程、容器和 WSL2；缺少测量保持“未测”，不能写为零。

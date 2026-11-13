@@ -180,8 +180,8 @@ def launch(config: dict | None, command: list[str], project: str, title: str, en
 
 def test(config: dict | None, env=None):
     if validate(config)["kind"] == "smart":
-        from .invocation import console_entry
-        return launch(config, [*console_entry(), "--terminal-preview"], str(Path.home()), "ENGE SPX · 终端测试", env)
+        from .invocation import console_entry, console_environment
+        return launch(config, [*console_entry(), "--terminal-preview"], str(Path.home()), "ENGE SPX · 终端测试", console_environment())
     shell = discover("powershell")
     if not shell:
         raise SPXError("未找到 Windows PowerShell，无法执行终端测试。")

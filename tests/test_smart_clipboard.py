@@ -294,6 +294,17 @@ class OrderedInputTests(unittest.TestCase):
         clipboard.snapshot = None
         wait_for(lambda: reference() is None)
 
+    def test_disconnected_session_does_not_read_clipboard_or_queue_keys(self):
+        worker, written, messages = self.worker()
+        worker.close()
+        clipboard = self.clipboard(Snapshot("text", "must not be captured"))
+        worker.paste(clipboard)
+        self.assertFalse(worker.put("keys", b"a"))
+        clipboard.sequence.assert_not_called()
+        clipboard.read.assert_not_called()
+        self.assertFalse(written)
+        self.assertTrue(worker.queue.empty())
+
     def test_failed_file_copy_keeps_draft_and_cancels_queued_enter(self):
         transfer = Mock(tool="claude")
         transfer.paste.side_effect = OSError("synthetic-secret-do-not-display")

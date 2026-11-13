@@ -170,7 +170,13 @@ if os.name=='nt':
 else:
  import tty;tty.setraw(sys.stdin.fileno())
 sys.stdout.write('SPX_READY\\x1b[?2004h');sys.stdout.flush()
-data=sys.stdin.buffer.read(7)
+data=bytearray()
+while len(data)<4096:
+ block=sys.stdin.buffer.read(1)
+ if not block:break
+ data.extend(block)
+ if block==b'\\x16':break
+data=bytes(data).replace(b'\\r\\n',b'\\n').replace(b'\\r',b'\\n')
 sys.stdout.write('SPX_BYTES:'+data.hex());sys.stdout.flush()
 '''
         with tempfile.TemporaryDirectory() as tmp:
@@ -189,7 +195,7 @@ sys.stdout.write('SPX_BYTES:'+data.hex());sys.stdout.flush()
                 while b"SPX_READY" not in output and time.monotonic() < deadline:
                     time.sleep(.01)
                 self.assertIn(b"SPX_READY", output)
-                data = "中文".encode() + b"\x16"
+                data = "中文\nline\t🦄".encode() + b"\x1b[200~paste\nline2\x1b[201~\x16"
                 pty.write(data)
                 while b"SPX_BYTES:" + data.hex().encode() not in output and time.monotonic() < deadline:
                     time.sleep(.01)
