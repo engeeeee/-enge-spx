@@ -762,7 +762,7 @@ class Window(QMainWindow):
             if action == self.stop_and_exit:
                 self.stop_exit_button = item
             panel.layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignLeft)
-        panel = page.panel("工作区终端", "Windows Terminal、PowerShell 或你选择的自定义终端。")
+        panel = page.panel("工作区终端", "自动模式为 Claude/Codex 打开智能粘贴终端；也可保留你习惯的外部终端。")
         terminal_box = combo(self.c.terminal_kind, list(terminal.PRESETS.items()))
         terminal_box.setMinimumContentsLength(10)
         terminal_box.setSizeAdjustPolicy(Combo.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -775,6 +775,7 @@ class Window(QMainWindow):
         panel.layout.addLayout(row)
         self.terminal_args = panel.field("自定义启动参数", entry(self.c.terminal_args, "按所选终端的说明填写"), "{project} 为项目目录，{title} 为标题，独立的 {command} 插入工作区命令。")
         panel.layout.addWidget(label("自定义终端请关闭会自动输入命令的欢迎页，避免欢迎指令进入工具输入框。", "Caption", True))
+        panel.layout.addWidget(label("截图及文件 Ctrl+V 需要智能粘贴终端。Windows Terminal / PowerShell / 自定义终端保留原有粘贴；软件不会修改它们的全局快捷键。", "Caption", True))
         self.c.terminal_kind.changed.connect(lambda unused: self.terminal_fields())
         self.terminal_fields()
         row = panel.row()
@@ -888,7 +889,7 @@ class Window(QMainWindow):
 
     def terminal_fields(self):
         kind = self.c.terminal_kind.get()
-        self.terminal_path.setEnabled(kind != "auto")
+        self.terminal_path.setEnabled(kind not in ("auto", "smart"))
         self.terminal_args.setEnabled(kind == "custom")
 
     def update_terminal_hint(self):

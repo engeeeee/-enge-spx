@@ -1124,18 +1124,22 @@ class Engine:
 
     def terminal(self, path, tool, expected_workspace=None):
         from .terminal import launch, resolve
-        from .invocation import console_entry
+        from .invocation import console_entry, console_environment
         if tool not in TOOLS:
             raise SPXError("未知工具。")
         if os.name != "nt":
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
         config = self.store.settings()["terminal"]
+        # Explicit external preferences, login windows and Linux shells keep
+        # their original display host. Auto AI sessions use the owned input UI.
+        if config.get("kind", "auto") == "auto" and tool in ("claude", "codex"):
+            config = {"kind": "smart"}
         resolve(config)
         _, url = self._tool_session(path, TOOLS[tool], browser=True if tool.startswith("login-") else None, expected_workspace=expected_workspace)
         directory, _ = self.store.project(path)
         command = [*console_entry(), "--data", str(self.store.home), "--project", str(directory), "attach", tool, "--session", self.prepared_session, "--container", self.prepared_container]
         # The terminal gets a public CLI invocation, never the token environment.
-        launch(config, command, str(directory), "ENGE SPX · " + tool, docker_environment(self.docker.executable))
+        launch(config, command, str(directory), "ENGE SPX · " + tool, console_environment(self.docker.executable))
         # Open the viewer so any account authorization URL stays in Chromium.
         if url:
             webbrowser.open(url)

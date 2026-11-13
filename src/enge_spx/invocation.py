@@ -15,3 +15,13 @@ def console_entry():
     if executable.name.lower() == "pythonw.exe":
         executable = executable.with_name("python.exe")
     return [str(executable), "-m", "enge_spx"]
+
+
+def console_environment(docker_executable=None):
+    from .docker_env import environment
+    result = environment(docker_executable)
+    # Source-mode attach starts with cwd=the authorized project. Never import
+    # host modules from that untrusted cwd or a relative inherited PYTHONPATH.
+    result["PYTHONSAFEPATH"] = "1"
+    result["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    return result
