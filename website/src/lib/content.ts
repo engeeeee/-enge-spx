@@ -1,19 +1,19 @@
 export const product = {
     name: "ENGE SPX",
-    version: "0.13.3",
-    published: "2026-11-12",
+    version: "0.13.4",
+    published: "2026-11-13",
     site: "https://enge1337.cn",
     repository: "https://github.com/engeeeee/ENGE-SPX",
     release:
-        "https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.3-windows",
+        "https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.4-windows",
     installer:
-        "https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.3-windows/ENGE-SPX-Windows-x64-0.13.3-Setup.exe",
+        "https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.4-windows/ENGE-SPX-Windows-x64-0.13.4-Setup.exe",
     portable:
-        "https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.3-windows/ENGE-SPX-Windows-x64-0.13.3-Portable.zip",
+        "https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.4-windows/ENGE-SPX-Windows-x64-0.13.4-Portable.zip",
     installerSha256:
-        "a314207f8376aabce1ec8bcbd54948501601d9977a1eded79fbf8b1bacccca51",
+        "1bab237db37abaed225ea2e229499046d9f66a849197b63cd4fcfc844f6630dd",
     portableSha256:
-        "93572aad3816e267709553dd28cb7ee8fdee4bdfb318ab3c6779afdbc0c4cd50",
+        "7606de9a5b53fc7c8c1288a241d06a8456a6294f6909612c94cafc3d6f93a605",
     screenshotVersion: "0.13.2",
 } as const;
 

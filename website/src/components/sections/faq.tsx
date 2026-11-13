@@ -33,9 +33,8 @@ export function FaqSection() {
                             <ArrowUpRight size={18} />
                         </div>
                         <p>
-                            修复 Docker Desktop
-                            及后台完全退出后，软件无法完成退出的问题。
-                            保留原有数据和退出偏好。
+                            处理 Docker 关闭过渡期的退出竞态。
+                            失败窗口可直接复制实际版本与核验阶段。
                         </p>
                         <span className="release-note-link">
                             查看更新记录
