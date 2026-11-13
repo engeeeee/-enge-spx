@@ -50,6 +50,17 @@ def image_blocks(value):
             yield from image_blocks(child)
 
 
+def text_blocks(value):
+    if isinstance(value, dict):
+        if isinstance(value.get("text"), str):
+            yield value["text"]
+        for child in value.values():
+            yield from text_blocks(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from text_blocks(child)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -89,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
         if images:
             # Only non-content evidence. Never store full prompts/base64 data.
             with self.server.lock:
-                self.server.requests.append({"route": self.path.split("?", 1)[0], "images": summaries})
+                self.server.requests.append({"route": self.path.split("?", 1)[0], "images": summaries, "text": list(text_blocks(value))})
             if len(images) == 2:
                 self.server.got_images.set()
         if "count_tokens" in self.path:
@@ -215,17 +226,43 @@ class QtTUI:
             time.sleep(.01)
         raise AssertionError("Actual Qt/CLI window did not reach expected fixture state")
 
-    def paste(self, snapshot):
+    def paste(self, snapshot, right_click=False):
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
         self.serial += 1
         self.snapshot = snapshot
-        QTest.keyClick(self.window.view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        if right_click:
+            from PySide6.QtCore import QPoint
+            view = self.window.view
+            QTest.mouseClick(view, Qt.MouseButton.RightButton,
+                             pos=QPoint(round(view.PAD_X + view.screen.cursor.x * view.cell_width),
+                                        round(view.PAD_Y + (view.screen.cursor.y + .4) * view.cell_height)))
+        else:
+            QTest.keyClick(self.window.view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
 
     def submit(self):
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
         QTest.keyClick(self.window.view, Qt.Key.Key_Return)
+
+    def click_text(self, needle, offset=0):
+        from PySide6.QtCore import Qt, QPoint
+        from PySide6.QtTest import QTest
+        view = self.window.view
+        points = []
+        for y in range(view.screen.lines):
+            row = view.screen.buffer[y]
+            for x in range(view.screen.columns):
+                text = "".join(row[n].data for n in range(x, min(view.screen.columns, x + 2 * len(needle))))
+                if row[x].data and text.startswith(needle):
+                    points.append((y, x))
+        assert len(points) == 1, "fixture edit target must be unambiguous"
+        y, x = points[0]
+        x += offset
+        QTest.mouseClick(view, Qt.MouseButton.LeftButton,
+                         pos=QPoint(round(view.PAD_X + (x + .4) * view.cell_width),
+                                    round(view.PAD_Y + (y + .4) * view.cell_height)))
+        self.wait(lambda value: view.screen.cursor.x == x and view.screen.cursor.y == y)
 
     def capture(self, path):
         self.app.processEvents()
@@ -313,15 +350,27 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             tui.wait(lambda value: ("❯" in value and "Claude Code v" in value and "Yes, I trust" not in value) if tool == "claude" else ("To get started" in value or "GPT-6-Sol" in value))
             if qt_terminal:
                 tui.wait(lambda value: tui.window.view.ready.is_set())
-                tui.paste(Snapshot("text", "请分析图片 " + nonce + "："))
+                prompt = "请分析图片 " + nonce + "："
+                if tool == "codex":
+                    prompt += "EDIT-A|EDIT-B\n第二行 END"
+                tui.paste(Snapshot("text", prompt))
                 tui.wait(lambda value: nonce in value)
+                if tool == "codex":
+                    tui.wait(lambda value: "EDIT-A|EDIT-B" in value and "第二行 END" in value)
+                    tui.wait(lambda value: tui.window.view.screen.mouse)
+                    tui.click_text("EDIT-A|EDIT-B", 6)
+                    tui.paste(Snapshot("text", "中点"), right_click=True)
+                    tui.wait(lambda value: "EDIT-A中点|EDIT-B" in value)
+                    tui.click_text("END")
+                    tui.paste(Snapshot("text", "mouse-"))
+                    tui.wait(lambda value: "mouse-END" in value)
             else:
                 tui.pty.write(text_frame("请分析图片 " + nonce + "："))
             adapter = InputAdapter(tool, version)
             first = time.monotonic()
             for i, path in enumerate(paths, 1):
                 if qt_terminal:
-                    tui.paste(Snapshot("files", (str(path),)))
+                    tui.paste(Snapshot("files", (str(path),)), right_click=tool == "codex" and i == 1)
                     tui.wait(lambda value: "[Image #" + str(i) + "]" in value)
                     tui.wait(lambda value: "已交给" in tui.window.message.text())
                 else:
@@ -362,7 +411,10 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 requests = list(api.requests)
             images = next(x["images"] for x in requests if len(x["images"]) == 2)
             assert [x["pixel"] for x in images] == ["#d97757", "#87bbb6"], images
-            return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": round(time.monotonic() - first, 3), "fixture_only": True, "real_model_understanding": "not_tested"}
+            mouse_edit = qt_terminal and tool == "codex"
+            if mouse_edit:
+                assert any("EDIT-A中点|EDIT-B" in text and "mouse-" in text for req in requests for text in req["text"])
+            return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "qt_mouse_cursor_edit": mouse_edit, "qt_right_click_paste": mouse_edit, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": round(time.monotonic() - first, 3), "fixture_only": True, "real_model_understanding": "not_tested"}
         finally:
             tui.close()
             api.shutdown()

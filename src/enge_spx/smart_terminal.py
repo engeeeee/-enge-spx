@@ -17,7 +17,7 @@ import time
 
 import pyte
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF, QSize
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter, QContextMenuEvent
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QFrame, QMenu, QToolButton, QSizePolicy
 
 from .clipboard import WindowsClipboard
@@ -333,7 +333,12 @@ class TerminalView(QWidget):
         self.selection = None
         self.selection_lines = None
         self.explicit_selection = False
-        self.selection_mode = False
+        self.copy_on_select = True
+        self.right_click_paste = True
+        self.left_press = None
+        self.left_drag = False
+        self.native_drag = False
+        self.quick_paste_click = False
         self.selecting = False
         self.preedit = ""
         self.offset = 0
@@ -437,6 +442,8 @@ class TerminalView(QWidget):
         self.selection = self.selection_lines = None
         self.explicit_selection = False
         self.selecting = False
+        self.left_press = None
+        self.left_drag = False
         self.selection_changed.emit(False)
         self.scrollbar.setRange(0, len(self.screen.history.top))
         self.update()
@@ -559,6 +566,11 @@ class TerminalView(QWidget):
 
     def keyPressEvent(self, event):
         modifiers = event.modifiers()
+        if event.key() == Qt.Key.Key_Menu or (event.key() == Qt.Key.Key_F10 and modifiers & Qt.KeyboardModifier.ShiftModifier):
+            rect = self.inputMethodQuery(Qt.InputMethodQuery.ImCursorRectangle)
+            self.open_context_menu(self.mapToGlobal(rect.bottomLeft()))
+            event.accept()
+            return
         if modifiers & Qt.KeyboardModifier.ControlModifier and modifiers & Qt.KeyboardModifier.ShiftModifier and event.key() == Qt.Key.Key_A:
             self.select_all()
             event.accept()
@@ -617,50 +629,96 @@ class TerminalView(QWidget):
         return (max(0, min(self.screen.lines - 1, int((event.position().y() - self.PAD_Y) / self.cell_height))),
                 max(0, min(self.screen.columns - 1, int((event.position().x() - self.PAD_X) / self.cell_width))))
 
+    def mouse_packet(self, event, button, release=False):
+        y, x = self.cell(event)
+        modifiers = event.modifiers()
+        button += (4 if modifiers & Qt.KeyboardModifier.ShiftModifier else 0)
+        button += (8 if modifiers & Qt.KeyboardModifier.AltModifier else 0)
+        button += (16 if modifiers & Qt.KeyboardModifier.ControlModifier else 0)
+        return f"\x1b[<{button};{x+1};{y+1}{'m' if release else 'M'}".encode()
+
     def mousePressEvent(self, event):
         self.setFocus()
         y, x = self.cell(event)
         if event.button() == Qt.MouseButton.RightButton:
+            self.quick_paste_click = (self.right_click_paste and self.ready.is_set() and
+                                      self.clipboard is not None and not self.stopping.is_set() and
+                                      not event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             event.accept()
             return
-        if self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            button = {Qt.MouseButton.LeftButton: 0, Qt.MouseButton.MiddleButton: 1, Qt.MouseButton.RightButton: 2}.get(event.button(), 0)
-            self.sender.put("keys", f"\x1b[<{button};{x+1};{y+1}M".encode())
-            self.selecting = False
-        elif event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
+            native = self.screen.mouse and self.offset == 0 and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier
             self.clear_selection()
+            if native and event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                self.native_drag = True
+                self.sender.put("keys", self.mouse_packet(event, 0))
+                return
             self.snapshot_selection()
             self.selection = ((y + self.selection_start(), x), (y + self.selection_start(), x))
+            self.left_press = (event.position(), self.mouse_packet(event, 0), native)
+            self.left_drag = False
             self.selecting = True
             self.update()
+        elif event.button() == Qt.MouseButton.MiddleButton and self.screen.mouse and self.offset == 0:
+            self.sender.put("keys", self.mouse_packet(event, 1))
 
     def mouseMoveEvent(self, event):
         if self.selecting:
+            if self.left_press is not None and not self.left_drag:
+                delta = event.position() - self.left_press[0]
+                if abs(delta.x()) + abs(delta.y()) < min(QApplication.startDragDistance(), max(3, self.cell_width / 2)):
+                    return
+                self.left_drag = True
+                self.explicit_selection = True
             y, x = self.cell(event)
             self.selection = (self.selection[0], (y + self.selection_start(), x))
             self.selection_changed.emit(self.has_selection)
             self.update()
-        elif self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        elif self.screen.mouse and self.offset == 0 and self.selection_lines is None and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if event.buttons() & Qt.MouseButton.RightButton or (event.buttons() & Qt.MouseButton.LeftButton and not self.native_drag):
+                return
             motion = (1003 << 5) in self.screen.mode or ((1002 << 5) in self.screen.mode and event.buttons())
             if motion:
-                y, x = self.cell(event)
-                button = 0 if event.buttons() & Qt.MouseButton.LeftButton else 2 if event.buttons() & Qt.MouseButton.RightButton else 3
-                self.sender.put("keys", f"\x1b[<{32+button};{x+1};{y+1}M".encode())
+                button = 0 if event.buttons() & Qt.MouseButton.LeftButton else 1 if event.buttons() & Qt.MouseButton.MiddleButton else 3
+                self.sender.put("keys", self.mouse_packet(event, 32 + button))
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton:
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self.quick_paste_click = False
+            elif self.quick_paste_click:
+                self.paste()
             event.accept()
             return
-        if self.screen.mouse and not self.selection_mode and not self.selecting and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            y, x = self.cell(event)
-            button = {Qt.MouseButton.LeftButton: 0, Qt.MouseButton.MiddleButton: 1, Qt.MouseButton.RightButton: 2}.get(event.button(), 0)
-            self.sender.put("keys", f"\x1b[<{button};{x+1};{y+1}m".encode())
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.native_drag:
+                self.native_drag = False
+                self.sender.put("keys", self.mouse_packet(event, 0, True))
+                return
+            click = self.left_press
+            if click is not None and not self.left_drag:
+                delta = event.position() - click[0]
+                if abs(delta.x()) + abs(delta.y()) >= min(QApplication.startDragDistance(), max(3, self.cell_width / 2)):
+                    y, x = self.cell(event)
+                    self.left_drag = self.explicit_selection = True
+                    self.selection = (self.selection[0], (y + self.selection_start(), x))
+            if self.has_selection:
+                if self.copy_on_select:
+                    self.copy()
+            elif click is not None and click[2] and self.screen.mouse and self.offset == 0 and not self.left_drag:
+                # A genuine native click, never synthetic arrows or edits to
+                # the CLI buffer. Delay until release to distinguish dragging.
+                self.sender.put("keys", click[1] + self.mouse_packet(event, 0, True))
+            self.left_press = None
+            self.left_drag = False
+        elif event.button() == Qt.MouseButton.MiddleButton and self.screen.mouse and self.offset == 0:
+            self.sender.put("keys", self.mouse_packet(event, 1, True))
         self.selecting = False
         if not self.has_selection:
             self.clear_selection()
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() != Qt.MouseButton.LeftButton or (self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+        if event.button() != Qt.MouseButton.LeftButton or event.modifiers() & Qt.KeyboardModifier.AltModifier:
             return self.mousePressEvent(event)
         self.clear_selection()
         self.snapshot_selection()
@@ -687,9 +745,8 @@ class TerminalView(QWidget):
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.zoom(1 if event.angleDelta().y() > 0 else -1)
-        elif self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            y, x = self.cell(event)
-            self.sender.put("keys", f"\x1b[<{64 if event.angleDelta().y()>0 else 65};{x+1};{y+1}M".encode())
+        elif self.screen.mouse and self.offset == 0 and self.selection_lines is None and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self.sender.put("keys", self.mouse_packet(event, 64 if event.angleDelta().y() > 0 else 65))
         else:
             self.scrollbar.setValue(self.scrollbar.value() - event.angleDelta().y() // 40)
 
@@ -718,10 +775,14 @@ class TerminalView(QWidget):
         clear = menu.addAction("取消选择\tEsc", self.clear_selection)
         clear.setEnabled(self.has_selection)
         menu.addSeparator()
-        selection = menu.addAction("鼠标选择模式")
+        selection = menu.addAction("拖选后自动复制")
         selection.setCheckable(True)
-        selection.setChecked(self.selection_mode)
-        selection.toggled.connect(lambda enabled: setattr(self, "selection_mode", enabled))
+        selection.setChecked(self.copy_on_select)
+        selection.toggled.connect(lambda enabled: setattr(self, "copy_on_select", enabled))
+        quick = menu.addAction("右键直接粘贴 · Shift+右键打开菜单")
+        quick.setCheckable(True)
+        quick.setChecked(self.right_click_paste)
+        quick.toggled.connect(lambda enabled: setattr(self, "right_click_paste", enabled))
         menu.addSeparator()
         menu.addAction("放大字号\tCtrl++", lambda: self.zoom(1))
         menu.addAction("缩小字号\tCtrl+-", lambda: self.zoom(-1))
@@ -729,10 +790,16 @@ class TerminalView(QWidget):
         return menu
 
     def contextMenuEvent(self, event):
+        if event.reason() == QContextMenuEvent.Reason.Mouse and self.quick_paste_click:
+            event.accept()
+            return
+        self.open_context_menu(event.globalPos())
+        event.accept()
+
+    def open_context_menu(self, position):
         menu = self.create_context_menu()
         menu.aboutToHide.connect(menu.deleteLater)
-        menu.popup(event.globalPos())
-        event.accept()
+        menu.popup(position)
 
     def stop(self):
         self.stopping.set()
@@ -823,7 +890,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         options.setText("⋯")
         options.setFixedSize(32, 28)
         options.setAccessibleName("终端显示选项")
-        options.setToolTip("字号与鼠标选择模式；右键打开复制和粘贴菜单")
+        options.setToolTip("字号与鼠标偏好；Shift+右键打开操作菜单")
         header.addWidget(options)
         layout.addWidget(session)
         self.view = TerminalView(pty, transfer, clipboard)
@@ -833,7 +900,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         bottom = QHBoxLayout(footer)
         bottom.setContentsMargins(16, 9, 16, 9)
         bottom.setSpacing(16)
-        self.message = QLabel("Ctrl+V 粘贴 · 拖选后右键复制 · CLI 接管鼠标时可按住 Shift 拖选")
+        self.message = QLabel("单击定位 · 拖选自动复制 · 右键粘贴 · Shift+右键打开菜单")
         self.message.setObjectName("TerminalMessage")
         self.message.setTextFormat(Qt.TextFormat.PlainText)
         self.message.setWordWrap(True)
@@ -860,10 +927,14 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         menu.addAction("缩小字号\tCtrl+-", lambda: self.view.zoom(-1))
         menu.addAction("重置字号\tCtrl+0", lambda: self.view.zoom(reset=True))
         menu.addSeparator()
-        select = menu.addAction("鼠标选择模式")
+        select = menu.addAction("拖选后自动复制")
         select.setCheckable(True)
-        select.setChecked(self.view.selection_mode)
-        select.toggled.connect(lambda enabled: setattr(self.view, "selection_mode", enabled))
+        select.setChecked(self.view.copy_on_select)
+        select.toggled.connect(lambda enabled: setattr(self.view, "copy_on_select", enabled))
+        quick = menu.addAction("右键直接粘贴")
+        quick.setCheckable(True)
+        quick.setChecked(self.view.right_click_paste)
+        quick.toggled.connect(lambda enabled: setattr(self.view, "right_click_paste", enabled))
         menu.aboutToHide.connect(menu.deleteLater)
         menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
 
