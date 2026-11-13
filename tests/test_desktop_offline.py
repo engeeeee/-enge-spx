@@ -20,13 +20,17 @@ from enge_spx.desktop_settings import Backend
 def registry_fixture(version=2):
     import winreg
     root = r"Software\ENGE-SPX-Exit-Test-" + uuid.uuid4().hex
-    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, root + r"\owned", 0, winreg.KEY_WRITE) as key:
+    distro = root + "\\{" + str(uuid.uuid4()) + "}"
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, distro, 0, winreg.KEY_WRITE) as key:
         winreg.SetValueEx(key, "DistributionName", 0, winreg.REG_SZ, "docker-desktop")
         winreg.SetValueEx(key, "Version", 0, winreg.REG_DWORD, version)
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, root + r"\DiskMounts", 0, winreg.KEY_WRITE):
+        pass
     try:
         yield root
     finally:
-        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, root + r"\owned")
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, distro)
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, root + r"\DiskMounts")
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, root)
 
 

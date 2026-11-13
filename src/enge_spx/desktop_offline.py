@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import uuid
 
 from .docker_env import environment
 from .process_metrics import desktop_processes
@@ -62,7 +63,14 @@ def _registered_wsl2():
             if count > 1024:
                 return False
             for index in range(count):
-                with winreg.OpenKey(root, winreg.EnumKey(root, index), 0, winreg.KEY_READ) as key:
+                identifier = winreg.EnumKey(root, index)
+                try:
+                    uuid.UUID(identifier.strip("{}"))
+                except ValueError:
+                    # Lxss also contains metadata such as DiskMounts. WSL
+                    # distributions are GUID keys; metadata is not a distro.
+                    continue
+                with winreg.OpenKey(root, identifier, 0, winreg.KEY_READ) as key:
                     name, kind = winreg.QueryValueEx(key, "DistributionName")
                     if kind != winreg.REG_SZ or not isinstance(name, str):
                         return False
