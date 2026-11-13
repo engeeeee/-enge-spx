@@ -14,6 +14,7 @@ class ExitDiagnosticsTests(unittest.TestCase):
             report = failure_report("workspace", checks, RuntimeError("private-exception-output"))
         self.assertEqual(len(report["checks"]), 64)
         self.assertEqual(report["checks"][0]["os_code"], 13)
+        self.assertEqual(report["checks"][0]["error_type"], "PermissionError")
         self.assertFalse(report["workspace_stop_verified"])
         self.assertIn("version", report)
         text = json.dumps(report)

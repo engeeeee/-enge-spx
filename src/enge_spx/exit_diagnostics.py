@@ -26,6 +26,8 @@ def add_check(component, stage, result, error=None):
     if rows is None or any(not isinstance(value, str) or not _token.fullmatch(value) for value in (component, stage, result)):
         return
     row = {"component": component, "stage": stage, "result": result}
+    if error is not None:
+        row["error_type"] = type(error).__name__[:64]
     code = getattr(error, "winerror", None) or getattr(error, "errno", None)
     if type(code) is int:
         row["os_code"] = code
