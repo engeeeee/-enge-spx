@@ -7,13 +7,23 @@
 - Linux ARM64、Python 3.14.4、PySide6 6.12.0：新增剪贴板格式转换、Unicode/多行、控制字符边界、流式导入、校验失败回滚、链接阻断、只读 tmp、配额、会话锁、输入顺序、版本限制及原生图片标记确认测试。
 - 原有 436 项测试在接入受控终端后通过，19 项平台测试在 Linux 跳过；新增测试后的完整结果在最终验证时补充。
 - 官方原生 Linux ARM64 Claude Code **2.1.319** 与 Codex **0.167.0**，独立测试 HOME、合成图片、真实 PTY/TUI：同一草稿中保留前后中文，分别出现两个原生 `[Image #N]`，不发送 Enter，不重启 CLI。Codex 使用 `--no-daemon` 研究夹具消除包外 server 依赖；产品不添加该参数。
-- 这一步证明真实 TUI 的附件转换，**不等于真实模型已经识图**。API 请求中的图片内容、真实 Windows ConPTY/剪贴板及人工测试需分项记录，不能由单元测试推导为通过。
+- 新增真实原生 CLI → 合成 API 检查：两款 CLI 均在同一草稿保留混合中文和两张原生图片标记；粘贴不提交，明确 Enter 后，Claude 请求内含两个 `image`，Codex 请求内含两个 `input_image`。解码图像的尺寸 160×100、两种像素颜色逐项一致。测试不使用真实账号或模型，也不读取系统剪贴板。
+- 初轮原生 Windows CI 已通过 475 项测试（459 通过、16 平台跳过）及打包/GUI/DPI；确认 CF_UNICODETEXT、CF_HDROP、CF_DIB、CF_DIBV5、PNG、中间 junction 阻断及真实 ConPTY 输入。修正了重定向父进程标准句柄误传给子进程的问题。[CI 记录](https://github.com/engeeeee/ENGE-SPX/actions/runs/43413424271)。后续新增键盘、GUI、缓存迁移与 4K 测试的最终结果另补。
+- **真实模型是否理解图片仍未验收**。合成 API 证明的是 CLI 已编码视觉输入，不能把接收夹具当作模型识图结果。真实 Windows + Docker Desktop + 已登录账号的操作仍需下表人工验收。
 
 ```bash
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 python tools/check_repository.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python tools/smoke_gui.py
+
+# 已安装的官方原生 Linux 可执行文件；只用隔离测试 HOME 与本地合成 API
+PYTHONPATH=src python tests/integration_cli_clipboard.py \
+  --claude /absolute/path/to/claude \
+  --codex /absolute/path/to/complete-codex-package/bin/codex \
+  --output /tmp/clipboard-native-api.json
 ```
+
+`tests/clipboard_runtime_checks.py` 已接入原有 Docker 集成：在完整保护的工作区中验证真实图片/文本/代码/大块流的 SHA256、UID1000、容器复用与过期 session 拒绝；身份/只读集成验证私有 tmp 和跨容器不可见。原生 API 夹具只从测试镜像提取系统安装的程序，不复制账号卷；结果作为 CI 测量附件保存。
 
 `tests/test_windows_clipboard.py` 在 Windows 原生读取真实 CF_UNICODETEXT、CF_HDROP、CF_DIB、CF_DIBV5 和 PNG，并测试剪贴板变化及真实 ConPTY。它会替换/清空测试桌面的剪贴板，不读取或备份个人剪贴板。使用一次性测试桌面；非 Windows 明确 skip。
 

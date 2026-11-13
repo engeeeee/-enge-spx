@@ -47,6 +47,20 @@ $xref = $pdf.Length
 foreach ($offset in $offsets) { [void]$pdf.Append(($offset.ToString('D10') + " 00000 n `n")) }
 [void]$pdf.Append("trailer`n<< /Size 6 /Root 1 0 R >>`nstartxref`n$xref`n%%EOF`n")
 [IO.File]::WriteAllBytes((Join-Path $root 'fixture.pdf'), [Text.Encoding]::ASCII.GetBytes($pdf.ToString()))
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$docx = [IO.Compression.ZipFile]::Open((Join-Path $root 'fixture.docx'), [IO.Compression.ZipArchiveMode]::Create)
+try {
+    $parts = @{
+        '[Content_Types].xml' = '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+        '_rels/.rels' = '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+        'word/document.xml' = "<?xml version=`"1.0`"?><w:document xmlns:w=`"http://schemas.openxmlformats.org/wordprocessingml/2006/main`"><w:body><w:p><w:r><w:t>SPX DOCX fixture $nonce</w:t></w:r></w:p></w:body></w:document>"
+    }
+    foreach ($part in $parts.GetEnumerator()) {
+        $entry = $docx.CreateEntry($part.Key)
+        $stream = $entry.Open()
+        try { $bytes = $utf8.GetBytes($part.Value); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+    }
+} finally { $docx.Dispose() }
 [IO.File]::WriteAllText((Join-Path $root 'manual-results.json'), (@{
     schema = 1; fixture_nonce = $nonce; status = 'not_run'; platform = [Environment]::OSVersion.VersionString
     screenshot_claude = 'pending'; screenshot_codex = 'pending'; pdf = 'pending'

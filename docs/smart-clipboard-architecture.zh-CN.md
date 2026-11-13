@@ -41,6 +41,7 @@ GUI Controller.open_tool
 | 文件 | 职责 | 主要风险/依赖 |
 | --- | --- | --- |
 | `clipboard.py` | Win32 格式识别、受限句柄拷贝、DIB/PNG | 位图畸形、剪贴板竞争；Win32 + 现有 Qt |
+| `clipboard_file_windows.py` | 本机盘根句柄、NtCreateFile OBJ_DONT_REPARSE | 同时阻断中间重解析点，避免先检查再打开的竞争 |
 | `clipboard_transfer.py` | 原件流、映射、版本适配、会话复核 | 容器切换、半批导入、CLI 版本变化 |
 | `resources/checks/clipboard_transfer.py` | 无特权 stdin 导入、目录 FD、原子提交、配额/清理 | 链接穿越、并发；Linux 原语及既有可写目录 |
 | `clipboard_cache.py` | 当前终端 OS 锁、作用域与七天保留 | 只清理已关闭会话，不存内容 |
@@ -50,6 +51,10 @@ GUI Controller.open_tool
 | `ui/window.py` | 选项和兼容边界 | 不暗示第三方终端已经支持 |
 
 宿主只打开用户主动复制的文件。导入器不接受源宿主路径，不调用 shell，所有目标组件由随机 hex 标识构成，目录打开使用 `O_NOFOLLOW`，目标文件排他创建、流式 SHA256、fsync 和原子提交。整个批次失败会移除本批已经提交的文件。容器账号保持原 UID、capabilities、seccomp 和网络保护，不新增端口、挂载、Docker socket、特权或环境凭据。
+
+导入器通过 `python3 -I` 运行，避免加载项目内同名 `json.py`/`hashlib.py` 或用户 site；宿主源码模式的 attach 固定可信包目录并启用 Python safe path，避免在所选项目 cwd 导入宿主代码。这些规则不修改正常 AI 工具自己的项目加载行为。
+
+项目 bind 在 Windows Desktop 中可能显示合成 UID；写入依赖已审计的挂载授权和目录句柄，不通过 root/chmod 改写项目所有权。私有 `/tmp` 仍验证目录所有者。Windows 缓存活动锁放在 JSON 文件 EOF 之外，不增长文件，避免阻止现有应用数据迁移读取元数据；终端连接结束会取消传输并释放锁，关闭时仍排空 ConPTY 输出以免阻塞。
 
 文本屏蔽可退出 bracketed paste 的控制字符，保留换行、制表和 Unicode。无 bracketed paste 时拒绝自动粘贴，避免多行意外执行。图片必须是受支持的真实图片，CLI 版本已验证、模型支持视觉，并观察到新增 `[Image #N]`；复制成功与原生视觉编码测试分别记录。
 
@@ -66,6 +71,8 @@ pyte 保持未修改；替换路径、源码取得方式和许可证见[第三�
 - [Microsoft：终端 paste 优先和 unbound](https://learn.microsoft.com/en-us/windows/terminal/customize-settings/actions#unbind-keys-disable-keybindings)
 - [Microsoft：ConPTY 管道与独立线程](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session)
 - [Microsoft：剪贴板格式](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats)
+- [Microsoft：不跟随路径重解析点](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-_object_attributes)
+- [Windows Terminal：ConPTY 启动与空标准句柄](https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalConnection/ConptyConnection.cpp)
 - [Claude：图片粘贴和原生标记](https://code.claude.com/docs/en/interactive-mode)
 - [Codex 0.167.0：图片路径 Paste 分类](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs)
 - [Codex 0.167.0：视觉输入序列化](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/tui/src/chatwidget/image_submission.rs)

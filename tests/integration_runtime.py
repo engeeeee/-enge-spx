@@ -271,6 +271,11 @@ print('DISPLAY_ISOLATED')'''
                 version = engine.docker.run("exec", worker["Id"], command, "--version")
                 assert expected in version, version
                 passed(command + " executable: " + version)
+            from clipboard_runtime_checks import verify_protected_transfer, verify_native_api
+            clipboard_transport = verify_protected_transfer(engine, project, worker, state)
+            passed("Smart Clipboard imports real image/text/code and streamed files as uid 1000 into the existing bind; hashes, mounts, container reuse and stale-session rejection verified")
+            clipboard_api = verify_native_api(engine, worker, Path(output).with_name("clipboard-native-api.json") if output else base / "clipboard-native-api.json")
+            passed("real pinned Claude/Codex TUI serializes two native visual image blocks to a synthetic API only after Enter, preserving mixed draft and process")
             from tool_update_checks import verify_updates, verify_persisted_updates
             updated_tools = verify_updates(engine, project, worker)
             passed("actual Codex and Claude npm installs use uid 1000 and the persistent Profile prefix through the controlled gateway; system installations remain unwritable")
@@ -433,7 +438,7 @@ finally:
             passed("genuine shutdown verifies all owned containers and detached guard/display services stopped after data relocation")
             rejected_sandbox(engine, base)
             passed("namespace initialization failure terminates the browser without a no-sandbox retry")
-            report = {"passed": records, "tool_updates": updated_tools, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
+            report = {"passed": records, "tool_updates": updated_tools, "clipboard_transport": clipboard_transport, "clipboard_native_api": clipboard_api, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
             output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         except Exception:
             # Only the browser supervisor's bounded, non-secret startup errors.

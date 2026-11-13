@@ -86,6 +86,10 @@ jobs:
       - if: runner.os == 'Windows'
         shell: pwsh
         run: ./tools/Update-Repository.ps1 -WhatIf
+      - if: runner.os == 'Windows'
+        name: Generate disposable Smart Clipboard acceptance fixtures
+        shell: pwsh
+        run: ./tools/Test-SmartClipboard.ps1 -Project (Join-Path $env:RUNNER_TEMP 'smart-clipboard-acceptance')
   package:
     needs: test
     runs-on: windows-latest
@@ -221,6 +225,8 @@ jobs:
             ${{ runner.temp }}/workspace-profiles-results.json
             ${{ runner.temp }}/p1-network-policy.json
             ${{ runner.temp }}/field-recording.json
+            ${{ runner.temp }}/integration-results.json
+            ${{ runner.temp }}/clipboard-native-api.json
           if-no-files-found: warn
       - name: Export the verified native environment
         if: github.event_name != 'pull_request'

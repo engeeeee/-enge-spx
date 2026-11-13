@@ -11,12 +11,14 @@
 1. 普通文字直接 Ctrl+V；多行和 Unicode 经原生 bracketed paste 交给 CLI，不生成文件。
 2. Win+Shift+S 截图后回到输入区 Ctrl+V，自动编码 PNG 并导入，等待 CLI 出现 `[Image #N]` 原生标记。
 3. 在资源管理器复制 PNG/JPG/JPEG/WebP 文件后 Ctrl+V，也会作为图片附加。多张图片分别交给 CLI，逐张确认。
-4. PDF、TXT、MD、JSON、CSV、DOCX、代码等普通文件以原件导入。Claude 插入 `@绝对路径` 引用，Codex 插入可访问的绝对路径。
+4. PDF、TXT、MD、JSON、CSV、DOCX、代码等普通文件以原件导入。保留原文件名提示；Claude 插入 `@绝对路径` 引用，Codex 插入可访问的绝对路径。
 5. 可以在文字之间连续粘贴图片和文件。已有草稿不清空，键盘输入与附件按操作顺序交付，最后由你按 Enter。
 
 **普通文件引用不是通用附件解析器。** Claude 的 Read 能力、权限规则和 PDF 限制仍然适用；Codex 对 PDF/DOCX 等格式可能需要项目内已有的解析工具。软件保留原件及扩展名，不伪造 PDF/DOCX 的原生附件标记，也不自动安装解析器。当前只把 PNG/JPEG/WebP 识别为视觉图片，其他格式按普通文件处理。
 
 复制：拖动选择终端文字，再 Ctrl+Shift+C；有选择时 Ctrl+C 复制，没有选择时 Ctrl+C 保持 CLI 的中断行为。支持中文输入法、方向键、历史、Tab、Shift+Enter 和原有 CLI 交互。鼠标报告由 CLI 请求时启用，Shift+拖动用于选择文字。
+
+这是自有的轻量 VT 终端，未宣称具备 Windows Terminal 的全部扩展。OSC52 远程读写剪贴板不启用；依赖该协议的 CLI `/copy` 不保证写入 Windows 剪贴板，请使用终端选择复制。复杂扩展终端图形/完整 Kitty 键盘协议不在本批范围。工作区停止后自有终端窗口随连接结束关闭；单独更新/退出 CLI 仍保留原来的容器 shell。
 
 ## 终端与 CLI 兼容范围
 

@@ -24,8 +24,8 @@ import pyte
 from enge_spx import terminal
 from enge_spx.brand import PACKAGE_RESOURCES
 from enge_spx.clipboard import Snapshot, dib_to_bmp, png_image, MAX_PIXELS
-from enge_spx.clipboard_transfer import Attachment, InputAdapter, Transfer, open_source, text_frame
-from enge_spx.smart_terminal import ImageAcknowledgement, OrderedInput, TerminalScreen, key_bytes
+from enge_spx.clipboard_transfer import Attachment, InputAdapter, Transfer, open_source, text_frame, validate_image
+from enge_spx.smart_terminal import ImageAcknowledgement, OrderedInput, TerminalScreen, TerminalWindow, key_bytes
 from enge_spx.clipboard_cache import CacheLease, RETENTION
 from enge_spx.state import SPXError, Store
 
@@ -84,6 +84,17 @@ class ClipboardDataTests(unittest.TestCase):
         with self.assertRaises(SPXError):
             png_image(b"not an image")
 
+    def test_jpeg_and_webp_files_are_real_decodable_images(self):
+        image = QImage(48, 32, QImage.Format.Format_RGB32)
+        image.fill(QColor("#87bbb6"))
+        for fmt in ("JPEG", "WEBP"):
+            data = QByteArray()
+            buffer = QBuffer(data)
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            self.assertTrue(image.save(buffer, fmt))
+            raw = bytes(data)
+            self.assertEqual(validate_image(io.BytesIO(raw), len(raw)).read(), raw)
+
     def test_each_native_image_gets_a_separate_paste_event(self):
         prefix = "/workspace/" + "a" * 16 + "/.enge-spx-clipboard/" + "b" * 32 + "/"
         images = [Attachment(prefix + c * 32 + ".png", True) for c in ("c", "d")]
@@ -104,6 +115,15 @@ class ClipboardDataTests(unittest.TestCase):
         for path in ("/etc/passwd", "/workspace/../../secret.png", "a\nrm -rf /", "/tmp/a.png"):
             with self.assertRaises(SPXError):
                 InputAdapter("claude", (2, 1, 319)).frames([Attachment(path, False)])
+
+    def test_original_names_label_files_without_corrupting_native_image_paste(self):
+        prefix = "/workspace/" + "a" * 16 + "/.enge-spx-clipboard/" + "b" * 32 + "/"
+        adapter = InputAdapter("codex", (0, 167, 0))
+        events = adapter.events([Attachment(prefix + "c" * 32 + ".png", True, "截图 🦄.png"), Attachment(prefix + "d" * 32 + ".txt", False, "日志.txt")])
+        self.assertEqual([image for data, image in events], [False, True, False])
+        self.assertIn("截图 🦄.png".encode(), events[0][0])
+        self.assertEqual(events[1][0], text_frame(prefix + "c" * 32 + ".png"))
+        self.assertIn("日志.txt".encode(), events[2][0])
 
     def test_source_files_unicode_and_size_limits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,6 +188,11 @@ class ContainerImportTests(unittest.TestCase):
         result = self.run_import(self.packet())
         self.assertEqual([Path(x).read_bytes() for x in result["paths"]], [b"PDF synthetic", b"print('hi')"])
         self.assertEqual(len(list(self.project.rglob("*"))), 4)
+
+    def test_windows_bind_uid_translation_does_not_require_root_or_chmod(self):
+        with patch.object(self.module.os, "getuid", return_value=os.getuid() + 1):
+            result = self.run_import(self.packet())
+        self.assertEqual(Path(result["paths"][0]).read_bytes(), b"PDF synthetic")
 
     def test_readonly_uses_private_project_container_tmp_not_shared_identity_home(self):
         result = self.run_import(self.packet(access="ro"))
@@ -253,6 +278,22 @@ class OrderedInputTests(unittest.TestCase):
         self.assertEqual(written, [text_frame("你好\r\nline 2")])
         transfer.paste.assert_not_called()
 
+    def test_completed_clipboard_snapshot_is_released_while_terminal_is_idle(self):
+        import weakref
+        class Clipboard:
+            def sequence(self):
+                return 1
+            def read(self, sequence):
+                return self.snapshot
+        clipboard = Clipboard()
+        clipboard.snapshot = Snapshot("text", "transient clipboard")
+        reference = weakref.ref(clipboard.snapshot)
+        worker, written, _ = self.worker()
+        worker.paste(clipboard)
+        wait_for(lambda: bool(written))
+        clipboard.snapshot = None
+        wait_for(lambda: reference() is None)
+
     def test_failed_file_copy_keeps_draft_and_cancels_queued_enter(self):
         transfer = Mock(tool="claude")
         transfer.paste.side_effect = OSError("synthetic-secret-do-not-display")
@@ -292,6 +333,17 @@ class OrderedInputTests(unittest.TestCase):
 
 
 class TerminalIntegrationTests(unittest.TestCase):
+    def test_source_launcher_does_not_import_host_code_from_project(self):
+        import subprocess
+        from enge_spx.invocation import console_entry, console_environment
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sentinel = root / "must-not-execute"
+            (root / "json.py").write_text("from pathlib import Path\nPath(" + repr(str(sentinel)) + ").write_text('bad')\nraise RuntimeError('untrusted project imported on host')\n")
+            result = subprocess.run([*console_entry(), "--version"], env=console_environment(), cwd=root, capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(sentinel.exists())
+
     def test_image_acknowledgement_requires_a_new_native_chip(self):
         monitor = ImageAcknowledgement()
         monitor.observe("[Image #1] existing prompt")
@@ -344,6 +396,20 @@ class TerminalIntegrationTests(unittest.TestCase):
 
 
 class CacheLeaseTests(unittest.TestCase):
+    def test_active_metadata_can_be_copied_for_existing_storage_migration(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "private")
+            plan = {"key": "a" * 16, "profile": "shared", "access": "rw"}
+            lease = CacheLease(store, "b" * 32, plan, "container1")
+            try:
+                target = Path(tmp) / "migrated.json"
+                shutil.copy2(lease.path, target)
+                self.assertEqual(json.loads(target.read_text()), lease.scope)
+                self.assertLess(lease.path.stat().st_size, 1024)
+            finally:
+                lease.close()
+
     def test_active_session_is_never_pruned_and_closed_retention_starts_at_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "private")
@@ -377,6 +443,85 @@ class CacheLeaseTests(unittest.TestCase):
                 finally:
                     two.close()
                     two.path.unlink()
+
+
+class NativeWidgetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        import queue
+        self.output = queue.Queue()
+        self.written = []
+        self.pty = Mock()
+        self.pty.read.side_effect = self.output.get
+        self.pty.write.side_effect = self.written.append
+        self.pty.close.side_effect = lambda: self.output.put(b"")
+        self.clipboard = Mock()
+        self.clipboard.sequence.return_value = 1
+        self.window = TerminalWindow(self.pty, "codex", Path("project"), clipboard=self.clipboard)
+        self.window.show()
+        self.view = self.window.view
+        self.view.setFocus()
+        self.output.put(b"\x1b[?2004h")
+        self.pump(lambda: self.view.ready.is_set())
+
+    def tearDown(self):
+        self.window.close()
+        self.view.reader.join(1)
+        self.app.processEvents()
+
+    def pump(self, predicate):
+        deadline = time.monotonic() + 3
+        while not predicate() and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.005)
+        self.assertTrue(predicate())
+
+    def test_ctrl_v_uses_current_terminal_without_opening_another_window(self):
+        from PySide6.QtTest import QTest
+        self.clipboard.read.return_value = Snapshot("text", "你好\r\nline two")
+        before = set(self.app.topLevelWidgets())
+        focused = self.app.focusWidget()
+        QTest.keyClick(self.view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        self.pump(lambda: bool(self.written))
+        self.assertEqual(self.written, [text_frame("你好\r\nline two")])
+        self.assertEqual(set(self.app.topLevelWidgets()), before)
+        self.assertIs(self.app.focusWidget(), focused)
+
+    def test_image_ctrl_v_waits_for_the_native_chip_in_this_same_view(self):
+        from PySide6.QtTest import QTest
+        transfer = Mock(tool="codex")
+        transfer.last_images = [True]
+        frame = text_frame("/tmp/native-fixture.png")
+        transfer.paste.return_value = [frame]
+        self.view.sender.transfer = transfer
+        self.clipboard.read.return_value = Snapshot("image", png())
+        def write(data):
+            self.written.append(data)
+            if data == frame:
+                self.output.put(b"\r\n[Image #1]")
+        self.pty.write.side_effect = write
+        QTest.keyClick(self.view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        self.pump(lambda: "已交给" in self.window.message.text())
+        self.assertEqual(self.written, [frame])
+        self.assertNotIn(b"\r", self.written)
+
+    def test_ctrl_c_without_selection_interrupts_and_tab_reaches_cli(self):
+        from PySide6.QtTest import QTest
+        QTest.keyClick(self.view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(self.view, Qt.Key.Key_Tab)
+        QTest.keyClick(self.view, Qt.Key.Key_Backtab, Qt.KeyboardModifier.ShiftModifier)
+        self.pump(lambda: len(self.written) == 3)
+        self.assertEqual(self.written, [b"\x03", b"\t", b"\x1b[Z"])
+
+    def test_wide_unicode_color_and_selection_render_without_corruption(self):
+        self.output.put("\x1b[48;2;60;40;30m中文🦄\x1b[0m".encode())
+        self.pump(lambda: self.view.screen.buffer[0][0].data == "中")
+        self.view.selection = ((0, 0), (0, 5))
+        image = self.view.grab().toImage()
+        self.assertFalse(image.isNull())
 
 
 if __name__ == "__main__":

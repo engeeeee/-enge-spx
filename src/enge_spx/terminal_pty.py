@@ -116,8 +116,11 @@ class WindowsPTY:
                 api.CloseHandle(handle)
 
     def read(self, size=16384):
+        handle = self.output
+        if not handle:
+            return b""
         buffer, count = ctypes.create_string_buffer(size), w.DWORD()
-        if not self.api.ReadFile(self.output, buffer, size, ctypes.byref(count), None):
+        if not self.api.ReadFile(handle, buffer, size, ctypes.byref(count), None):
             return b""
         return buffer.raw[:count.value]
 

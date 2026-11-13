@@ -16,8 +16,10 @@ RETENTION = 7 * 24 * 3600
 
 
 def lock(stream, acquire=True):
-    stream.seek(0)
     if os.name == "nt":
+        # A byte beyond EOF is a valid Windows lock without growing the file.
+        # Keep the tiny metadata readable/copyable by data-directory migration.
+        stream.seek(1 << 30)
         import msvcrt
         msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK if acquire else msvcrt.LK_UNLCK, 1)
     else:
@@ -53,6 +55,7 @@ class CacheLease:
                 with path.open("r+b") as stream:
                     lock(stream)
                     try:
+                        stream.seek(0)
                         value = json.loads(stream.read(1025))
                         expected = self.scope if self.scope["access"] == "ro" else {k: v for k, v in self.scope.items() if k != "container"}
                         if self.scope["access"] == "rw" and isinstance(value, dict):

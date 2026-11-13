@@ -16,7 +16,7 @@ import threading
 import time
 
 import pyte
-from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QRectF
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QPushButton
 
@@ -69,6 +69,11 @@ def key_bytes(event, application_cursor=False):
     shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
     if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
         return b"\x1b[13;2u" if shift else b"\r"
+    if key == Qt.Key.Key_Backspace and (ctrl or alt):
+        return b"\x17" if ctrl else b"\x1b\x7f"
+    if key == Qt.Key.Key_Delete and (ctrl or alt or shift):
+        number = 1 + int(shift) + 2 * int(alt) + 4 * int(ctrl)
+        return f"\x1b[3;{number}~".encode()
     special = {Qt.Key.Key_Backspace: b"\x7f", Qt.Key.Key_Escape: b"\x1b", Qt.Key.Key_Tab: b"\t",
                Qt.Key.Key_Backtab: b"\x1b[Z", Qt.Key.Key_Insert: b"\x1b[2~", Qt.Key.Key_Delete: b"\x1b[3~",
                Qt.Key.Key_PageUp: b"\x1b[5~", Qt.Key.Key_PageDown: b"\x1b[6~"}
@@ -85,6 +90,9 @@ def key_bytes(event, application_cursor=False):
         return bytes([key - Qt.Key.Key_A + 1])
     if ctrl and key in (Qt.Key.Key_Space, Qt.Key.Key_At):
         return b"\0"
+    controls = {Qt.Key.Key_BracketLeft: 27, Qt.Key.Key_Backslash: 28, Qt.Key.Key_BracketRight: 29, Qt.Key.Key_AsciiCircum: 30, Qt.Key.Key_Underscore: 31}
+    if ctrl and key in controls:
+        return bytes([controls[key]])
     if text and not ctrl:
         return (b"\x1b" if alt else b"") + text.encode("utf-8")
     # Ctrl+Alt produced by AltGr is ordinary Unicode input.
@@ -193,6 +201,7 @@ class OrderedInput:
             finally:
                 if kind == "paste":
                     self.pastes.release()
+                    snapshot = None
                 value = None
 
     def paste(self, clipboard):
@@ -228,6 +237,7 @@ class TerminalView(QWidget):
     def __init__(self, pty, transfer=None, clipboard=None):
         super().__init__()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
         self.setMinimumSize(480, 260)
         self.pty, self.clipboard = pty, clipboard
@@ -251,6 +261,8 @@ class TerminalView(QWidget):
         self.selecting = False
         self.preedit = ""
         self.offset = 0
+        self.colors = {}
+        self.fonts = {}
         self.scrollbar = QScrollBar(Qt.Orientation.Vertical, self)
         self.scrollbar.valueChanged.connect(self._scroll)
         self.blink = True
@@ -263,44 +275,62 @@ class TerminalView(QWidget):
 
     def _read(self):
         try:
-            while not self.stopping.is_set():
+            # Keep draining after the window stops. ClosePseudoConsole can
+            # otherwise deadlock while flushing a full output pipe.
+            while True:
                 data = self.pty.read()
                 if not data:
                     break
+                if self.stopping.is_set():
+                    continue
                 while not self.stopping.is_set():
                     try:
                         self.output.put(data, timeout=.2)
-                        self.wake.emit()
+                        if not self.pending.is_set():
+                            self.pending.set()
+                            self.wake.emit()
                         break
                     except queue.Full:
                         continue
         finally:
-            self.ended.emit()
+            if not self.stopping.is_set():
+                self.ended.emit()
 
     def _drain(self):
         start = time.monotonic()
+        changed = False
         while time.monotonic() - start < .008:
             try:
                 data = self.output.get_nowait()
             except queue.Empty:
                 break
             self.stream.feed(self.decoder.decode(data))
+            changed = True
         if self.screen.bracketed:
             self.ready.set()
         else:
             self.ready.clear()
-        self.images.observe("".join("".join(self.screen.buffer[y][x].data for x in range(self.screen.columns)) for y in range(self.screen.lines)))
+        if changed:
+            self.images.observe("".join("".join(self.screen.buffer[y][x].data for x in range(self.screen.columns)) for y in range(self.screen.lines)))
         self.scrollbar.setRange(0, len(self.screen.history.top))
         if self.offset == 0:
             self.scrollbar.setValue(self.scrollbar.maximum())
-        self.update()
+        if changed:
+            self.update()
         if not self.output.empty():
             QTimer.singleShot(0, self._drain)
+        else:
+            self.pending.clear()
+            # Close the producer/consumer race without one signal per chunk.
+            if not self.output.empty() and not self.pending.is_set():
+                self.pending.set()
+                self.wake.emit()
 
     def _blink(self):
         if self.hasFocus() and self.isVisible():
             self.blink = not self.blink
-            self.update()
+            cursor = self.screen.cursor
+            self.update(QRectF(8 + cursor.x * self.cell_width, 4 + cursor.y * self.cell_height, self.cell_width, self.cell_height).toAlignedRect())
 
     def _scroll(self, value):
         self.offset = self.scrollbar.maximum() - value
@@ -315,16 +345,29 @@ class TerminalView(QWidget):
         return lines[max(0, end - self.screen.lines):end]
 
     def _color(self, value, foreground=True):
+        key = (value, foreground)
+        if key in self.colors:
+            return self.colors[key]
         named = {"default": "#e8e3dc" if foreground else "#1c1a18", "black": "#24211f", "red": "#e47b71", "green": "#a3bf89", "brown": "#d6ad70", "blue": "#91aace", "magenta": "#c6a0c7", "cyan": "#87bbb6", "white": "#ded8cf", "brightblack": "#8b8179", "brightred": "#f49b90", "brightgreen": "#c0d6a4", "brightbrown": "#f0cc93", "brightblue": "#b7cbee", "brightmagenta": "#dec0e1", "brightcyan": "#b5e2dc", "brightwhite": "#ffffff"}
-        return QColor(named.get(value, "#" + value if re.fullmatch("[a-fA-F0-9]{6}", value) else named["default"]))
+        result = QColor(named.get(value, "#" + value if re.fullmatch("[a-fA-F0-9]{6}", value) else named["default"]))
+        if len(self.colors) >= 512:
+            self.colors.clear()
+        self.colors[key] = result
+        return result
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.fillRect(self.rect(), QColor("#1c1a18"))
         p.setFont(self.font)
         selected = sorted(self.selection) if self.selection else None
+        clip = event.rect()
         for y, line in enumerate(self.rows()):
+            if 4 + (y + 1) * self.cell_height < clip.top() or 4 + y * self.cell_height > clip.bottom():
+                continue
+            glyphs = []
             for x in range(self.screen.columns):
+                if 8 + (x + 1) * self.cell_width < clip.left() or 8 + x * self.cell_width > clip.right():
+                    continue
                 char = line[x]
                 rectangle = QRectF(8 + x * self.cell_width, 4 + y * self.cell_height, self.cell_width, self.cell_height)
                 fg, bg = self._color(char.fg), self._color(char.bg, False)
@@ -335,10 +378,18 @@ class TerminalView(QWidget):
                 if bg != QColor("#1c1a18"):
                     p.fillRect(rectangle, bg)
                 if char.data and char.data != " ":
-                    font = QFont(self.font)
-                    font.setBold(char.bold)
-                    font.setItalic(char.italics)
-                    font.setUnderline(char.underscore)
+                    glyphs.append((rectangle, char, fg))
+            # Paint wide glyphs after ALL cell backgrounds, so a CJK character
+            # cannot have its second half erased by the continuation cell.
+            for rectangle, char, fg in glyphs:
+                    key = (char.bold, char.italics, char.underscore)
+                    font = self.fonts.get(key)
+                    if font is None:
+                        font = QFont(self.font)
+                        font.setBold(char.bold)
+                        font.setItalic(char.italics)
+                        font.setUnderline(char.underscore)
+                        self.fonts[key] = font
                     p.setFont(font)
                     p.setPen(fg)
                     p.drawText(rectangle.left(), rectangle.top() + self.metrics.ascent(), char.data)
@@ -369,7 +420,8 @@ class TerminalView(QWidget):
             self.paste()
             event.accept()
             return
-        if event.matches(QKeySequence.StandardKey.Copy) or (self.selection and event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+        ctrl_c = event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        if (self.selection and (event.matches(QKeySequence.StandardKey.Copy) or ctrl_c)) or (ctrl_c and event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
             self.copy()
             return
         self.selection = None
@@ -379,6 +431,16 @@ class TerminalView(QWidget):
             self.sender.put("keys", data)
         self.update()
         event.accept()
+
+    def event(self, event):
+        # QWidget otherwise moves focus before Tab/Backtab reaches the CLI.
+        if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            self.keyPressEvent(event)
+            return True
+        if event.type() == QEvent.Type.ShortcutOverride:
+            event.accept()
+            return True
+        return super().event(event)
 
     def inputMethodEvent(self, event):
         if event.commitString():
@@ -417,6 +479,12 @@ class TerminalView(QWidget):
         if self.selecting:
             self.selection = (self.selection[0], self.cell(event))
             self.update()
+        elif self.screen.mouse and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            motion = (1003 << 5) in self.screen.mode or ((1002 << 5) in self.screen.mode and event.buttons())
+            if motion:
+                y, x = self.cell(event)
+                button = 0 if event.buttons() & Qt.MouseButton.LeftButton else 2 if event.buttons() & Qt.MouseButton.RightButton else 3
+                self.sender.put("keys", f"\x1b[<{32+button};{x+1};{y+1}M".encode())
 
     def mouseReleaseEvent(self, event):
         if self.screen.mouse and not self.selecting and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
@@ -473,9 +541,13 @@ class TerminalWindow(QMainWindow):
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
         self.view.status.connect(self.message.setText)
-        self.view.ended.connect(lambda: self.message.setText("终端连接已结束。工作区和持久资料按现有规则保留；可关闭此窗口。"))
+        self.view.ended.connect(self.connection_ended)
         self.setCentralWidget(root)
         self.view.setFocus()
+
+    def connection_ended(self):
+        self.view.stop()
+        self.message.setText("终端连接已结束。工作区和持久资料按现有规则保留；可关闭此窗口。")
 
     def closeEvent(self, event):
         self.view.stop()
@@ -491,6 +563,15 @@ def run(engine, project, tool, session, container):
     pty = start(command, engine.docker.environment(), project)
     clipboard = WindowsClipboard() if os.name == "nt" else None
     window = TerminalWindow(pty, tool, Path(project), transfer, clipboard)
+    def close_stopped_workspace():
+        # The GUI's verified stop already ended this exec. Reclaim owned native
+        # terminal windows on stop/exit without contacting or starting Docker.
+        try:
+            if engine.store.read("runtime.json", {}).get("phase") == "stopped":
+                window.close()
+        except SPXError:
+            pass
+    window.view.ended.connect(close_stopped_workspace)
     window.show()
     result = app.exec()
     window.view.stop()

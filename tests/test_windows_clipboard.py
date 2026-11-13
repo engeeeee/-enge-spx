@@ -80,6 +80,23 @@ class WindowsClipboardTests(unittest.TestCase):
             self.assertEqual(result.kind, "image")
             self.assertTrue(result.value.startswith(b"\x89PNG"))
 
+    def test_4k_dibv5_keeps_pixels_and_reports_snapshot_cost(self):
+        import json
+        from PySide6.QtGui import QImage
+        width, height = 3840, 2160
+        length = width * height * 4
+        header = struct.pack("<IiiHHIIiiII", 124, width, -height, 1, 32, 3, length, 0, 0, 0, 0)
+        header += struct.pack("<IIIII", 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000, 0x73524742)
+        header += b"\0" * (124 - len(header))
+        self.set_data([(17, header + b"\x57\x77\xd9\xff" * (width * height))])
+        started = time.perf_counter()
+        snapshot = self.clipboard.read()
+        elapsed = time.perf_counter() - started
+        image = QImage.fromData(snapshot.value)
+        self.assertEqual((image.width(), image.height()), (width, height))
+        self.assertEqual(image.pixelColor(2000, 1000).name(), "#d97757")
+        print(json.dumps({"measurement": "windows_clipboard_4k_dibv5_to_png", "width": width, "height": height, "milliseconds": round(elapsed * 1000, 2), "png_bytes": len(snapshot.value), "includes_docker_or_cli": False}), flush=True)
+
     def test_registered_png_format_and_empty_clipboard(self):
         from test_smart_clipboard import png
         self.set_data([(self.clipboard.png, png())])
@@ -113,6 +130,29 @@ class WindowsClipboardTests(unittest.TestCase):
                         self.fail("intermediate junction followed")
             finally:
                 os.rmdir(root / "link")
+
+    def test_busy_native_clipboard_has_bounded_retry_and_releases_after_failure(self):
+        import threading
+        from enge_spx.state import SPXError
+        failures = []
+        self.assertTrue(self.user.OpenClipboard(self.hwnd))
+        try:
+            started = time.monotonic()
+            def read():
+                try:
+                    self.clipboard.read()
+                except SPXError:
+                    failures.append("busy")
+            thread = threading.Thread(target=read)
+            thread.start()
+            thread.join(1)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(failures, ["busy"])
+            self.assertLess(time.monotonic() - started, 1)
+        finally:
+            self.user.CloseClipboard()
+        self.set_data([(13, "recovered\0".encode("utf-16-le"))])
+        self.assertEqual(self.clipboard.read().value, "recovered")
 
 
 class OwnedPTYTests(unittest.TestCase):

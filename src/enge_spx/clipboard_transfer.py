@@ -28,6 +28,7 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 class Attachment:
     path: str
     image: bool
+    name: str = ""
 
 
 def text_frame(text: str) -> bytes:
@@ -46,6 +47,9 @@ class InputAdapter:
         self.version = tuple(version)
 
     def frames(self, attachments):
+        return [data for data, image in self.events(attachments)]
+
+    def events(self, attachments):
         if self.tool not in self.VERIFIED:
             raise SPXError("图片和文件智能粘贴仅用于 Claude Code / Codex 的输入区。")
         if any(x.image for x in attachments) and self.version not in self.VERIFIED[self.tool]:
@@ -56,8 +60,14 @@ class InputAdapter:
                 raise SPXError("附件路径不属于本次受控导入。")
             # Both pinned TUIs classify a standalone image path paste as an
             # image, not literal text. Each image needs its own Paste event.
-            value = item.path if item.image else (" @" if self.tool == "claude" else " ") + item.path + " "
-            result.append(text_frame(value))
+            label = json.dumps(item.name[:240], ensure_ascii=False) if item.name else ""
+            if item.image:
+                if label:
+                    result.append((text_frame(" 图片 " + label + " "), False))
+                result.append((text_frame(item.path), True))
+            else:
+                value = (" 文件 " + label + ": " if label else " ") + ("@" if self.tool == "claude" else "") + item.path + " "
+                result.append((text_frame(value), False))
         return result
 
 
@@ -112,6 +122,7 @@ class Transfer:
         self.process = None
         self.lease = None
         self.last_images = []
+        self.last_paths = []
 
     def close(self):
         self.cancelled.set()
@@ -149,7 +160,7 @@ class Transfer:
             raise SPXError("此粘贴不包含图片或文件。")
         self.verify()
         with ExitStack() as stack:
-            streams, files, images, total = [], [], [], 0
+            streams, files, images, labels, total = [], [], [], [], 0
             sources = (None,) if snapshot.kind == "image" else snapshot.value
             if not isinstance(sources, tuple) or not 1 <= len(sources) <= 32:
                 raise SPXError("每次可导入 1–32 个文件。")
@@ -158,11 +169,13 @@ class Transfer:
                     if not isinstance(snapshot.value, bytes) or len(snapshot.value) > MAX_IMAGE:
                         raise SPXError("剪贴板图片超过限制。")
                     stream, size, extension = io.BytesIO(snapshot.value), len(snapshot.value), ".png"
+                    labels.append("截图.png")
                 else:
                     stream, size = stack.enter_context(open_source(source))
                     extension = Path(source).suffix.lower()
                     if not re.fullmatch(r"\.[a-z0-9]{1,12}", extension):
                         extension = ""
+                    labels.append(Path(source).name)
                 image = extension in IMAGE_SUFFIXES
                 total += size
                 if total > MAX_BATCH:
@@ -186,7 +199,7 @@ class Transfer:
                 raise SPXError("终端已关闭，导入已取消。")
             header = {"schema": 1, "project": self.plan["key"], "access": self.plan["access"], "bridge": self.bridge, "files": files, "prune": self.lease.expired()}
             script = (PACKAGE_RESOURCES / "checks/clipboard_transfer.py").read_text(encoding="utf-8")
-            command = self.engine.docker.command("exec", "-i", "--workdir", "/workspace/" + self.plan["key"], self.container, "python3", "-c", script)
+            command = self.engine.docker.command("exec", "-i", "--workdir", "/workspace/" + self.plan["key"], self.container, "python3", "-I", "-c", script)
             result = self._stream(command, header, streams)
             paths = result["paths"]
             if not isinstance(result["pruned"], list) or any(x not in header["prune"] for x in result["pruned"]):
@@ -196,8 +209,10 @@ class Transfer:
         expected = ("/workspace/" + self.plan["key"] + "/.enge-spx-clipboard/" if self.plan["access"] == "rw" else "/tmp/enge-spx-clipboard-" + self.plan["key"] + "/") + self.bridge + "/"
         if paths != [expected + f["name"] for f in files]:
             raise SPXError("容器附件路径核验失败，未插入输入框。")
-        self.last_images = images
-        return adapter.frames([Attachment(path, image) for path, image in zip(paths, images)])
+        self.last_paths = paths
+        events = adapter.events([Attachment(path, image, label) for path, image, label in zip(paths, images, labels)])
+        self.last_images = [image for data, image in events]
+        return [data for data, image in events]
 
     def _stream(self, command, header, streams):
         # stdout/stderr are bounded, private captures, never raw exception/log

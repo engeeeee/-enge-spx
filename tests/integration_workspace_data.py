@@ -69,9 +69,14 @@ def run(context, output):
             binding = next(m for m in first["HostConfig"]["Mounts"] if m["Target"].startswith("/workspace/"))
             assert binding["ReadOnly"] and binding["BindOptions"]["ReadOnlyForceRecursive"]
             passed("separate Claude/Codex HOME is empty initially; recursive read-only really blocks writes while account caches remain writable")
+            from clipboard_runtime_checks import verify_readonly_import
+            readonly_clipboard = verify_readonly_import(engine, project, first)
+            passed("clipboard files stream into this read-only project container's private tmp as uid 1000 without host writes or additional mounts")
             engine.configure_workspace(beta, str(project), "rw")
             second = prepare()
             assert empty(second) and second["Id"] not in (shared["Id"], first["Id"])
+            assert execute(second, "from pathlib import Path; print(Path(" + repr(readonly_clipboard["fixture_private_path"]) + ").exists())") == "False"
+            passed("another Profile/project container cannot see the first read-only clipboard's private tmp attachment")
             save(second, "beta")
             execute(second, "from pathlib import Path; Path.cwd().joinpath('explicit-rw').write_text('written')")
             assert (project / "explicit-rw").read_text() == "written"
