@@ -53,6 +53,7 @@ def png_image(data: bytes, *, dib=False) -> bytes:
     source.setData(dib_to_bmp(data) if dib else data)
     source.open(QIODevice.OpenModeFlag.ReadOnly)
     reader = QImageReader(source, b"bmp" if dib else b"png")
+    reader.setAutoDetectImageFormat(False)
     size = reader.size()
     # Qt reports a negative height for valid top-down BMP/DIB images.
     width, height = size.width(), abs(size.height()) if dib else size.height()

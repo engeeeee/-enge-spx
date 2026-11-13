@@ -95,6 +95,15 @@ class ClipboardDataTests(unittest.TestCase):
             raw = bytes(data)
             self.assertEqual(validate_image(io.BytesIO(raw), len(raw)).read(), raw)
 
+    def test_disguised_svg_never_enters_a_host_svg_or_external_resource_decoder(self):
+        raw = b'<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///must-not-read-host-file"/></svg>'
+        with patch("PySide6.QtGui.QImageReader", side_effect=AssertionError("unexpected image decoder")):
+            with self.assertRaises(SPXError):
+                validate_image(io.BytesIO(raw), len(raw), b"png")
+        raw = png()
+        with self.assertRaisesRegex(SPXError, "扩展名"):
+            validate_image(io.BytesIO(raw), len(raw), b"jpeg")
+
     def test_each_native_image_gets_a_separate_paste_event(self):
         prefix = "/workspace/" + "a" * 16 + "/.enge-spx-clipboard/" + "b" * 32 + "/"
         images = [Attachment(prefix + c * 32 + ".png", True) for c in ("c", "d")]

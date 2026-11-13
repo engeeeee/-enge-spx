@@ -92,7 +92,7 @@ def open_source(path):
             os.close(fd)
 
 
-def validate_image(stream, size):
+def validate_image(stream, size, expected_format=None):
     from PySide6.QtCore import QBuffer, QIODevice
     from PySide6.QtGui import QImageReader
     if size > MAX_IMAGE:
@@ -100,10 +100,21 @@ def validate_image(stream, size):
     data = stream.read(MAX_IMAGE + 1)
     if len(data) != size:
         raise SPXError("图片在读取期间发生变化。")
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        image_format = b"png"
+    elif data.startswith(b"\xff\xd8\xff"):
+        image_format = b"jpeg"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        image_format = b"webp"
+    else:
+        raise SPXError("图片内容不是 PNG、JPEG 或 WebP；未调用其它图像解码器。")
+    if expected_format is not None and image_format != expected_format:
+        raise SPXError("图片内容与扩展名不符，未导入。")
     buffer = QBuffer()
     buffer.setData(data)
     buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-    reader = QImageReader(buffer)
+    reader = QImageReader(buffer, image_format)
+    reader.setAutoDetectImageFormat(False)
     dimensions = reader.size()
     if not dimensions.isValid() or dimensions.width() * dimensions.height() > MAX_PIXELS or reader.read().isNull():
         raise SPXError("图片损坏、格式不支持或超过 4000 万像素。")
@@ -181,7 +192,8 @@ class Transfer:
                 if total > MAX_BATCH:
                     raise SPXError("本次粘贴总大小超过 256 MiB。")
                 if image:
-                    stream = validate_image(stream, size)
+                    expected = {".png": b"png", ".jpg": b"jpeg", ".jpeg": b"jpeg", ".webp": b"webp"}[extension]
+                    stream = validate_image(stream, size, expected)
                 streams.append(stream)
                 files.append({"name": uuid.uuid4().hex + extension, "size": size})
                 images.append(image)

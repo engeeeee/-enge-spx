@@ -58,6 +58,8 @@ GUI Controller.open_tool
 
 文本屏蔽可退出 bracketed paste 的控制字符，保留换行、制表和 Unicode。无 bracketed paste 时拒绝自动粘贴，避免多行意外执行。图片必须是受支持的真实图片，CLI 版本已验证、模型支持视觉，并观察到新增 `[Image #N]`；复制成功与原生视觉编码测试分别记录。
 
+图片文件先核验 PNG/JPEG/WebP 魔数与扩展名，再指定对应 Qt 解码器；不自动探测 SVG/TIFF 等其它插件，避免伪装成 PNG 的文件在宿主触发不必要的格式/外部资源处理。
+
 ## 依赖与回滚
 
 新增 pyte 0.8.2（wheel 约 31 kB、LGPL-3.0）和 wcwidth 0.2.14（wheel 约 37 kB、MIT）。均为固定版本的纯 Python 包，无常驻服务、网络请求或容器镜像依赖。复用 PySide6 Essentials，不引入 QtWebEngine、浏览器终端或网页监听端口。
