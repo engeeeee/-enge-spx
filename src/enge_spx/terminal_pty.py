@@ -88,6 +88,11 @@ class WindowsPTY:
                 raise OSError("attributes")
             startup, info = _STARTUPINFOEX(), _PROCESSINFO()
             startup.StartupInfo.cb = ctypes.sizeof(startup)
+            # Match Windows Terminal's launcher. Without this, a parent whose
+            # stdio is redirected (CI, GUI/frozen launch) can have its pipe
+            # handles duplicated into the child instead of ConPTY handles.
+            # Null standard handles are recreated for the attached console.
+            startup.StartupInfo.dwFlags = 0x00000100  # STARTF_USESTDHANDLES
             startup.lpAttributeList = attributes
             env_text = "\0".join(key + "=" + value for key, value in sorted(env.items(), key=lambda pair: pair[0].casefold())) + "\0\0"
             block = ctypes.create_unicode_buffer(env_text, len(env_text.encode("utf-16-le")) // 2 + 1)
