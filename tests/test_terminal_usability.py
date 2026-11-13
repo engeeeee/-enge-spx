@@ -184,8 +184,8 @@ class TerminalUsabilityTests(unittest.TestCase):
         return QPoint(round(self.view.PAD_X + (column + .3) * self.view.cell_width),
                       round(self.view.PAD_Y + (row + .4) * self.view.cell_height))
 
-    def test_right_click_never_reads_clipboard_or_pastes(self):
-        QTest.mouseClick(self.view, Qt.MouseButton.RightButton, pos=self.point(2))
+    def test_shift_right_click_keeps_menu_without_reading_clipboard(self):
+        QTest.mouseClick(self.view, Qt.MouseButton.RightButton, Qt.KeyboardModifier.ShiftModifier, self.point(2))
         self.app.processEvents()
         self.clipboard.read.assert_not_called()
         self.assertFalse(self.written)
@@ -194,6 +194,54 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.assertTrue(next(a for a in menu.actions() if a.objectName() == "TerminalPaste").isEnabled())
         menu.deleteLater()
 
+    def test_right_click_pastes_once_without_submitting_or_opening_menu(self):
+        self.clipboard.sequence.return_value = 3
+        self.clipboard.read.return_value = Snapshot("text", "中文\nclipboard")
+        QTest.mouseClick(self.view, Qt.MouseButton.RightButton, pos=self.point(2))
+        self.pump(lambda: bool(self.written))
+        self.assertEqual(self.written, [text_frame("中文\nclipboard")])
+        self.clipboard.read.assert_called_once()
+        point = self.point(2)
+        QApplication.sendEvent(self.view, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, self.view.mapToGlobal(point)))
+        self.app.processEvents()
+        self.assertFalse(any(m.isVisible() for m in self.view.findChildren(QMenu)))
+
+    def test_native_single_click_is_deferred_and_delivered_without_arrow_keys(self):
+        self.output.put(b"\x1b[?1000h\x1b[?1006h")
+        self.pump(lambda: self.view.screen.mouse)
+        QTest.mousePress(self.view, Qt.MouseButton.LeftButton, pos=self.point(5, 2))
+        time.sleep(.02)
+        self.assertFalse(self.written)
+        QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(5, 2))
+        self.pump(lambda: bool(self.written))
+        self.assertEqual(self.written, [b"\x1b[<0;6;3M\x1b[<0;6;3m"])
+
+    def test_drag_copies_even_when_cli_requests_mouse_without_moving_its_cursor(self):
+        self.output.put("copy 中文\x1b[?1000h\x1b[?1006h".encode())
+        self.pump(lambda: self.view.screen.mouse)
+        QTest.mousePress(self.view, Qt.MouseButton.LeftButton, pos=self.point(0))
+        QTest.mouseMove(self.view, self.point(8))
+        QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(8))
+        self.assertEqual(QGuiApplication.clipboard().text(), "copy 中文")
+        self.assertFalse(self.written)
+
+    def test_single_click_does_not_overwrite_clipboard(self):
+        QGuiApplication.clipboard().setText("synthetic previous clipboard")
+        QTest.mouseClick(self.view, Qt.MouseButton.LeftButton, pos=self.point(3))
+        self.assertEqual(QGuiApplication.clipboard().text(), "synthetic previous clipboard")
+
+    def test_autocopy_can_be_disabled_without_losing_manual_copy(self):
+        self.output.put(b"manual")
+        self.pump(lambda: self.view.screen.buffer[0][0].data == "m")
+        QGuiApplication.clipboard().setText("keep")
+        self.view.copy_on_select = False
+        QTest.mousePress(self.view, Qt.MouseButton.LeftButton, pos=self.point(0))
+        QTest.mouseMove(self.view, self.point(5))
+        QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(5))
+        self.assertEqual(QGuiApplication.clipboard().text(), "keep")
+        self.view.copy()
+        self.assertEqual(QGuiApplication.clipboard().text(), "manual")
+
     def test_drag_select_unicode_and_copy_via_context_menu(self):
         self.output.put("hello 世界!\r\n".encode())
         self.pump(lambda: self.view.screen.buffer[0][0].data == "h")
@@ -201,6 +249,7 @@ class TerminalUsabilityTests(unittest.TestCase):
         QTest.mouseMove(self.view, self.point(9))
         QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(9))
         self.assertTrue(self.view.has_selection)
+        self.assertEqual(QGuiApplication.clipboard().text(), "hello 世界")
         menu = self.view.create_context_menu()
         copy = next(a for a in menu.actions() if a.objectName() == "TerminalCopy")
         self.assertTrue(copy.isEnabled())

@@ -1,5 +1,19 @@
 # Changes
 
+## 0.14.2 native mouse editing and quick copy/paste — 2026-11-13
+
+- Distinguish an actual native mouse click from a host drag selection, including
+  while the CLI requests mouse events. Clicks use the negotiated SGR protocol,
+  never generated arrows or editing the application buffer.
+- Copy selected terminal text to the clipboard on left-button release; plain
+  clicks do not overwrite clipboard data. Right-click pastes into the current
+  draft without submitting; Shift+right-click and the Menu key retain commands.
+- Add per-window switches for automatic copy and quick paste; preserve colours,
+  custom frame, keyboard shortcuts and explicit Alt native mouse gestures.
+- Exercise actual Codex mouse positioning across Unicode and multiple lines,
+  right-click text/image paste and API text/image payloads in the existing Qt
+  fixture. Keep independent Windows/API and Docker isolation checks.
+
 ## 0.14.1 smart terminal usability and updated CLI paste — 2026-11-13
 
 - Remove the exact CLI version allowlist and per-import version subprocess.
