@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -22,6 +22,43 @@ from enge_spx.terminal_render import BACKGROUND, FOREGROUND
 
 
 class AdapterCompatibilityTests(unittest.TestCase):
+    def test_new_enter_after_failure_is_not_blocked_when_clock_values_are_identical(self):
+        started, release, cancelled, delivered = (threading.Event() for _ in range(4))
+        messages, written = [], []
+        transfer, pty = Mock(tool="codex"), Mock()
+        def fail(snapshot):
+            started.set()
+            release.wait(3)
+            raise OSError("synthetic copy failure")
+        def report(text):
+            messages.append(text)
+            if sum("已取消" in message for message in messages) == 2:
+                cancelled.set()
+        def write(data):
+            written.append(data)
+            if data == b"\r":
+                delivered.set()
+        transfer.paste.side_effect = fail
+        pty.write.side_effect = write
+        ready = threading.Event()
+        ready.set()
+        with patch("enge_spx.smart_terminal.time.monotonic", return_value=10):
+            worker = OrderedInput(pty, transfer, report, ready)
+            self.addCleanup(worker.close)
+            clipboard = Mock()
+            clipboard.sequence.return_value = 1
+            clipboard.read.return_value = Snapshot("files", ("fixture",))
+            worker.paste(clipboard)
+            self.assertTrue(started.wait(2))
+            worker.put("keys", b"\r")
+            worker.put("keys", b"\r")
+            release.set()
+            self.assertTrue(cancelled.wait(2))
+            self.assertFalse(written)
+            worker.put("keys", b"\r")
+            self.assertTrue(delivered.wait(2))
+            self.assertEqual(written, [b"\r"])
+
     def test_updated_codex_uses_native_image_paste_instead_of_version_allowlist(self):
         path = "/tmp/enge-spx-clipboard-" + "a" * 16 + "/" + "b" * 32 + "/" + "c" * 32 + ".png"
         for version in ((), (0, 167, 0), (0, 169, 0), (0, 171, 0), (999, 0, 0)):

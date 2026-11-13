@@ -2,6 +2,8 @@
 
 ## 0.14.2 native mouse editing and quick copy/paste — 2026-11-13
 
+- Use atomic input sequence numbers for failed-import Enter cancellation;
+  Windows clock granularity cannot cancel a user's new Enter after the error.
 - Distinguish an actual native mouse click from a host drag selection, including
   while the CLI requests mouse events. Clicks use the negotiated SGR protocol,
   never generated arrows or editing the application buffer.

@@ -156,6 +156,8 @@ class OrderedInput:
         self.pty, self.transfer, self.report, self.ready = pty, transfer, report, ready
         self.queue = queue.Queue(maxsize=2048)
         self.replies = queue.Queue(maxsize=64)
+        self.sequence_lock = threading.Lock()
+        self.sequence = 0
         self.images = images
         self.closed = threading.Event()
         self.pastes = threading.BoundedSemaphore(8)
@@ -166,11 +168,20 @@ class OrderedInput:
         if self.closed.is_set():
             return False
         try:
-            self.queue.put_nowait((kind, value, time.monotonic()))
+            self.enqueue(kind, value)
         except queue.Full:
             self.report("输入队列已满，请稍候；本次输入未发送。")
             return False
         return True
+
+    def enqueue(self, kind, value):
+        with self.sequence_lock:
+            self.sequence += 1
+            self.queue.put_nowait((kind, value, self.sequence))
+
+    def failure_boundary(self):
+        with self.sequence_lock:
+            return self.sequence
 
     def respond(self, data):
         if self.closed.is_set():
@@ -180,7 +191,7 @@ class OrderedInput:
         except queue.Full:
             return
         try:
-            self.queue.put_nowait(("reply", None, time.monotonic()))
+            self.enqueue("reply", None)
         except queue.Full:
             pass
 
@@ -195,16 +206,16 @@ class OrderedInput:
             self.pty.write(reply)
 
     def _run(self):
-        failed_at = 0
+        failed_sequence = 0
         while not self.closed.is_set():
             try:
-                kind, value, queued_at = self.queue.get(timeout=.2)
+                kind, value, sequence = self.queue.get(timeout=.2)
             except queue.Empty:
                 continue
             try:
                 self.flush_replies()
                 if kind == "keys":
-                    if queued_at <= failed_at and value == b"\r":
+                    if sequence <= failed_sequence and value == b"\r":
                         self.report("上次粘贴失败，已取消这次回车。输入仍保留；检查后可再次回车。")
                         continue
                     self.pty.write(value)
@@ -239,10 +250,10 @@ class OrderedInput:
                             time.sleep(.02)
                         self.report("附件已交给 CLI；请检查原生图片标记或文件引用，再自行发送。")
             except SPXError as error:
-                failed_at = time.monotonic()
+                failed_sequence = self.failure_boundary()
                 self.report(str(error))
             except Exception:
-                failed_at = time.monotonic()
+                failed_sequence = self.failure_boundary()
                 # Do not propagate raw clipboard/OS/CLI errors into logs/UI.
                 self.report("粘贴或输入未完成。当前草稿保留；请检查文件权限、大小、CLI 版本和工作区连接后重试。")
             finally:
@@ -282,7 +293,7 @@ class OrderedInput:
         self.closed.set()
         while True:
             try:
-                kind, value, queued_at = self.queue.get_nowait()
+                kind, value, sequence = self.queue.get_nowait()
             except queue.Empty:
                 break
             if kind == "paste":
