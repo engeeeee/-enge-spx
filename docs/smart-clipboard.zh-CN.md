@@ -1,6 +1,6 @@
 # 智能剪贴板粘贴
 
-此功能在 `feature/smart-clipboard` 开发分支实现，**已发布的 0.13.6 安装包不包含它**。实际验证范围见[验证记录](validation-smart-clipboard.zh-CN.md)。
+此功能从 **0.14.0** 起提供；0.13.6 及以前的安装包不包含它。实际验证范围见[验证记录](validation-smart-clipboard.zh-CN.md)。
 
 在 ENGE SPX 打开的 Claude Code / Codex **原来的 CLI 输入区**按 **Ctrl+V**。不经过另一层聊天框、上传页或文件选择器，不自动发送消息，不重启 CLI 或容器。
 

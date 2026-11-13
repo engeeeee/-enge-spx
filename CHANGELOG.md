@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased — Smart Clipboard Paste
+## 0.14.0 Smart Clipboard Paste — 2026-11-13
 
 - Add an owned Qt/ConPTY display for the existing Claude/Codex TUI. Handle
   Ctrl+V locally, preserve native bracketed text paste, IME and draft editing;

@@ -1,15 +1,15 @@
 # Smart Clipboard 验证记录
 
-开发日期：2026-11-13。开发分支 `feature/smart-clipboard`；不是已发布版本的验收声明。
+开发日期：2026-11-13；随 0.14.0 发布。自动化验证与真实 Windows / 模型人工验收分别记录，发布不表示后者已完成。
 
 ## 已运行
 
 - Linux ARM64、Python 3.14.4、PySide6 6.12.0：新增剪贴板格式转换、Unicode/多行、控制字符边界、流式导入、校验失败回滚、链接阻断、只读 tmp、配额、会话锁、输入顺序、版本限制及原生图片标记确认测试。
-- 原有 436 项测试在接入受控终端后通过，19 项平台测试在 Linux 跳过；新增测试后的完整结果在最终验证时补充。
-- 官方原生 Linux ARM64 Claude Code **2.1.319** 与 Codex **0.167.0**，独立测试 HOME、合成图片、真实 PTY/TUI：同一草稿中保留前后中文，分别出现两个原生 `[Image #N]`，不发送 Enter，不重启 CLI。Codex 使用 `--no-daemon` 研究夹具消除包外 server 依赖；产品不添加该参数。
-- 新增真实原生 CLI → 合成 API 检查：两款 CLI 均在同一草稿保留混合中文和两张原生图片标记；粘贴不提交，明确 Enter 后，Claude 请求内含两个 `image`，Codex 请求内含两个 `input_image`。解码图像的尺寸 160×100、两种像素颜色逐项一致。测试不使用真实账号或模型，也不读取系统剪贴板。
-- 初轮原生 Windows CI 已通过 475 项测试（459 通过、16 平台跳过）及打包/GUI/DPI；确认 CF_UNICODETEXT、CF_HDROP、CF_DIB、CF_DIBV5、PNG、中间 junction 阻断及真实 ConPTY 输入。修正了重定向父进程标准句柄误传给子进程的问题。[CI 记录](https://github.com/engeeeee/ENGE-SPX/actions/runs/43413424271)。后续新增键盘、GUI、缓存迁移与 4K 测试的最终结果另补。
-- 扩展验证的 Windows CI 通过 **487 项（470 通过、17 跳过）**，Linux Python 3.12 通过 **487 项（460 通过、27 跳过）**；Windows GUI、125/150/200% DPI、验收夹具生成与冻结打包通过。[对应记录](https://github.com/engeeeee/ENGE-SPX/actions/runs/43419524777)。该轮 Docker 图像测试因 CI 主机缺少 `libEGL.so.1` 中断，已为测试主机补齐 Qt 图像系统库；不改变生产容器。最新全部检查以 [PR #9](https://github.com/engeeeee/ENGE-SPX/pull/9) 为准。
+- 功能提交 `41d9035` 的最终 [CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/43424348817) 全部通过：Windows Python 3.12 共489项，472通过、17跳过；Linux Python 3.12 共489项，462通过、27跳过。本机 Linux ARM64 Python 3.14 同样通过，GUI、多档 DPI、冻结打包和安装卸载通过。
+- 真实 Windows API 验证 CF_UNICODETEXT、CF_HDROP、CF_DIB、CF_DIBV5、PNG、4K 像素、Unicode/emoji/多行、ConPTY bracketed paste、剪贴板占用/变化、中间 junction 阻断；Qt 当前窗口 Ctrl+V、复制/中断、Tab、停止及快照释放通过。物理桌面操作仍另列人工验收。
+- 官方 Claude Code **2.1.319** 与 Codex **0.167.0**，隔离 HOME、真实 PTY/TUI 和合成 API：同一草稿保留前后中文及两张原生 `[Image #N]`；粘贴期间不提交，明确 Enter 后分别发送两个 `image` / `input_image`，解码尺寸160×100和两种像素颜色一致。测试不使用真实账号、模型或系统剪贴板；不把图片请求序列化当作模型理解。
+- 真实 Docker 导入4个文件（含2,400,000字节分块流），SHA256一致、UID1000、复用容器与原挂载、拒绝过期 session；只读项目私有 tmp 与跨身份不可见检查通过。现有协议链、沙箱、190秒续期、数据/Profile迁移、退出与资源回归通过。
+- 资源基准首轮因外部代理传输失败中断；仅重跑失败的 containers job 后通过，未修改源码或放宽保护。[最终证据附件](https://github.com/engeeeee/ENGE-SPX/actions/runs/43424348817/artifacts/14038109390)包含运行时、图像合成 API、Profile、网络与资源记录。0.14.0 发布元数据和同版本产物另由本次 main 流水线检查，见 [Actions](https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml)。
 - **真实模型是否理解图片仍未验收**。合成 API 证明的是 CLI 已编码视觉输入，不能把接收夹具当作模型识图结果。真实 Windows + Docker Desktop + 已登录账号的操作仍需下表人工验收。
 
 ```bash
@@ -47,6 +47,6 @@ PYTHONPATH=src python tests/integration_cli_clipboard.py \
 
 目前没有真实 Windows 上修改前/后的 CPU、内存或粘贴延迟对比，不提供提升百分比。新增终端使用现有 Qt DLL 和两个小型纯 Python 包，不新增常驻剪贴板服务、宿主监听端口或浏览器引擎。文件 1 MiB 分块复制，单个受控导入最长 120 秒，操作不占 GUI 主线程；每次粘贴使用当前容器和 AI 会话。
 
-已测单项成本：上述 Windows CI 把 **3840×2160 CF_DIBV5** 读取并编码为 PNG，用时 **331.44 ms**，输出 **37561 字节**，像素与原始分辨率一致。这是合成纯色 4K 图片的一次剪贴板转换，**不包括 Docker、CLI 和模型耗时**，不能代表所有截图或机器。输出不含原始图片/剪贴板内容。终端停止后拒绝继续读取系统剪贴板；已处理快照会释放，活动缓存锁不妨碍应用数据复制迁移。
+已测单项成本：上述 Windows CI 把 **3840×2160 CF_DIBV5** 读取并编码为 PNG，用时 **426.56 ms**，输出 **37561 字节**，像素与原始分辨率一致。这是合成纯色 4K 图片的一次剪贴板转换，**不包括 Docker、CLI 和模型耗时**，不能代表所有截图或机器。输出不含原始图片/剪贴板内容。终端停止后拒绝继续读取系统剪贴板；已处理快照会释放，活动缓存锁不妨碍应用数据复制迁移。
 
 真实测量应记录同一项目/图片、同一 Docker/WSL2/CLI 版本，分别比较外部终端与智能终端的空闲占用、截图到标记耗时、10/128 MiB 文件导入、连续输入期间的响应及全部关闭后的回收。使用现有 Resources 记录机制区分主 GUI、终端进程、容器和 WSL2；缺少测量保持“未测”，不能写为零。
