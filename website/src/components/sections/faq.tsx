@@ -33,8 +33,8 @@ export function FaqSection() {
                             <ArrowUpRight size={18} />
                         </div>
                         <p>
-                            处理 Docker 关闭过渡期的退出竞态。
-                            失败窗口可直接复制实际版本与核验阶段。
+                            修复 Docker 退出核验预算耗尽。
+                            支持身份内更新 AI 工具，保留终端查看结果。
                         </p>
                         <span className="release-note-link">
                             查看更新记录
