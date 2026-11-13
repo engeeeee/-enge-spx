@@ -139,6 +139,36 @@ class ExitLifecycleTests(unittest.TestCase):
         self.wait_for(lambda: self.closed.count() == 1)
         self.assertEqual(self.fake_engine.shutdown.call_count, 2)
 
+    def test_exit_failure_saves_and_copies_safe_checks_when_docker_is_unavailable(self):
+        from enge_spx.exit_diagnostics import add_check
+        def fail():
+            add_check("desktop", "management", "unavailable")
+            add_check("offline", "wsl2_configuration", "not_confirmed")
+            raise SPXError("private-fixture-password")
+        self.fake_engine.shutdown.side_effect = fail
+        self.controller.request_exit()
+        self.wait_for(lambda: self.controller.exit_stage == "failed")
+        report = self.store.read("logs/exit-diagnostics.json")
+        self.assertFalse(report["workspace_stop_verified"])
+        self.assertEqual(report["checks"][-1]["stage"], "wsl2_configuration")
+        copied = self.controller.diagnostics()
+        self.assertNotIn("private-fixture-password", copied)
+        self.assertEqual(json.loads(copied)["last_exit"], report)
+        with patch.object(self.store, "settings", side_effect=SPXError("private-config-password")):
+            copied = self.controller.diagnostics()
+        self.assertIn("version", json.loads(copied))
+        self.assertEqual(json.loads(copied)["last_exit"], report)
+        self.assertNotIn("private-config-password", copied)
+
+    def test_report_write_failure_preserves_in_memory_diagnostics_and_original_failure(self):
+        self.fake_engine.shutdown.side_effect = SPXError("workspace not verified")
+        with patch.object(self.store, "write", side_effect=PermissionError("private-save-error")):
+            self.controller.request_exit()
+            self.wait_for(lambda: self.controller.exit_stage == "failed")
+        report = json.loads(self.controller.diagnostics())
+        self.assertFalse(report["last_exit"]["workspace_stop_verified"])
+        self.assertEqual(self.closed.count(), 0)
+
     def test_exit_uses_last_verified_context_if_editing_settings_broke_engine_creation(self):
         self.store.write("controller-context.json", {"instance": self.store.instance, "context": "desktop-linux"})
         self.make_engine.side_effect = [SPXError("invalid edited settings"), self.fake_engine]

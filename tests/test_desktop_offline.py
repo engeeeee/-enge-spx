@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -35,6 +36,31 @@ class OfflineDesktopTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in proof["_distributions"].call_args_list], [False, True])
         self.assertTrue(all(0 < call.args[2] <= 8 for call in proof["_distributions"].call_args_list))
 
+    def test_failure_logs_the_exact_stage_without_private_output(self):
+        for stage, setup in (("wsl2_configuration", lambda p: setattr(p["_wsl_enabled"], "return_value", False)),
+                             ("desktop_processes", lambda p: setattr(p["_desktop_absent"], "return_value", False)),
+                             ("engine_pipe", lambda p: setattr(p["_pipe_absent"], "return_value", False)),
+                             ("wsl_registered", lambda p: setattr(p["_distributions"], "side_effect", subprocess.TimeoutExpired(["private-command"], 3, output=b"private-stdout", stderr=b"private-stderr")))):
+            proof = self.proof()
+            setup(proof)
+            with self.subTest(stage=stage), patch.multiple(offline, **proof), self.assertLogs("enge_spx.gui", level="INFO") as records:
+                self.assertFalse(offline.stopped())
+            messages = "\n".join(records.output)
+            self.assertIn("stage=" + stage, messages)
+            for secret in ("private-command", "private-stdout", "private-stderr"):
+                self.assertNotIn(secret, messages)
+
+    def test_gui_log_records_unavailable_proof_without_user_distro_names(self):
+        from enge_spx.gui_diagnostics import GuiDiagnostics
+        proof = self.proof()
+        proof["_distributions"].side_effect = [{"docker-desktop", "private-distro"}, {"docker-desktop", "private-distro"}]
+        with tempfile.TemporaryDirectory() as directory:
+            with GuiDiagnostics(directory), patch.multiple(offline, **proof):
+                self.assertFalse(offline.stopped())
+            text = (Path(directory) / "logs/gui.log").read_text(encoding="utf-8")
+            self.assertIn("stage=wsl_running result=docker_distro_running", text)
+            self.assertNotIn("private-distro", text)
+
     def test_missing_config_existing_process_or_pipe_never_proves_stopped(self):
         for target in ("_wsl_enabled", "_desktop_absent", "_pipe_absent"):
             with self.subTest(target=target):
@@ -61,6 +87,28 @@ class OfflineDesktopTests(unittest.TestCase):
             proof[target].side_effect = [True, False]
             with self.subTest(target=target), patch.multiple(offline, **proof):
                 self.assertFalse(offline.stopped())
+
+    def test_wait_allows_pipe_shutdown_to_precede_process_and_wsl_teardown(self):
+        now = [0.0]
+        clock = SimpleNamespace(monotonic=lambda: now[0], sleep=lambda delay: now.__setitem__(0, now[0] + delay))
+        proof = self.proof()
+        proof["_desktop_absent"].side_effect = [False, True, True, True]
+        proof["_distributions"].side_effect = [{"docker-desktop"}, {"docker-desktop"}, {"docker-desktop"}, set()]
+        with patch.multiple(offline, **proof), patch.object(offline, "time", clock):
+            self.assertTrue(offline.stopped(timeout=1, wait=True))
+        self.assertGreater(now[0], 0)
+        self.assertLessEqual(now[0], 1)
+        self.assertEqual(proof["_distributions"].call_count, 4)
+
+    def test_wait_never_turns_a_missing_pipe_into_success_if_backend_remains(self):
+        now = [0.0]
+        clock = SimpleNamespace(monotonic=lambda: now[0], sleep=lambda delay: now.__setitem__(0, now[0] + delay))
+        proof = self.proof()
+        proof["_desktop_absent"].return_value = False
+        with patch.multiple(offline, **proof), patch.object(offline, "time", clock):
+            self.assertFalse(offline.stopped(timeout=.5, wait=True))
+        self.assertEqual(now[0], .5)
+        proof["_distributions"].assert_not_called()
 
     def test_denied_incomplete_and_timed_out_queries_are_not_absence(self):
         for target, error in (("_desktop_absent", PermissionError("private-fixture-secret")),
@@ -203,6 +251,32 @@ class OfflineDesktopTests(unittest.TestCase):
             return
         self.assertTrue(path.is_absolute())
         self.assertEqual(path.parent.name.casefold(), "system32")
+
+    @unittest.skipUnless(os.name == "nt", "Native Windows process teardown")
+    def test_native_owned_desktop_process_finishes_after_the_pipe_disappears(self):
+        from desktop_harness import fake_desktop, environment
+        if any(row["scope"] == "desktop" for row in process_metrics.desktop_processes(strict=True)):
+            self.skipTest("Does not operate on an already running real Desktop")
+        with fake_desktop() as (base, cli):
+            child = subprocess.Popen([str(base / "Docker App/Docker Desktop.exe")],
+                                     env=environment(base, cli, "cli"),
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                deadline = time.monotonic() + 5
+                while not (base / "ready").exists() and time.monotonic() < deadline:
+                    self.assertIsNone(child.poll())
+                    time.sleep(.02)
+                self.assertTrue((base / "ready").exists())
+                # The real process exits on its own timer. WSL evidence is an
+                # injected fixture; process/pipe observations are native APIs.
+                with patch.object(offline, "PIPE", r"\\.\pipe\enge-spx-test-" + uuid.uuid4().hex), patch.object(offline, "_wsl_enabled", return_value=True), patch.object(offline, "_wsl_path", return_value="fixture"), patch.object(offline, "_distributions", side_effect=[{"docker-desktop"}, set()]):
+                    self.assertFalse(offline.stopped())
+                    self.assertTrue(offline.stopped(timeout=5, wait=True))
+                self.assertEqual(child.wait(timeout=2), 0)
+            finally:
+                if child.poll() is None:
+                    child.kill()  # Only the process owned by this fixture.
+                    child.wait(timeout=3)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -74,11 +75,50 @@ class ExitRecoveryUITests(unittest.TestCase):
 
     def test_workspace_failure_does_not_offer_app_only_recovery(self):
         self.c.exit_workspace_stopped = False
-        self.c.notify = Mock()
+        seen = []
+        def inspect():
+            dialog = self.app.activeModalWidget()
+            try:
+                seen.append(dialog.objectName())
+                seen.append(dialog.findChild(QPushButton, "desktop-exit-app-only") is None)
+                seen.append(dialog.findChild(QPushButton, "workspace-exit-return").isDefault())
+            finally:
+                dialog.reject()
+        QTimer.singleShot(30, inspect)
         self.window.show_exit_error("工作区未停止")
-        self.c.notify.assert_called_once()
+        self.assertEqual(seen, ["workspace-exit-recovery", True, True])
         self.assertIsNone(self.app.activeModalWidget())
         self.assertFalse(self.c.exit_without_desktop_once())
+
+    def test_workspace_failure_copy_is_json_and_does_not_close_or_contact_docker(self):
+        self.c.exit_workspace_stopped = False
+        self.c.exit_diagnostics = {"schema": 1, "workspace_stop_verified": False, "checks": [{"stage": "wsl2_configuration", "result": "not_confirmed"}]}
+        copied = []
+        def inspect():
+            dialog = self.app.activeModalWidget()
+            try:
+                dialog.findChild(QPushButton, "workspace-exit-copy").click()
+                copied.append(QApplication.clipboard().text())
+                copied.append(dialog.isVisible())
+            finally:
+                dialog.reject()
+        QTimer.singleShot(30, inspect)
+        with unittest.mock.patch("enge_spx.engine.Docker.run", side_effect=AssertionError("Copy must not contact Docker")):
+            self.window.show_exit_error("Docker 操作失败：missing engine pipe")
+        report = json.loads(copied[0])
+        self.assertEqual(report["app"], "ENGE SPX")
+        self.assertIn("version", report)
+        self.assertFalse(report["last_exit"]["workspace_stop_verified"])
+        self.assertTrue(copied[1])
+
+    def test_workspace_failure_retry_is_the_default_stopped_workspace_exit(self):
+        self.c.exit_workspace_stopped = False
+        def inspect():
+            self.app.activeModalWidget().findChild(QPushButton, "workspace-exit-retry").click()
+        QTimer.singleShot(30, inspect)
+        with unittest.mock.patch.object(self.c, "request_exit") as retry:
+            self.window.show_exit_error("missing engine pipe")
+        retry.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -126,32 +126,35 @@ with tempfile.TemporaryDirectory() as directory:
         window.grab().save(str(path / (name + "-network.png")))
         (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     recovery_errors = []
-    def inspect_exit_recovery():
+    def inspect_exit_recovery(kind):
         dialog = app.activeModalWidget()
         try:
-            assert dialog and dialog.objectName() == "desktop-exit-recovery", "Exit recovery did not open"
+            assert dialog and dialog.objectName() == kind + "-exit-recovery", "Exit recovery did not open"
             assert dialog.screen().availableGeometry().adjusted(-2, -2, 2, 2).contains(dialog.frameGeometry()), "Exit recovery exceeds the screen"
             scroll = dialog.findChild(QScrollArea)
-            for control in ("desktop-exit-retry", "desktop-exit-app-only", "desktop-exit-return"):
+            controls = ("retry", "app-only", "copy", "return") if kind == "desktop" else ("retry", "copy", "return")
+            for suffix in controls:
+                control = kind + "-exit-" + suffix
                 widget = dialog.findChild(QPushButton, control)
                 scroll.ensureWidgetVisible(widget)
                 QTest.qWait(10)
                 rect = QRect(widget.mapTo(scroll.viewport(), QPoint()), widget.size())
                 assert scroll.viewport().rect().contains(rect), f"Exit recovery action is clipped: {control} / {rect}"
-            assert dialog.findChild(QPushButton, "desktop-exit-return").isDefault(), "Recovery defaults to exiting"
-            report["exit_recovery_controls_visible"] = True
+            assert dialog.findChild(QPushButton, kind + "-exit-return").isDefault(), "Recovery defaults to exiting"
+            report[kind + "_exit_recovery_controls_visible"] = True
             if target:
-                dialog.grab().save(str(path / (name + "-exit-recovery.png")))
+                dialog.grab().save(str(path / (name + "-" + kind + "-exit-recovery.png")))
                 (path / (name + ".json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
         except Exception as error:
             recovery_errors.append(str(error))
         finally:
             if dialog:
                 dialog.reject()
-    controller.exit_workspace_stopped = True  # Exercise layout; reject never triggers shutdown.
-    QTimer.singleShot(50, inspect_exit_recovery)
-    window.show_exit_error("等待 Docker Desktop 正常关闭超时；未强制结束进程。")
-    assert not recovery_errors, recovery_errors
-    assert report.get("exit_recovery_controls_visible"), "Exit recovery was not inspected"
+    for kind in ("desktop", "workspace"):
+        controller.exit_workspace_stopped = kind == "desktop"  # Layout only.
+        QTimer.singleShot(50, lambda value=kind: inspect_exit_recovery(value))
+        window.show_exit_error("Docker 引擎不可达；退出核验尚未完成。")
+        assert not recovery_errors, recovery_errors
+        assert report.get(kind + "_exit_recovery_controls_visible"), "Exit recovery was not inspected"
     print(json.dumps(report), flush=True)
     window.finish_close()

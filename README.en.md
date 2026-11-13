@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.3-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.4-windows">Download</a></p>
 
 [Official website](https://enge1337.cn/) · [Website source](website/README.md)
 
@@ -58,19 +58,19 @@ These are actual **0.13.2 native Windows UI captures** using temporary data with
 
 ## Download and start
 
-Current release: **[0.13.3 stable](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.3-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.13.4 stable](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.4-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-**0.13.3 stable** fixes app exit after both Docker Desktop and its backend
-have been closed. If the management API has disappeared, independently verify
-the exact local Desktop Linux pipe, complete process absence and a stopped WSL2
-Docker distro before completing local cleanup. Missing pipes alone remain
-insufficient; denied or unknown evidence retains the interface for retry.
-Existing accounts, proxies, identities, budgets and images remain compatible.
-See [exit behavior](docs/exit.zh-CN.md) and
-[release validation](docs/validation-0.13.3.zh-CN.md).
+**0.13.4 stable** addresses the teardown race where Docker's engine pipe
+disappears before Desktop processes or its WSL distro finish stopping. Wait
+within a bounded deadline for complete stopped evidence; no connection error
+alone becomes success. Exit-failure dialogs can directly copy versioned,
+sanitized check details without contacting Docker, and save a bounded local
+report for investigation. Existing data, settings, identities and images remain
+compatible. See [exit behavior](docs/exit.zh-CN.md) and
+[release validation](docs/validation-0.13.4.zh-CN.md).
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.3-windows/ENGE-SPX-Windows-x64-0.13.3-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.3-windows/ENGE-SPX-Windows-x64-0.13.3-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.4-windows/ENGE-SPX-Windows-x64-0.13.4-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.13.4-windows/ENGE-SPX-Windows-x64-0.13.4-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.

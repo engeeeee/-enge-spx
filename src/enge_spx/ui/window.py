@@ -929,8 +929,12 @@ class Window(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.c.store.home)))
 
     def copy_diagnostics(self):
-        QApplication.clipboard().setText(self.c.diagnostics())
-        self.c.operation.set("已复制诊断摘要，不包含节点凭据、出口 IP 或项目路径。")
+        text = self.c.diagnostics()
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        copied = clipboard.text() == text
+        self.c.operation.set("已复制诊断摘要，不包含节点凭据、出口 IP 或项目路径。" if copied else "剪贴板暂不可用；退出诊断已另存于当前数据目录 logs/exit-diagnostics.json。")
+        return copied
 
     def proxy_dialog(self):
         if not self.c.consent_stop():
@@ -1085,7 +1089,32 @@ class Window(QMainWindow):
         self.reveal()
         self.update_resource_activity()
         if not self.c.exit_workspace_stopped:
-            self.c.notify("退出尚未完成", message + "\n\n退出未完成，界面已保留。可以重试“退出软件”，或明确选择保留工作区退出界面。", True)
+            dialog = Dialog(self, "退出尚未完成", width=560)
+            dialog.setObjectName("workspace-exit-recovery")
+            dialog.body.addWidget(label(f"ENGE SPX {__version__} · 工作区停止尚未核实", "Caption", True))
+            dialog.body.addWidget(label(str(message), "Muted", True))
+            status = label("可重试退出，或直接复制包含版本与核验阶段的诊断信息。", "Caption", True)
+            dialog.body.addWidget(status)
+            choice = [None]
+            def retry():
+                choice[0] = "retry"
+                dialog.accept()
+            def copy():
+                copied = self.copy_diagnostics()
+                status.setText("已复制诊断信息，可以直接粘贴反馈；界面仍保留。" if copied else "剪贴板暂不可用；可使用当前数据目录 logs/exit-diagnostics.json。")
+            again = button("重试退出", retry)
+            again.setObjectName("workspace-exit-retry")
+            copied = button("复制诊断信息", copy)
+            copied.setObjectName("workspace-exit-copy")
+            cancel = button("返回软件", dialog.reject, ghost=True)
+            cancel.setObjectName("workspace-exit-return")
+            cancel.setDefault(True)
+            cancel.setFocus()
+            for widget in (again, copied, cancel):
+                dialog.body.addWidget(widget)
+            dialog.exec()
+            if choice[0] == "retry":
+                self.c.request_exit()
             return
         dialog = Dialog(self, "工作区已停止", width=560)
         dialog.setObjectName("desktop-exit-recovery")
@@ -1099,11 +1128,13 @@ class Window(QMainWindow):
         retry.setObjectName("desktop-exit-retry")
         only_app = button("仅退出 ENGE SPX", lambda: choose("app"), True)
         only_app.setObjectName("desktop-exit-app-only")
+        copied = button("复制诊断信息", self.copy_diagnostics)
+        copied.setObjectName("desktop-exit-copy")
         cancel = button("返回软件", dialog.reject, ghost=True)
         cancel.setObjectName("desktop-exit-return")
         cancel.setDefault(True)
         cancel.setFocus()
-        for widget in (retry, only_app, cancel):
+        for widget in (retry, only_app, copied, cancel):
             dialog.body.addWidget(widget)
         dialog.exec()
         if choice[0] == "retry":

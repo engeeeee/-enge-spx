@@ -1,13 +1,22 @@
 """Explicit Windows Desktop shutdown, separate from owner-scoped Engine.stop."""
 import json
+import logging
 import os
 import subprocess
 import time
 
 from .docker_env import environment, require_local_context
 from .state import SPXError
+from .exit_diagnostics import add_check
 
 PREFERENCES = "exit-preferences.json"
+log = logging.getLogger("enge_spx.gui")
+
+
+def _record(stage, result, error=None):
+    log.info("desktop-exit-check stage=%s result=%s error_type=%s", stage, result,
+             type(error).__name__ if error else "none")
+    add_check("desktop", stage, result, error)
 
 
 def load_preference(store):
@@ -77,7 +86,7 @@ def _status(docker, timeout):
     return state
 
 
-def stopped_for_context(docker, windows=None):
+def stopped_for_context(docker, windows=None, *, timeout=12):
     """Offline proof only for the local Desktop Linux pipe, never another daemon.
 
     A missing pipe alone is not proof. Context metadata is local, then the
@@ -86,16 +95,34 @@ def stopped_for_context(docker, windows=None):
     """
     if not (os.name == "nt" if windows is None else windows) or not docker.executable:
         return False
+    deadline = time.monotonic() + timeout
     try:
-        endpoint = require_local_context(docker, timeout=4)
-        if endpoint.lower() not in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine"):
+        if timeout <= 0:
             return False
-        try:
-            return _status(docker, 4) == "stopped"
-        except DesktopShutdownError:
-            from .desktop_offline import stopped
-            return stopped()
-    except (SPXError, OSError):
+        endpoint = require_local_context(docker, timeout=min(4, timeout))
+        if endpoint.lower() not in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine"):
+            _record("context", "unsupported_endpoint")
+            return False
+        _record("context", "desktop_linux")
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _record("management", "deadline_expired")
+                return False
+            try:
+                state = _status(docker, min(4, remaining))
+                _record("management", state)
+                if state == "stopped":
+                    return True
+                if state != "stopping":
+                    return False
+            except DesktopShutdownError:
+                _record("management", "unavailable")
+                from .desktop_offline import stopped
+                return stopped(timeout=min(8, max(0, deadline - time.monotonic())), wait=True)
+            time.sleep(min(.25, max(0, deadline - time.monotonic())))
+    except (SPXError, OSError) as error:
+        _record("context", "unavailable", error)
         return False
 
 
@@ -126,15 +153,18 @@ def stop_desktop(docker, progress=lambda message: None, timeout=60, windows=None
             # A manual/normal quit can remove the management API as well as
             # the engine pipe. Independently verify that exact local backend.
             from .desktop_offline import stopped
+            _record("joint_management", "unavailable")
             remaining = deadline - time.monotonic()
             if remaining > 0:
                 try:
                     endpoint = require_local_context(docker, timeout=min(4, remaining))
                     remaining = deadline - time.monotonic()
-                    if endpoint.lower() in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine") and stopped(timeout=min(8, remaining)):
+                    supported = endpoint.lower() in ("npipe:////./pipe/dockerdesktoplinuxengine", "npipe://./pipe/dockerdesktoplinuxengine")
+                    _record("joint_context", "desktop_linux" if supported else "unsupported_endpoint")
+                    if supported and stopped(timeout=min(8, remaining), wait=True):
                         return "stopped"
-                except (SPXError, OSError):
-                    pass
+                except (SPXError, OSError) as error:
+                    _record("joint_context", "unavailable", error)
             raise
 
     progress("工作区与记录已收尾，正在读取 Docker Desktop 状态…")

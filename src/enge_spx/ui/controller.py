@@ -18,6 +18,8 @@ from ..downloads import DownloadPaused
 from ..desktop_shutdown import load_preference as load_exit_preference, save_preference as save_exit_preference, stop_desktop
 from ..engine import Engine
 from ..gui_diagnostics import log
+from ..exit_diagnostics import capture_checks, failure_report
+from .. import __version__
 from ..line_security import LINE_MODES, v2ray_rules
 from ..nodes import fetch_subscription, normalize, parse_nodes
 from ..proxy import detect_system_proxy, download_proxy, protocol, proxy_url, relay_config, route_config
@@ -72,6 +74,7 @@ class Controller(QObject):
         self.exit_docker = None
         self.exit_close_desktop = False
         self.exit_skip_desktop = False
+        self.exit_diagnostics = None
         self.desktop_exit_supported = os.name == "nt"
         try:
             self.saved_close_desktop = load_exit_preference(store)
@@ -697,6 +700,7 @@ class Controller(QObject):
                 log.info("gui-exit-desktop-stopped")
                 self.finish_exit_when_quiet()
             elif kind == "desktop_exit_error":
+                value = self.receive_exit_failure(value)
                 self.busy = self.cancelable = self.close_pending = False
                 self.exit_mode = None
                 self.exit_stage = "failed"
@@ -716,6 +720,7 @@ class Controller(QObject):
                 else:
                     self.notify("退出偏好未保存", self.exit_preferences_status.get(), True)
             elif kind == "exit_error":
+                value = self.receive_exit_failure(value)
                 self.busy = self.cancelable = self.close_pending = False
                 self.exit_mode = None
                 self.exit_stage = "failed"
@@ -1053,9 +1058,30 @@ class Controller(QObject):
             webbrowser.open(PROJECT_URL + "/blob/main/docs/quickstart.zh-CN.md")
 
     def diagnostics(self):
-        result = diagnostics(self.store, self.last_docker_info, self.startup_error)
+        try:
+            result = diagnostics(self.store, self.last_docker_info, self.startup_error)
+        except (SPXError, OSError, ValueError, TypeError, AttributeError):
+            # A broken setting must not turn Copy diagnostics into another
+            # error popup. This path never calls Docker or reads raw log text.
+            result = {"app": "ENGE SPX", "version": __version__, "summary": "unavailable"}
         result.update(theme="warm-clay", window_frame="qt-native")
+        if self.exit_diagnostics is not None:
+            result["last_exit"] = self.exit_diagnostics
         return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def exit_failure(self, error, checks, stage):
+        report = failure_report(stage, checks, error, self.exit_workspace_stopped)
+        try:
+            self.store.write("logs/exit-diagnostics.json", report)
+        except (SPXError, OSError):
+            log.info("gui-exit-diagnostics-save unavailable")
+        return {"message": self.clean_message(error), "report": report}
+
+    def receive_exit_failure(self, value):
+        if isinstance(value, dict) and isinstance(value.get("report"), dict):
+            self.exit_diagnostics = value["report"]
+            return value["message"]
+        return value
 
     def request_close(self):
         log.info("gui-close-requested busy=%s", self.busy)
@@ -1093,6 +1119,7 @@ class Controller(QObject):
         self.exit_desktop_done = False
         self.exit_close_desktop = False
         self.exit_skip_desktop = skip_desktop
+        self.exit_diagnostics = None
         self.record_after = None
         self.stop_resource_recording("app_exit")
         self.startup_active = self.desktop_launch_pending = False
@@ -1151,7 +1178,7 @@ class Controller(QObject):
         self.exit_stage = "stopping"
         self.busy, self.cancelable = True, False
         self.operation.set("正在停止本实例工作区并退出…")
-        def worker():
+        def worker(checks):
             def progress(text):
                 cleaned = self.clean_message(text)
                 log.info("gui-exit-progress %s", cleaned)
@@ -1176,9 +1203,12 @@ class Controller(QObject):
             except Exception as error:
                 if self.report:
                     self.report.capture("gui-exit-error", type(error), error, error.__traceback__)
-                self.events.put(("exit_error", self.clean_message(error)))
+                self.events.put(("exit_error", self.exit_failure(error, checks, "workspace")))
+        def tracked_worker():
+            with capture_checks() as checks:
+                worker(checks)
         self.delivery.start()
-        threading.Thread(target=worker, name="spx-shutdown", daemon=True).start()
+        threading.Thread(target=tracked_worker, name="spx-shutdown", daemon=True).start()
         self.refresh()
 
     def finish_exit_when_quiet(self):
@@ -1191,16 +1221,19 @@ class Controller(QObject):
                 self.exit_stage = "desktop_stopping"
                 self.busy, self.cancelable = True, False
                 self.operation.set("工作区与记录已收尾，正在关闭 Docker Desktop…")
-                def worker():
+                def worker(checks):
                     try:
                         result = stop_desktop(self.exit_docker, lambda text: self.events.put(("exit_progress", text)))
                         if result.get("docker_desktop_stopped") is not True:
                             raise SPXError("未取得 Docker Desktop 的完整停止结果。")
                         self.events.put(("desktop_exit_done", result))
                     except Exception as error:
-                        self.events.put(("desktop_exit_error", self.clean_message(error)))
+                        self.events.put(("desktop_exit_error", self.exit_failure(error, checks, "desktop")))
+                def tracked_worker():
+                    with capture_checks() as checks:
+                        worker(checks)
                 self.delivery.start()
-                threading.Thread(target=worker, name="spx-desktop-stop", daemon=True).start()
+                threading.Thread(target=tracked_worker, name="spx-desktop-stop", daemon=True).start()
                 self.refresh()
             return
         if self.exit_stage != "closing":

@@ -1,5 +1,23 @@
 # Changes
 
+## 0.13.4 teardown race and exit diagnostics — 2026-11-13
+
+- Wait boundedly when Desktop reports stopping, and repeat complete offline
+  observations when the engine pipe disappears before process/WSL teardown.
+  Preserve all stop evidence requirements, local context restrictions and the
+  optional Desktop exit deadline; never turn a timeout or missing pipe into success.
+- Add a workspace-failure dialog with return/retry and direct Copy diagnostics.
+  Include the actual running version and safe check stages; copying never
+  contacts Docker and remains available when settings cannot be read.
+- Save at most 64 thread-scoped, allowlisted checks in a local schema-1 report.
+  Omit raw errors, command output, paths and distro/account/node data; report
+  write failure cannot mask the original shutdown failure. Keep unverified
+  workspace exits blocked and explicit keep-workspace consent unchanged.
+- Add delayed-process teardown, deadline, clipboard, report-redaction and
+  recovery/DPI coverage. The reporter's actual trigger is still unconfirmed;
+  simulated/native-owned fixtures are not physical Docker/WSL acceptance.
+- No runtime recipe, production dependency, privilege, terminal or license change.
+
 ## 0.13.3 fully closed Desktop exit fix — 2026-11-12
 
 - Fix the missing-pipe exit failure when Docker Desktop and its background

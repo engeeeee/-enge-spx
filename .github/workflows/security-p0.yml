@@ -69,7 +69,7 @@ jobs:
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: P0-UI-0.13.3
+          name: P0-UI-0.13.4
           path: ${{ runner.temp }}/spx-ui-checks
           if-no-files-found: error
       - if: runner.os == 'Windows'
@@ -135,7 +135,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = Join-Path $env:RUNNER_TEMP 'spx-installed'
-          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.13.3-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
+          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.13.4-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
           if ($setup.ExitCode -ne 0 -or -not (Test-Path "$appDir/ENGE-SPX.exe")) { throw 'Setup failed.' }
           & "$appDir/spx.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed.' }
@@ -149,10 +149,10 @@ jobs:
           if ((Get-Content (Join-Path $privateData 'uninstall-test.txt')) -ne 'preserved') { throw 'Uninstall removed private data.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: P0-Windows-x64-0.13.3
+          name: P0-Windows-x64-0.13.4
           path: |
-            dist/ENGE-SPX-Windows-x64-0.13.3-Portable.zip
-            dist/ENGE-SPX-Windows-x64-0.13.3-Setup.exe
+            dist/ENGE-SPX-Windows-x64-0.13.4-Portable.zip
+            dist/ENGE-SPX-Windows-x64-0.13.4-Setup.exe
             dist/*.sha256
           if-no-files-found: error
   containers:
@@ -213,7 +213,7 @@ jobs:
         if: github.repository == 'engeeeee/ENGE-SPX' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: P0-Runtime-0.13.3
+          name: P0-Runtime-0.13.4
           path: ${{ runner.temp }}/runtime-package/*
           compression-level: 0
           retention-days: 1

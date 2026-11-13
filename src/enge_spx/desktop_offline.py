@@ -7,6 +7,7 @@ running list, and repeat process/pipe observations before accepting the proof.
 """
 import ctypes
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -14,9 +15,21 @@ import time
 
 from .docker_env import environment
 from .process_metrics import desktop_processes
+from .exit_diagnostics import add_check
 
 PIPE = r"\\.\pipe\dockerDesktopLinuxEngine"
 DISTROS = frozenset(("docker-desktop", "docker-desktop-data"))
+log = logging.getLogger("enge_spx.gui")
+
+
+def _record(stage, result, error=None):
+    # Fixed stage/result codes only: never include settings, distro/process
+    # names, command output, exception messages or user paths in GUI logs.
+    code = getattr(error, "winerror", None) or getattr(error, "errno", None)
+    code = code if type(code) is int else 0
+    log.info("desktop-offline-check stage=%s result=%s error_type=%s os_code=%s",
+             stage, result, type(error).__name__ if error else "none", code)
+    add_check("offline", stage, result, error)
 
 
 def _kernel():
@@ -95,24 +108,73 @@ def _distributions(executable, running, timeout):
     return {name.casefold() for name in names}
 
 
-def stopped(timeout=8):
-    """Return false on unknown/denied/unsupported evidence; emit no OS output."""
-    if os.name != "nt" or timeout <= 0:
-        return False
-    deadline = time.monotonic() + timeout
+def _observe(deadline):
+    stage = "wsl2_configuration"
     try:
         if not _wsl_enabled():
+            _record(stage, "not_confirmed")
             return False
+        _record(stage, "confirmed")
+        stage = "windows_api"
         kernel = _kernel()
-        if not _desktop_absent() or not _pipe_absent(kernel):
+        stage = "desktop_processes"
+        if not _desktop_absent():
+            _record(stage, "present")
             return False
+        _record(stage, "absent")
+        stage = "engine_pipe"
+        if not _pipe_absent(kernel):
+            _record(stage, "present_or_unreadable")
+            return False
+        _record(stage, "absent")
+        stage = "wsl_executable"
         executable = _wsl_path(kernel)
+        stage = "wsl_registered"
         registered = _distributions(executable, False, deadline - time.monotonic())
         if "docker-desktop" not in registered:
+            _record(stage, "docker_distro_not_registered")
             return False
+        _record(stage, "confirmed")
+        stage = "wsl_running"
         running = _distributions(executable, True, deadline - time.monotonic())
-        if DISTROS & running or not running <= registered:
+        if DISTROS & running:
+            _record(stage, "docker_distro_running")
             return False
-        return time.monotonic() < deadline and _desktop_absent() and _pipe_absent(kernel)
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+        if not running <= registered:
+            _record(stage, "inconsistent")
+            return False
+        _record(stage, "docker_distro_stopped")
+        if time.monotonic() >= deadline:
+            _record("deadline", "expired")
+            return False
+        stage = "final_desktop_processes"
+        if not _desktop_absent():
+            _record(stage, "present")
+            return False
+        stage = "final_engine_pipe"
+        if not _pipe_absent(kernel):
+            _record(stage, "present_or_unreadable")
+            return False
+        _record("complete", "verified")
+        return True
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError) as error:
+        _record(stage, "unavailable", error)
         return False
+
+
+def stopped(timeout=8, *, wait=False):
+    """Allow bounded teardown time; every accepted observation remains complete."""
+    if os.name != "nt" or timeout <= 0:
+        _record("preflight", "unsupported_or_expired")
+        return False
+    deadline = time.monotonic() + timeout
+    while True:
+        if _observe(deadline):
+            return True
+        if not wait:
+            return False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _record("deadline", "expired")
+            return False
+        time.sleep(min(.25, remaining))

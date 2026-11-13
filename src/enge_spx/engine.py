@@ -775,7 +775,10 @@ class Engine:
             self._stop()
         except SPXError:
             from .desktop_shutdown import stopped_for_context
-            if not installed or not stopped_for_context(self.docker):
+            if not installed:
+                raise
+            self.log("Docker 引擎暂不可达，正在等待 Desktop 完成关闭并核验…")
+            if not stopped_for_context(self.docker):
                 raise
             self.log("Docker Desktop 已确认停止，正在撤销本实例授权并清理本机服务…")
             self._stop(_desktop_stopped=True)
