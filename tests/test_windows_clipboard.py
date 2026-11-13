@@ -156,6 +156,51 @@ class WindowsClipboardTests(unittest.TestCase):
 
 
 class OwnedPTYTests(unittest.TestCase):
+    def test_owned_pty_preserves_native_ansi_and_truecolour_output(self):
+        import codecs
+        import sys
+        import threading
+        from enge_spx.terminal_pty import start
+        from enge_spx.smart_terminal import TerminalScreen, TerminalStream
+        code = '''import sys,os,time
+if os.name=='nt':
+ import ctypes
+ k=ctypes.WinDLL('kernel32');k.SetConsoleOutputCP(65001)
+ k.GetStdHandle.argtypes=[ctypes.c_ulong];k.GetStdHandle.restype=ctypes.c_void_p
+ k.SetConsoleMode.argtypes=[ctypes.c_void_p,ctypes.c_ulong]
+ k.SetConsoleMode(k.GetStdHandle(0xfffffff5),7)
+sys.stdout.write('\\x1b[31mR\\x1b[0;38;2;12;34;56mT\\x1b[0;2mD\\x1b[0mSPX_COLOUR_DONE');sys.stdout.flush()
+time.sleep(20)
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            pty = start([sys.executable, "-u", "-c", code], dict(os.environ), tmp)
+            screen = TerminalScreen(110, 32)
+            stream = TerminalStream(screen)
+            decoder = codecs.getincrementaldecoder("utf-8")("replace")
+            lock = threading.Lock()
+            def read():
+                while block := pty.read():
+                    with lock:
+                        stream.feed(decoder.decode(block))
+            reader = threading.Thread(target=read, daemon=True)
+            reader.start()
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    with lock:
+                        found = [(row, x) for row in screen.buffer.values() for x in range(screen.columns - 17)
+                                 if "".join(row[x + n].data for n in range(18)) == "RTDSPX_COLOUR_DONE"]
+                    if found:
+                        break
+                    time.sleep(.01)
+                self.assertTrue(found, "Native colour probe did not reach the owned terminal")
+                row, x = found[0]
+                self.assertNotEqual(row[x].fg, "default")
+                self.assertEqual(row[x + 1].fg, "0c2238")
+            finally:
+                pty.close()
+                reader.join(3)
+
     def test_owned_native_pty_receives_unicode_and_ctrl_sequences_without_shell(self):
         import sys
         import threading

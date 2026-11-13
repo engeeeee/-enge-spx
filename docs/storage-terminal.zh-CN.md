@@ -4,7 +4,7 @@
 
 ## 选择终端
 
-开发分支的自动模式为 Claude Code / Codex 使用[智能粘贴终端](smart-clipboard.zh-CN.md)，在 CLI 当前输入区接收 Ctrl+V 文字、截图及文件。显式选择 Windows Terminal、PowerShell 或自定义 exe 时继续使用外部终端，只保留它们原有的剪贴板功能；不修改全局快捷键。Linux shell/登录窗口的自动选择保持原行为。
+自动模式为 Claude Code / Codex 使用[智能粘贴终端](smart-clipboard.zh-CN.md)，在 CLI 当前输入区接收 Ctrl+V 文字、截图及文件。显式选择 Windows Terminal、PowerShell 或自定义 exe 时继续使用外部终端，只保留它们原有的剪贴板功能；不修改全局快捷键。Linux shell/登录窗口的自动选择保持原行为。
 
 自动选择依次检测 **Windows Terminal → PowerShell 7 → Windows PowerShell**。不会自动寻找、优先选择或安装第三方终端。手动选定的终端找不到时会提示，不会静默切换。
 

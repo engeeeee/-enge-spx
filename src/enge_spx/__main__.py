@@ -93,8 +93,12 @@ def main():
             from .smart_terminal import preview
             return preview()
         if args.self_test:
-            from .smart_terminal import TerminalScreen
-            assert TerminalScreen(80, 24).columns == 80
+            from .smart_terminal import TerminalScreen, TerminalStream
+            terminal_replies = []
+            terminal_screen = TerminalScreen(80, 24, terminal_replies.append)
+            TerminalStream(terminal_screen).feed("\x1b[2;38:2::12:34:56mX\x1b]11;?\x07")
+            assert terminal_screen.buffer[0][0].faint and terminal_screen.buffer[0][0].fg == "0c2238"
+            assert terminal_replies and terminal_replies[0].startswith(b"\x1b]11;rgb:")
             from .downloads import client
             from .forward import tunnel_type
             from .platform_ui import ASSETS

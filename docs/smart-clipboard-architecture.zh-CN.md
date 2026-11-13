@@ -32,7 +32,7 @@ GUI Controller.open_tool
        → 独立 bracketed paste 事件 → 原生图片标记确认
 ```
 
-键盘与粘贴排在同一队列，不重启工具，不发送 Enter，不改写 CLI 的编辑缓冲区。Qt 主线程只处理界面/IME/VT；剪贴板争用重试、PNG 编码、文件流和 Docker 操作在工作线程。输出管道在独立线程排空，输出队列有界。ConPTY resize 和终端报告复用本终端的句柄，不定位外部窗口、不调用 SendInput、不安装钩子。
+键盘与粘贴排在同一有界队列，不重启工具，不发送 Enter，不改写 CLI 的编辑缓冲区。Qt 主线程只处理界面/IME/VT；剪贴板争用重试、PNG 编码、文件流和 Docker 操作在工作线程。输出管道在独立线程排空，输出队列有界。ConPTY resize 和终端报告复用本终端的句柄，不定位外部窗口、不调用 SendInput、不安装钩子。
 
 `TerminalScreen` 使用 pyte 解析 VT、颜色、光标、历史，补充备用屏幕；`TerminalView` 提供 IME、键盘、选择复制和 CLI 请求的 SGR 鼠标报告。它不是新聊天 UI：CLI 完整 TUI 原样绘制，原生协议决定是否发送和读取附件。OSC52 不会读取或改写系统剪贴板。
 
@@ -56,7 +56,7 @@ GUI Controller.open_tool
 
 项目 bind 在 Windows Desktop 中可能显示合成 UID；写入依赖已审计的挂载授权和目录句柄，不通过 root/chmod 改写项目所有权。私有 `/tmp` 仍验证目录所有者。Windows 缓存活动锁放在 JSON 文件 EOF 之外，不增长文件，避免阻止现有应用数据迁移读取元数据；终端连接结束会取消传输并释放锁，关闭时仍排空 ConPTY 输出以免阻塞。
 
-文本屏蔽可退出 bracketed paste 的控制字符，保留换行、制表和 Unicode。无 bracketed paste 时拒绝自动粘贴，避免多行意外执行。图片必须是受支持的真实图片，CLI 版本已验证、模型支持视觉，并观察到新增 `[Image #N]`；复制成功与原生视觉编码测试分别记录。
+文本屏蔽可退出 bracketed paste 的控制字符，保留换行、制表和 Unicode。无 bracketed paste 时拒绝自动粘贴，避免多行意外执行。图片必须是受支持的真实图片、模型支持视觉，并逐张观察到当前会话新增 `[Image #N]`。0.14.1 移除精确版本白名单和每次导入的独立版本查询；复制成功、会话标记和真实 CLI 视觉编码测试分别记录，未把未来版本全部列为通过。失败时按入队时间取消此前所有已排队的 Enter，新输入仍按序保留。
 
 图片文件先核验 PNG/JPEG/WebP 魔数与扩展名，再指定对应 Qt 解码器；不自动探测 SVG/TIFF 等其它插件，避免伪装成 PNG 的文件在宿主触发不必要的格式/外部资源处理。
 
@@ -78,3 +78,11 @@ pyte 保持未修改；替换路径、源码取得方式和许可证见[第三�
 - [Claude：图片粘贴和原生标记](https://code.claude.com/docs/en/interactive-mode)
 - [Codex 0.167.0：图片路径 Paste 分类](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs)
 - [Codex 0.167.0：视觉输入序列化](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/tui/src/chatwidget/image_submission.rs)
+
+## 0.14.1 终端交互与颜色修复
+
+右键菜单提供复制/粘贴/全选/取消选择；选择快照涵盖已有滚动历史，输出继续接收但不会替换正在复制的内容。无选择的 Ctrl+C 与普通 Ctrl+A 仍交给 CLI。鼠标报告和强制选择模式分别处理。标题栏复用本项目 Qt TitleBar 和原生 startSystemMove/startSystemResize，不安装窗口消息钩子；移除顶部复制按钮，保留现有配色。
+
+`terminal_render.py` 在未修改的 pyte 外补充有界 OSC10/11/4 颜色查询和冒号 SGR；Screen 保留淡色状态，绘制时缓存混色并显示加粗/下划线/删除线。仅自有终端的受审计 exec 增加公开 TERM/COLORTERM/TERM_PROGRAM，不改容器镜像、网络、权限或外部终端设置。颜色/光标协议回复使用有界优先队列，在等待图片确认时仍可响应，避免与原生附件输入相互等待。OSC52 不会读写 Windows 剪贴板。
+
+参考 [Pebrel](https://github.com/Kuddev/pebrel) 的选择、右键菜单和终端显示功能；其 GPL-3.0 代码/字体/渲染器未并入本项目，现有许可和依赖保持不变。

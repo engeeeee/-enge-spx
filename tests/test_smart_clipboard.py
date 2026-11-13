@@ -117,8 +117,7 @@ class ClipboardDataTests(unittest.TestCase):
         file = Attachment(path, False)
         self.assertEqual(InputAdapter("claude", ()).frames([file]), [text_frame(" @" + path + " ")])
         self.assertEqual(InputAdapter("codex", ()).frames([file]), [text_frame(" " + path + " ")])
-        with self.assertRaises(SPXError):
-            InputAdapter("codex", (999, 0, 0)).frames([Attachment(path, True)])
+        self.assertEqual(InputAdapter("codex", (999, 0, 0)).frames([Attachment(path, True)]), [text_frame(path)])
 
     def test_adapter_rejects_escaped_or_unowned_attachment_paths(self):
         for path in ("/etc/passwd", "/workspace/../../secret.png", "a\nrm -rf /", "/tmp/a.png"):
@@ -316,12 +315,17 @@ class OrderedInputTests(unittest.TestCase):
 
     def test_failed_file_copy_keeps_draft_and_cancels_queued_enter(self):
         transfer = Mock(tool="claude")
-        transfer.paste.side_effect = OSError("synthetic-secret-do-not-display")
+        release = threading.Event()
+        def fail(snapshot):
+            release.wait(3)
+            raise OSError("synthetic-secret-do-not-display")
+        transfer.paste.side_effect = fail
         worker, written, messages = self.worker(transfer)
         worker.put("keys", b"draft")
         worker.paste(self.clipboard(Snapshot("files", ("failed",))))
         worker.put("keys", b"suffix")
         worker.put("keys", b"\r")
+        release.set()
         wait_for(lambda: any("回车" in x for x in messages))
         self.assertEqual(written, [b"draft", b"suffix"])
         self.assertNotIn("synthetic-secret", "".join(messages))

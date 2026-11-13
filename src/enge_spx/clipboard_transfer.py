@@ -38,11 +38,12 @@ def text_frame(text: str) -> bytes:
 
 
 class InputAdapter:
-    # Exact, reproducible compatibility targets; user-installed upgrades are
-    # detected rather than silently assumed to keep image-path semantics.
-    VERIFIED = {"claude": {(2, 1, 319)}, "codex": {(0, 167, 0)}}
+    # The current TUI must acknowledge every native image. A version string
+    # from another --version process cannot establish the running TUI's
+    # capabilities, and must not reject otherwise compatible user updates.
+    TOOLS = frozenset(("claude", "codex"))
 
-    def __init__(self, tool, version):
+    def __init__(self, tool, version=()):
         self.tool = tool
         self.version = tuple(version)
 
@@ -50,17 +51,15 @@ class InputAdapter:
         return [data for data, image in self.events(attachments)]
 
     def events(self, attachments):
-        if self.tool not in self.VERIFIED:
+        if self.tool not in self.TOOLS:
             raise SPXError("图片和文件智能粘贴仅用于 Claude Code / Codex 的输入区。")
-        if any(x.image for x in attachments) and self.version not in self.VERIFIED[self.tool]:
-            raise SPXError("当前 CLI 版本的原生图片粘贴尚未验证；本次未插入，请使用已验证版本或更新适配器。")
         result = []
         for item in attachments:
             if not re.fullmatch(r"/(?:workspace/[a-f0-9]{16}/\.enge-spx-clipboard|tmp/enge-spx-clipboard-[a-f0-9]{16})/[a-f0-9]{32}/[a-f0-9]{32}(?:\.[a-z0-9]{1,12})?", item.path):
                 raise SPXError("附件路径不属于本次受控导入。")
-            # Both pinned TUIs classify a standalone image path paste as an
-            # image, not literal text. Each image needs its own Paste event.
-            label = json.dumps(item.name[:240], ensure_ascii=False) if item.name else ""
+            # Give each image its own native Paste event. Escape brackets in
+            # filename labels so names cannot imitate an image acknowledgement.
+            label = json.dumps(item.name[:240], ensure_ascii=False).replace("[", "\\u005b").replace("]", "\\u005d") if item.name else ""
             if item.image:
                 if label:
                     result.append((text_frame(" 图片 " + label + " "), False))
@@ -157,14 +156,7 @@ class Transfer:
             raise SPXError("项目身份或权限已改变，已取消粘贴。")
 
     def adapter(self):
-        # --version creates no interactive session. Query once per import so a
-        # user update followed by restarting the CLI in this terminal cannot
-        # inherit a stale compatibility decision.
-        from .tool_session import PREPARE
-        value = self.engine.docker.run("exec", self.container, "bash", "--noprofile", "--norc", "-c", PREPARE + 'exec "$@" --version\n', "enge-spx-version", self.tool, timeout=10)
-        match = re.fullmatch(r"(?:codex-cli\s+)?(\d+)\.(\d+)\.(\d+)(?:\s+\(Claude Code\))?\s*", value)
-        self.version = tuple(map(int, match.groups())) if match else ()
-        return InputAdapter(self.tool, self.version)
+        return InputAdapter(self.tool)
 
     def paste(self, snapshot: Snapshot):
         if snapshot.kind not in ("image", "files"):
@@ -200,9 +192,6 @@ class Transfer:
             if sum(f["size"] for f in files) > MAX_BATCH:
                 raise SPXError("本次粘贴总大小超过 256 MiB。")
             adapter = self.adapter()
-            # Reject unsupported image versions before copying any files.
-            if any(images) and adapter.version not in adapter.VERIFIED.get(self.tool, set()):
-                raise SPXError("当前 CLI 版本尚未验证原生图片粘贴；未复制或插入附件。")
             if self.lease is None:
                 from .clipboard_cache import CacheLease
                 self.lease = CacheLease(self.engine.store, self.bridge, self.plan, self.container)

@@ -4,7 +4,7 @@
 
 ## 已运行
 
-- Linux ARM64、Python 3.14.4、PySide6 6.12.0：新增剪贴板格式转换、Unicode/多行、控制字符边界、流式导入、校验失败回滚、链接阻断、只读 tmp、配额、会话锁、输入顺序、版本限制及原生图片标记确认测试。
+- Linux ARM64、Python 3.14.4、PySide6 6.12.0：新增剪贴板格式转换、Unicode/多行、控制字符边界、流式导入、校验失败回滚、链接阻断、只读 tmp、配额、会话锁、输入顺序、原生图片标记确认测试。
 - 功能提交 `41d9035` 的最终 [CI](https://github.com/engeeeee/ENGE-SPX/actions/runs/43424348817) 全部通过：Windows Python 3.12 共489项，472通过、17跳过；Linux Python 3.12 共489项，462通过、27跳过。本机 Linux ARM64 Python 3.14 同样通过，GUI、多档 DPI、冻结打包和安装卸载通过。
 - 真实 Windows API 验证 CF_UNICODETEXT、CF_HDROP、CF_DIB、CF_DIBV5、PNG、4K 像素、Unicode/emoji/多行、ConPTY bracketed paste、剪贴板占用/变化、中间 junction 阻断；Qt 当前窗口 Ctrl+V、复制/中断、Tab、停止及快照释放通过。物理桌面操作仍另列人工验收。
 - 官方 Claude Code **2.1.319** 与 Codex **0.167.0**，隔离 HOME、真实 PTY/TUI 和合成 API：同一草稿保留前后中文及两张原生 `[Image #N]`；粘贴期间不提交，明确 Enter 后分别发送两个 `image` / `input_image`，解码尺寸160×100和两种像素颜色一致。测试不使用真实账号、模型或系统剪贴板；不把图片请求序列化当作模型理解。
@@ -21,6 +21,7 @@ PYTHONPATH=src QT_QPA_PLATFORM=offscreen python tools/smoke_gui.py
 PYTHONPATH=src python tests/integration_cli_clipboard.py \
   --claude /absolute/path/to/claude \
   --codex /absolute/path/to/complete-codex-package/bin/codex \
+  --qt-terminal --capture-terminal /tmp/clipboard-terminal.png \
   --output /tmp/clipboard-native-api.json
 ```
 
@@ -50,3 +51,9 @@ PYTHONPATH=src python tests/integration_cli_clipboard.py \
 已测单项成本：上述 Windows CI 把 **3840×2160 CF_DIBV5** 读取并编码为 PNG，用时 **426.56 ms**，输出 **37561 字节**，像素与原始分辨率一致。这是合成纯色 4K 图片的一次剪贴板转换，**不包括 Docker、CLI 和模型耗时**，不能代表所有截图或机器。输出不含原始图片/剪贴板内容。终端停止后拒绝继续读取系统剪贴板；已处理快照会释放，活动缓存锁不妨碍应用数据复制迁移。
 
 真实测量应记录同一项目/图片、同一 Docker/WSL2/CLI 版本，分别比较外部终端与智能终端的空闲占用、截图到标记耗时、10/128 MiB 文件导入、连续输入期间的响应及全部关闭后的回收。使用现有 Resources 记录机制区分主 GUI、终端进程、容器和 WSL2；缺少测量保持“未测”，不能写为零。
+
+## 0.14.1 回归
+
+修复0.14.0对用户已更新工具的精确版本拦截。新增实际产品 Qt 窗口 Ctrl+V → 同一真实 CLI → 两张原生附件 → 明确 Enter → 合成 API 图像块检查，版本从实际可执行程序读取，不再写死测试版本。Linux ARM64 的 Codex 0.169.0 已验证；镜像版本 Codex 0.167.0 / Claude 2.1.319 也经过同样 Qt 路径回归。合成 API 仍不等于真实模型理解；宿主剪贴板和 Docker 文件导入分别由现有 Windows/API 与 Docker 集成核验。
+
+新增测试覆盖：右键不自动读取剪贴板、实际菜单、Unicode拖选/双击、历史全选、选择期间持续输出、鼠标报告下Shift拖选、Ctrl+C/Ctrl+A保持、字号调整、自定义边框/按钮移除、ANSI/256/RGB/淡色/粗体等、颜色查询跨块/超长边界、OSC52隔离、图片等待期间协议回复、失败前多个排队回车全部取消，以及真实自有 PTY 的颜色输出。Windows 与冻结包实际结果以0.14.1的发布CI为准；缺少的物理Windows/模型组合仍列为待验。

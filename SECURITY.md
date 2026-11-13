@@ -1,6 +1,6 @@
 # 安全报告
 
-目前维护 **0.13.6 正式版**；已发布版本和安装包状态以 [Releases](https://github.com/engeeeee/ENGE-SPX/releases) 为准。0.8.3 包含第一批 P0 沙箱与凭据保护改造，使用旧 0.8.2 包不会获得这些改动。暂不承诺旧版本回补或响应时限。
+目前维护 **0.14.1 正式版**；已发布版本和安装包状态以 [Releases](https://github.com/engeeeee/ENGE-SPX/releases) 为准。0.8.3 包含第一批 P0 沙箱与凭据保护改造，使用旧 0.8.2 包不会获得这些改动。暂不承诺旧版本回补或响应时限。
 
 ## 报告漏洞
 
@@ -12,7 +12,7 @@
 
 ## 当前边界
 
-开发分支的 Smart Clipboard 仅响应自有终端的主动粘贴，不收集剪贴板历史、不安装全局钩子，也不把源目录挂载给容器。复制文件意味着显式授权该工作区读取这些副本。读写项目使用原 bind，可能被项目工具读取或提交；只读项目使用项目容器私有 tmp，账号共享 home 不用于附件传递。保留原来的 session/guard/Profile/挂载复核、网络保护及 UID；CLI 标记确认与真实模型读取分别验收。详见[实现边界](docs/smart-clipboard-architecture.zh-CN.md)。
+Smart Clipboard 仅响应自有终端的主动粘贴，不收集剪贴板历史、不安装全局钩子，也不把源目录挂载给容器。复制文件意味着显式授权该工作区读取这些副本。读写项目使用原 bind，可能被项目工具读取或提交；只读项目使用项目容器私有 tmp，账号共享 home 不用于附件传递。保留原来的 session/guard/Profile/挂载复核、网络保护及 UID；CLI 标记确认与真实模型读取分别验收。详见[实现边界](docs/smart-clipboard-architecture.zh-CN.md)。
 
 请先阅读 [隔离与安全模型](docs/security-model.zh-CN.md)及 [P0 升级与恢复](docs/security-hardening.zh-CN.md)。0.8.3 起强制验证 Chromium 的 user namespace 与 Seccomp-BPF 沙箱；不能初始化时拒绝浏览器启动，不添加容器特权或无沙箱回退。Windows 的应用代理配置使用当前用户 DPAPI 保护，容器通过 stdin 接收运行时凭据。
 

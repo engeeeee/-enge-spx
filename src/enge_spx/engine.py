@@ -1144,7 +1144,7 @@ class Engine:
         if url:
             webbrowser.open(url)
 
-    def attach_command(self, path, tool, session, container, interactive=True):
+    def attach_command(self, path, tool, session, container, interactive=True, terminal_capabilities=False):
         if tool not in TOOLS:
             raise SPXError("未知工作区工具。")
         with self.store.lock(timeout=30):
@@ -1160,7 +1160,8 @@ class Engine:
                 raise SPXError("项目容器已改变，请返回 ENGE SPX 重新打开工具。")
             validate_mounts(self, obj, plan=plan)
             from .tool_session import command as tool_command
-            return self.docker.command("exec", *( ["-it"] if interactive else ["-i"]), "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), container,
+            colour_env = ["--env", "TERM=xterm-256color", "--env", "COLORTERM=truecolor", "--env", "TERM_PROGRAM=ENGE-SPX"] if terminal_capabilities else []
+            return self.docker.command("exec", *( ["-it"] if interactive else ["-i"]), *colour_env, "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), container,
                                        *tool_command(TOOLS[tool], keep_open=interactive and tool != "shell"))
 
     def status(self):
