@@ -33,8 +33,8 @@ export function FaqSection() {
                             <ArrowUpRight size={18} />
                         </div>
                         <p>
-                            修复 Docker 退出核验预算耗尽。
-                            支持身份内更新 AI 工具，保留终端查看结果。
+                            兼容 Docker 默认 WSL2 配置。
+                            保留完整停止核验及已有工具更新功能。
                         </p>
                         <span className="release-note-link">
                             查看更新记录

@@ -28,8 +28,26 @@ PYTHONPATH=src python tools/smoke_gui.py
 
 本地 Linux ARM64 完整回归 436 项：417 通过、19 项 Windows 专用跳过，约 16.0 秒。9 项发布助手检查、Qt GUI smoke、77 篇文档/版本及 diff 检查通过。三个镜像配方及 0.13.5 的工具更新/终端/Engine 代码保持不变；唯一 CLI 增量是上述打包自检。
 
-最终 Windows、冻结包、真实 Docker 及公开附件结果在实际完成后记录；未运行不计通过。Windows WSL 命令输出为夹具，不代替报告设备的真实 Desktop / WSL2 验收。配置、管理接口或系统证据仍不可用时保留界面，并提供具体失败分类。
+[最终 CI #43368293593](https://github.com/engeeeee/ENGE-SPX/actions/runs/43368293593) 的 Windows、Linux、冻结包、容器和发布任务全部成功，源码为 `cb43e21bae4e9def4dedd2e316626bea0761ef46`。Windows 436 项：429 通过、7 项跳过，约 99.7 秒；Linux 436 项：417 通过、19 项跳过，约 19.4 秒。两个平台各 9 项发布助手检查通过，Qt smoke 和 125% / 150% / 200% DPI 通过。
+
+Windows 原生临时设置文件、GUID 发行版与 DiskMounts 元数据的测试自有注册表、完整 Engine.shutdown、当前用户目录回退均实际运行通过，未以跳过计通过。冻结 CLI 自检加载新解析模块，GUI 手动启动、托盘/联合退出、Docker 先关闭、DPAPI、安装卸载数据保留及正式版本检查通过。
+
+Docker 的预算/记录/身份/只读挂载、DNS/UDP/IPv6 阻断、TLS/Reality/gRPC/QUIC 和固定链路故障、原生 Chromium 沙箱、中文 PTY、190 秒无 Shell 输入续期、两个官方 CLI 的用户目录安装与迁移持久化均通过。归档在 containerd/classic 两种镜像存储下导入并实际启动通过。同次性能记录保留历史基线与候选 normal/low 七阶段，不是客户 Windows 0.13.5→0.13.6 的性能对照。
+
+注册格式已核对 Microsoft 的 [DistributionRegistration.h](https://github.com/microsoft/WSL/blob/b60fc4ee367e0b37ab8426ecfc93cdd258552f20/src/windows/service/exe/DistributionRegistration.h) 和 [wslservice.idl](https://github.com/microsoft/WSL/blob/b60fc4ee367e0b37ab8426ecfc93cdd258552f20/src/windows/service/inc/wslservice.idl)。Windows WSL 命令输出仍为夹具，不代替报告设备真实 Desktop / WSL2 验收；用户原配置未采集，不能宣称所有匹配错误均已覆盖。未知或失败证据仍保留界面并给出具体分类。
 
 ## 性能
 
 没有常驻进程、监听或采样频率变化。退出期间读取有限配置文件，隐含后端增加两次小范围只读注册查询。固定配置拒绝取消无意义重复；临时读取错误仍在原预算内重试。没有用户设备的 CPU/内存/退出耗时对照，不声称提升百分比。
+
+## 发布包复核
+
+[0.13.6 正式版](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.6-windows) 已公开，非草稿、非预发布，且为 GitHub 最新正式版；标签指向上述最终源码。
+
+| 附件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| Setup | 34,396,895 | `4a60f21b1ebb78eb9e1646005aff13e792b4e6f94700221331600f9f92a2b862` |
+| Portable | 52,978,511 | `e86a558dabd838ee17c0b5b032f9483f5742539e26c0b45331770f72e13edfa7` |
+| Runtime linux-amd64 | 875,929,531 | `f1f790d092c08d96c88df84dcb45a36587d0cf827462e2f90f18b12d94359511` |
+
+实际下载 Setup 和 Portable，字节数、公开 SHA 文件、GitHub digest 与本地哈希一致，ZIP CRC 正确。两个 EXE 的 File/ProductVersion 均为 `0.13.6.0`，正式版本标记正确；冻结归档确认包含 `desktop_settings` 默认值解析、`desktop_offline` 注册核验及原有用户工具更新和退出诊断模块。运行环境不重复下载：公开清单、大小/digest 与同次 CI 导出及两种镜像存储导入证据一致。三个镜像配方不变，0.13.5 已发布安装包/便携包校验值保持不变。
