@@ -1119,7 +1119,8 @@ class Engine:
             obj, key = self._project(path, state)
             self.prepared_session, self.prepared_container = state["session"], obj["Id"]
             flags = ["-it"] if interactive else ["-i"]
-            return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), obj["Id"], *command), url
+            from .tool_session import command as tool_command
+            return self.docker.command("exec", *flags, "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), obj["Id"], *tool_command(command)), url
 
     def terminal(self, path, tool, expected_workspace=None):
         from .terminal import launch, resolve
@@ -1154,7 +1155,9 @@ class Engine:
             if not obj or obj["Id"] != container or not obj["State"]["Running"] or obj["HostConfig"]["NetworkMode"] != "container:" + session:
                 raise SPXError("项目容器已改变，请返回 ENGE SPX 重新打开工具。")
             validate_mounts(self, obj, plan=plan)
-            return self.docker.command("exec", *( ["-it"] if interactive else ["-i"]), "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), container, *TOOLS[tool])
+            from .tool_session import command as tool_command
+            return self.docker.command("exec", *( ["-it"] if interactive else ["-i"]), "--workdir", "/workspace/" + key, *self.proxy_env(state), *self.control_env(state), container,
+                                       *tool_command(TOOLS[tool], keep_open=interactive and tool != "shell"))
 
     def status(self):
         return status_snapshot(self.store)

@@ -77,15 +77,17 @@ def run(context, runtime_report, output):
                 return state, worker, browser
 
             def is_empty(worker):
-                return execute(engine, worker["Id"], "from pathlib import Path; p=Path('/home/workspace'); print(not (p/'.claude/.credentials.json').exists() and not (p/'.codex/auth.json').exists())") == "True"
+                return execute(engine, worker["Id"], "from pathlib import Path; p=Path('/home/workspace'); print(not (p/'.claude/.credentials.json').exists() and not (p/'.codex/auth.json').exists() and not (p/'.local/share/spx-update-fixture').exists())") == "True"
 
             def save_account(worker, identity):
                 code = "import json; from pathlib import Path; p=Path('/home/workspace'); (p/'.claude').mkdir(exist_ok=True); (p/'.codex').mkdir(exist_ok=True); v=json.dumps({'fixture':" + repr(identity) + ",'synthetic':" + repr(secret) + "}); (p/'.claude/.credentials.json').write_text(v); (p/'.codex/auth.json').write_text(v); Path('/tmp/spx-profile-layer').write_text(" + repr(identity) + ")"
                 execute(engine, worker["Id"], code)
+                execute(engine, worker["Id"], "from pathlib import Path; p=Path('/home/workspace/.local/share'); p.mkdir(parents=True,exist_ok=True); (p/'spx-update-fixture').write_text(" + repr(identity) + ")")
 
             def assert_account(worker, identity):
                 code = "import json; from pathlib import Path; p=Path('/home/workspace'); assert json.loads((p/'.claude/.credentials.json').read_text())['fixture']==" + repr(identity) + "; assert json.loads((p/'.codex/auth.json').read_text())['fixture']==" + repr(identity) + "; assert Path('/tmp/spx-profile-layer').read_text()==" + repr(identity) + "; print('OWN_ACCOUNT')"
                 assert execute(engine, worker["Id"], code) == "OWN_ACCOUNT"
+                assert execute(engine, worker["Id"], "from pathlib import Path; print(Path('/home/workspace/.local/share/spx-update-fixture').read_text())") == identity
 
             def switch(identity, access, label):
                 started = time.perf_counter()

@@ -164,8 +164,11 @@ def _observe(deadline):
 
 def stopped(timeout=8, *, wait=False):
     """Allow bounded teardown time; every accepted observation remains complete."""
-    if os.name != "nt" or timeout <= 0:
-        _record("preflight", "unsupported_or_expired")
+    if os.name != "nt":
+        _record("preflight", "unsupported_platform")
+        return False
+    if timeout <= 0:
+        _record("preflight", "budget_expired")
         return False
     deadline = time.monotonic() + timeout
     while True:

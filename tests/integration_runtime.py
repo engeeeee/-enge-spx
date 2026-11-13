@@ -271,6 +271,9 @@ print('DISPLAY_ISOLATED')'''
                 version = engine.docker.run("exec", worker["Id"], command, "--version")
                 assert expected in version, version
                 passed(command + " executable: " + version)
+            from tool_update_checks import verify_updates, verify_persisted_updates
+            updated_tools = verify_updates(engine, project, worker)
+            passed("actual Codex and Claude npm installs use uid 1000 and the persistent Profile prefix through the controlled gateway; system installations remain unwritable")
             execute(engine, worker["Id"], f"from pathlib import Path; Path('/workspace/{key}/marker.txt').write_text('project'); Path('/home/workspace/.spx-test').write_text('home'); Path('/tmp/spx-layer').write_text('layer')")
             execute(engine, browser["Id"], "from pathlib import Path; Path('/home/workspace/.spx-browser-test').write_text('browser')")
             engine.docker.run("exec", *engine.control_env(state), worker["Id"], "python3", "/opt/spx/open_browser.py", "https://example.com", timeout=45)
@@ -422,13 +425,15 @@ finally:
             assert execute(engine, migrated["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-test').read_text()+Path('/tmp/spx-layer').read_text())") == "homelayer"
             assert execute(engine, engine.inspect("browser")["Id"], "from pathlib import Path; print(Path('/home/workspace/.spx-browser-test').read_text())") == "browser"
             passed("data relocation preserves project container, layer, accounts and browser; gateway uses new bind mount")
+            verify_persisted_updates(engine, project, updated_tools)
+            passed("both user-installed tool versions remain selected after environment restart and data relocation")
             stopped = engine.shutdown()
             assert stopped["workspace_stopped"] and stopped["background_stopped"]
             assert not list((store.home / "processes").glob("*.json"))
             passed("genuine shutdown verifies all owned containers and detached guard/display services stopped after data relocation")
             rejected_sandbox(engine, base)
             passed("namespace initialization failure terminates the browser without a no-sandbox retry")
-            report = {"passed": records, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
+            report = {"passed": records, "tool_updates": updated_tools, "images": engine.image_ids(), "recipes": engine.recipes, "docker": engine.doctor(), "time": time.time()}
             output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         except Exception:
             # Only the browser supervisor's bounded, non-secret startup errors.

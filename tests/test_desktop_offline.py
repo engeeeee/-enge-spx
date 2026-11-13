@@ -132,6 +132,14 @@ class OfflineDesktopTests(unittest.TestCase):
             self.assertFalse(offline.stopped())
         proof["_kernel"].assert_not_called()
 
+    def test_preflight_distinguishes_windows_budget_exhaustion_from_platform(self):
+        from enge_spx.exit_diagnostics import capture_checks
+        for name, budget, result in (("nt", 0, "budget_expired"), ("posix", 8, "unsupported_platform")):
+            with self.subTest(name=name), patch.object(offline, "os", SimpleNamespace(name=name)), patch.object(offline, "_observe") as observe, capture_checks() as checks:
+                self.assertFalse(offline.stopped(timeout=budget))
+            observe.assert_not_called()
+            self.assertEqual(list(checks), [{"component": "offline", "stage": "preflight", "result": result}])
+
     def test_only_file_not_found_is_absent_not_access_denied_busy_or_timeout(self):
         kernel = Mock()
         for present, error, expected in ((True, 0, False), (False, 2, True), (False, 5, False), (False, 121, False), (False, 231, False), (False, 3, False)):

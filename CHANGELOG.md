@@ -1,5 +1,23 @@
 # Changes
 
+## 0.13.5 exit budgets and rootless tool updates — 2026-11-13
+
+- Capture Desktop management output in bounded private temporary files instead
+  of inherited PIPEs, so a timed-out Windows CLI cannot block while draining
+  a descendant plugin. Only the owned CLI is reaped; do not kill Desktop/WSL.
+- Reserve independent offline proof time inside a 20-second workspace budget,
+  distinguish unsupported platforms from expired budgets, and keep complete
+  stopped evidence plus the existing 60-second optional joint-exit deadline.
+- Use the selected identity's existing home volume for the npm user prefix
+  and prefer its binaries. Keep root-owned image tools as the initial fallback,
+  without changing system ownership, identities, images or container privileges.
+- GUI AI/login tools leave the protected container shell open with an exit
+  status after completion/update/failure. Preserve ordinary CLI exit codes,
+  separate argv handling and generic custom-terminal behavior; never auto-retry.
+- Add native inherited-handle, budget, shell/argument, actual protected npm
+  install, persistent-version and cross-identity update-data regression checks.
+  No production dependencies, runtime recipes or license changes.
+
 ## 0.13.4 teardown race and exit diagnostics — 2026-11-13
 
 - Wait boundedly when Desktop reports stopping, and repeat complete offline

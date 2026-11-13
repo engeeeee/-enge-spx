@@ -8,6 +8,7 @@ import time
 from .docker_env import environment, require_local_context
 from .state import SPXError
 from .exit_diagnostics import add_check
+from .local_process import run as run_bounded
 
 PREFERENCES = "exit-preferences.json"
 log = logging.getLogger("enge_spx.gui")
@@ -63,11 +64,8 @@ def _command(docker, *args, timeout):
     if timeout <= 0:
         raise DesktopShutdownError("timeout")
     try:
-        return subprocess.run([docker.executable, "desktop", *args], capture_output=True,
-                              text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                              env=environment(docker.executable),
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                              stdin=subprocess.DEVNULL)
+        return run_bounded([docker.executable, "desktop", *args], timeout=timeout,
+                           env=environment(docker.executable))
     except subprocess.TimeoutExpired:
         raise DesktopShutdownError("timeout") from None
     except OSError:
@@ -86,7 +84,7 @@ def _status(docker, timeout):
     return state
 
 
-def stopped_for_context(docker, windows=None, *, timeout=12):
+def stopped_for_context(docker, windows=None, *, timeout=20):
     """Offline proof only for the local Desktop Linux pipe, never another daemon.
 
     A missing pipe alone is not proof. Context metadata is local, then the
@@ -96,6 +94,14 @@ def stopped_for_context(docker, windows=None, *, timeout=12):
     if not (os.name == "nt" if windows is None else windows) or not docker.executable:
         return False
     deadline = time.monotonic() + timeout
+    # Keep enough time for both WSL list queries and native final checks. A
+    # status plugin that remains in 'stopping' cannot consume that reserve.
+    reserve = 8 if timeout >= 16 else 0
+    def offline_proof():
+        from .desktop_offline import stopped
+        budget = min(8, max(0, deadline - time.monotonic()))
+        _record("offline_budget", "available" if budget > 0 else "expired")
+        return stopped(timeout=budget, wait=True)
     try:
         if timeout <= 0:
             return False
@@ -109,18 +115,20 @@ def stopped_for_context(docker, windows=None, *, timeout=12):
             if remaining <= 0:
                 _record("management", "deadline_expired")
                 return False
+            if remaining <= reserve:
+                _record("management", "proof_budget_reserved")
+                return offline_proof()
             try:
-                state = _status(docker, min(4, remaining))
+                state = _status(docker, min(4, remaining - reserve))
                 _record("management", state)
                 if state == "stopped":
                     return True
                 if state != "stopping":
                     return False
-            except DesktopShutdownError:
-                _record("management", "unavailable")
-                from .desktop_offline import stopped
-                return stopped(timeout=min(8, max(0, deadline - time.monotonic())), wait=True)
-            time.sleep(min(.25, max(0, deadline - time.monotonic())))
+            except DesktopShutdownError as error:
+                _record("management", "timed_out" if error.code == "timeout" else "unavailable")
+                return offline_proof()
+            time.sleep(min(.25, max(0, deadline - time.monotonic() - reserve)))
     except (SPXError, OSError) as error:
         _record("context", "unavailable", error)
         return False
