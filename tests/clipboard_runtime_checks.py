@@ -117,6 +117,7 @@ print(json.dumps({'codex':str(codex.parent.parent),'claude':str(claude)}))
         output = directory / "native-api.json"
         result = subprocess.run([sys.executable, str(Path(__file__).with_name("integration_cli_clipboard.py")),
                                  "--claude", str(directory / "claude"), "--codex", str(directory / "codex/bin/codex"),
+                                 "--qt-terminal", "--capture-terminal", str(Path(destination).with_name("clipboard-terminal.png")),
                                  "--output", str(output)], env=os.environ.copy(), capture_output=True, text=True, timeout=120)
         if result.returncode:
             raise AssertionError("Native CLI/API clipboard fixture failed: " + result.stderr[-1800:])

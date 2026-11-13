@@ -6,7 +6,7 @@ The CLI owns its input buffer, editing, history, attachments and submission.
 from __future__ import annotations
 
 from concurrent.futures import Future
-from collections import Counter
+from collections import Counter, defaultdict
 from copy import deepcopy
 import codecs
 import os
@@ -16,13 +16,14 @@ import threading
 import time
 
 import pyte
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF, QSize
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QPushButton
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QFrame, QMenu, QToolButton, QSizePolicy
 
 from .clipboard import WindowsClipboard
 from .clipboard_transfer import Transfer, text_frame
 from .state import SPXError
+from .terminal_render import BACKGROUND, FOREGROUND, PALETTE, TerminalChar, TerminalStream, sgr_attributes
 
 
 class TerminalScreen(pyte.HistoryScreen):
@@ -30,6 +31,24 @@ class TerminalScreen(pyte.HistoryScreen):
         self.respond = respond
         self.primary = None
         super().__init__(columns, lines, history=2000)
+
+    @property
+    def default_char(self):
+        return TerminalChar(*super().default_char, False)
+
+    def reset(self):
+        super().reset()
+        self.cursor.attrs = TerminalChar(**self.cursor.attrs._asdict())
+
+    def select_graphic_rendition(self, *attrs):
+        if not attrs:
+            super().select_graphic_rendition()
+            return
+        self.cursor.attrs = TerminalChar(**self.cursor.attrs._asdict())
+        forwarded, faint = sgr_attributes(attrs, self.cursor.attrs.faint)
+        if forwarded:
+            super().select_graphic_rendition(*forwarded)
+        self.cursor.attrs = self.cursor.attrs._replace(faint=faint)
 
     @property
     def bracketed(self):
@@ -116,16 +135,18 @@ class ImageAcknowledgement:
         with self.condition:
             return self.counts.copy()
 
-    def wait(self, ticket, cancelled, timeout=5):
+    def wait(self, ticket, cancelled, timeout=5, service=None):
         deadline = time.monotonic() + timeout
-        with self.condition:
-            while not cancelled.is_set():
+        while not cancelled.is_set():
+            if service is not None:
+                service()
+            with self.condition:
                 if any(count > ticket[number] for number, count in self.counts.items()):
                     return True
                 left = deadline - time.monotonic()
                 if left <= 0:
                     break
-                self.condition.wait(min(left, .2))
+                self.condition.wait(min(left, .025))
         return False
 
 
@@ -134,6 +155,7 @@ class OrderedInput:
     def __init__(self, pty, transfer, report, ready, images=None):
         self.pty, self.transfer, self.report, self.ready = pty, transfer, report, ready
         self.queue = queue.Queue(maxsize=2048)
+        self.replies = queue.Queue(maxsize=64)
         self.images = images
         self.closed = threading.Event()
         self.pastes = threading.BoundedSemaphore(8)
@@ -144,24 +166,46 @@ class OrderedInput:
         if self.closed.is_set():
             return False
         try:
-            self.queue.put_nowait((kind, value))
+            self.queue.put_nowait((kind, value, time.monotonic()))
         except queue.Full:
             self.report("输入队列已满，请稍候；本次输入未发送。")
             return False
         return True
 
+    def respond(self, data):
+        if self.closed.is_set():
+            return
+        try:
+            self.replies.put_nowait(data)
+        except queue.Full:
+            return
+        try:
+            self.queue.put_nowait(("reply", None, time.monotonic()))
+        except queue.Full:
+            pass
+
+    def flush_replies(self):
+        for _ in range(16):
+            if self.closed.is_set():
+                return
+            try:
+                reply = self.replies.get_nowait()
+            except queue.Empty:
+                return
+            self.pty.write(reply)
+
     def _run(self):
-        failed_paste = False
+        failed_at = 0
         while not self.closed.is_set():
             try:
-                kind, value = self.queue.get(timeout=.2)
+                kind, value, queued_at = self.queue.get(timeout=.2)
             except queue.Empty:
                 continue
             try:
+                self.flush_replies()
                 if kind == "keys":
-                    if failed_paste and value == b"\r":
+                    if queued_at <= failed_at and value == b"\r":
                         self.report("上次粘贴失败，已取消这次回车。输入仍保留；检查后可再次回车。")
-                        failed_paste = False
                         continue
                     self.pty.write(value)
                 elif kind == "paste":
@@ -184,22 +228,23 @@ class OrderedInput:
                         for frame, image in zip(frames, images):
                             if self.closed.is_set():
                                 break
+                            if image and self.images is None:
+                                raise SPXError("当前终端未启用原生图片确认，附件未插入。")
                             ticket = self.images.ticket() if image and self.images else None
                             self.pty.write(frame)
                             # Separate native paste events; no Enter, clearing,
                             # hotkey injection or new CLI process is involved.
-                            if ticket is not None and not self.images.wait(ticket, self.closed):
+                            if ticket is not None and not self.images.wait(ticket, self.closed, service=self.flush_replies):
                                 raise SPXError("CLI 未确认原生图片附件。请检查输入区是否出现 [Image #N]；若只显示路径，请删除该路径并确认模型支持图片后重试。本次排队的回车将取消。")
                             time.sleep(.02)
                         self.report("附件已交给 CLI；请检查原生图片标记或文件引用，再自行发送。")
-                    failed_paste = False
             except SPXError as error:
+                failed_at = time.monotonic()
                 self.report(str(error))
-                failed_paste = True
             except Exception:
+                failed_at = time.monotonic()
                 # Do not propagate raw clipboard/OS/CLI errors into logs/UI.
                 self.report("粘贴或输入未完成。当前草稿保留；请检查文件权限、大小、CLI 版本和工作区连接后重试。")
-                failed_paste = True
             finally:
                 if kind == "paste":
                     self.pastes.release()
@@ -237,7 +282,7 @@ class OrderedInput:
         self.closed.set()
         while True:
             try:
-                kind, value = self.queue.get_nowait()
+                kind, value, queued_at = self.queue.get_nowait()
             except queue.Empty:
                 break
             if kind == "paste":
@@ -253,6 +298,10 @@ class TerminalView(QWidget):
     status = Signal(str)
     wake = Signal()
     ended = Signal()
+    selection_changed = Signal(bool)
+    font_changed = Signal(int)
+    readiness_changed = Signal(bool)
+    PAD_X, PAD_Y = 16, 12
 
     def __init__(self, pty, transfer=None, clipboard=None):
         super().__init__()
@@ -264,20 +313,27 @@ class TerminalView(QWidget):
         self.ready = threading.Event()
         self.images = ImageAcknowledgement()
         self.sender = OrderedInput(pty, transfer, self.status.emit, self.ready, self.images)
-        self.screen = TerminalScreen(110, 32, lambda data: self.sender.put("keys", data))
-        self.stream = pyte.Stream(self.screen)
+        self.screen = TerminalScreen(110, 32, self.sender.respond)
+        self.stream = TerminalStream(self.screen)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.output = queue.Queue(maxsize=64)
         self.pending = threading.Event()
         self.stopping = threading.Event()
         self.wake.connect(self._drain)
-        self.font = QFont("Cascadia Mono" if os.name == "nt" else "DejaVu Sans Mono", 11)
+        self.font = QFont()
+        self.font.setFamilies(["Cascadia Mono", "Cascadia Code", "Consolas"] if os.name == "nt" else ["DejaVu Sans Mono", "Liberation Mono"])
+        self.font.setPointSize(11)
         self.font.setStyleHint(QFont.StyleHint.Monospace)
+        self.font.setFixedPitch(True)
+        self.font.setKerning(False)
         self.setFont(self.font)
         self.metrics = QFontMetricsF(self.font)
         self.cell_width = self.metrics.horizontalAdvance("M")
         self.cell_height = self.metrics.height() + 2
         self.selection = None
+        self.selection_lines = None
+        self.explicit_selection = False
+        self.selection_mode = False
         self.selecting = False
         self.preedit = ""
         self.offset = 0
@@ -326,13 +382,16 @@ class TerminalView(QWidget):
                 break
             self.stream.feed(self.decoder.decode(data))
             changed = True
+        was_ready = self.ready.is_set()
         if self.screen.bracketed:
             self.ready.set()
         else:
             self.ready.clear()
+        if was_ready != self.ready.is_set():
+            self.readiness_changed.emit(self.ready.is_set())
         if changed:
             self.images.observe("".join("".join(self.screen.buffer[y][x].data for x in range(self.screen.columns)) for y in range(self.screen.lines)))
-        self.scrollbar.setRange(0, len(self.screen.history.top))
+        self.scrollbar.setRange(0, max(0, len(self.selection_lines) - self.screen.lines) if self.selection_lines is not None else len(self.screen.history.top))
         if self.offset == 0:
             self.scrollbar.setValue(self.scrollbar.maximum())
         if changed:
@@ -350,13 +409,16 @@ class TerminalView(QWidget):
         if self.hasFocus() and self.isVisible():
             self.blink = not self.blink
             cursor = self.screen.cursor
-            self.update(QRectF(8 + cursor.x * self.cell_width, 4 + cursor.y * self.cell_height, self.cell_width, self.cell_height).toAlignedRect())
+            self.update(QRectF(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + cursor.y * self.cell_height, self.cell_width, self.cell_height).toAlignedRect())
 
     def _scroll(self, value):
         self.offset = self.scrollbar.maximum() - value
         self.update()
 
     def rows(self):
+        if self.selection_lines is not None:
+            start = self.selection_start()
+            return self.selection_lines[start:start + self.screen.lines]
         current = [self.screen.buffer[y] for y in range(self.screen.lines)]
         if not self.offset:
             return current
@@ -364,11 +426,53 @@ class TerminalView(QWidget):
         end = len(lines) - self.offset
         return lines[max(0, end - self.screen.lines):end]
 
+    def selection_start(self):
+        return max(0, len(self.selection_lines) - self.offset - self.screen.lines) if self.selection_lines is not None else 0
+
+    @property
+    def has_selection(self):
+        return self.selection is not None and (self.explicit_selection or self.selection[0] != self.selection[1])
+
+    def clear_selection(self):
+        self.selection = self.selection_lines = None
+        self.explicit_selection = False
+        self.selecting = False
+        self.selection_changed.emit(False)
+        self.scrollbar.setRange(0, len(self.screen.history.top))
+        self.update()
+
+    def snapshot_selection(self):
+        if self.selection_lines is None:
+            blank = self.screen.default_char
+            self.selection_lines = [defaultdict(lambda: blank, line) for line in
+                                    [*self.screen.history.top, *(self.screen.buffer[y] for y in range(self.screen.lines))]]
+
+    def select_all(self):
+        self.clear_selection()
+        self.snapshot_selection()
+        self.selection = ((0, 0), (len(self.selection_lines) - 1, self.screen.columns - 1))
+        self.explicit_selection = True
+        self.selection_changed.emit(True)
+        self.update()
+
+    def zoom(self, amount=0, reset=False):
+        size = 11 if reset else min(24, max(8, self.font.pointSize() + amount))
+        if size == self.font.pointSize():
+            return
+        self.font.setPointSize(size)
+        self.setFont(self.font)
+        self.metrics = QFontMetricsF(self.font)
+        self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
+        self.fonts.clear()
+        self._resize_grid()
+        self.font_changed.emit(size)
+        self.update()
+
     def _color(self, value, foreground=True):
         key = (value, foreground)
         if key in self.colors:
             return self.colors[key]
-        named = {"default": "#e8e3dc" if foreground else "#1c1a18", "black": "#24211f", "red": "#e47b71", "green": "#a3bf89", "brown": "#d6ad70", "blue": "#91aace", "magenta": "#c6a0c7", "cyan": "#87bbb6", "white": "#ded8cf", "brightblack": "#8b8179", "brightred": "#f49b90", "brightgreen": "#c0d6a4", "brightbrown": "#f0cc93", "brightblue": "#b7cbee", "brightmagenta": "#dec0e1", "brightcyan": "#b5e2dc", "brightwhite": "#ffffff"}
+        named = {"default": FOREGROUND if foreground else BACKGROUND, **PALETTE}
         result = QColor(named.get(value, "#" + value if re.fullmatch("[a-fA-F0-9]{6}", value) else named["default"]))
         if len(self.colors) >= 512:
             self.colors.clear()
@@ -377,56 +481,70 @@ class TerminalView(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor("#1c1a18"))
+        p.fillRect(self.rect(), QColor(BACKGROUND))
         p.setFont(self.font)
-        selected = sorted(self.selection) if self.selection else None
+        selected = sorted(self.selection) if self.has_selection else None
+        first = self.selection_start()
         clip = event.rect()
         for y, line in enumerate(self.rows()):
-            if 4 + (y + 1) * self.cell_height < clip.top() or 4 + y * self.cell_height > clip.bottom():
+            if self.PAD_Y + (y + 1) * self.cell_height < clip.top() or self.PAD_Y + y * self.cell_height > clip.bottom():
                 continue
             glyphs = []
             for x in range(self.screen.columns):
-                if 8 + (x + 1) * self.cell_width < clip.left() or 8 + x * self.cell_width > clip.right():
+                if self.PAD_X + (x + 1) * self.cell_width < clip.left() or self.PAD_X + x * self.cell_width > clip.right():
                     continue
                 char = line[x]
-                rectangle = QRectF(8 + x * self.cell_width, 4 + y * self.cell_height, self.cell_width, self.cell_height)
+                rectangle = QRectF(self.PAD_X + x * self.cell_width, self.PAD_Y + y * self.cell_height, self.cell_width, self.cell_height)
                 fg, bg = self._color(char.fg), self._color(char.bg, False)
                 if char.reverse:
                     fg, bg = bg, fg
-                if selected and selected[0] <= (y, x) <= selected[1]:
+                if getattr(char, "faint", False):
+                    key = ("faint", fg.rgb(), bg.rgb())
+                    if key not in self.colors:
+                        if len(self.colors) >= 512:
+                            self.colors.clear()
+                        self.colors[key] = QColor(*(round(a * .58 + b * .42) for a, b in zip(fg.getRgb()[:3], bg.getRgb()[:3])))
+                    fg = self.colors[key]
+                if selected and selected[0] <= (y + first, x) <= selected[1]:
                     bg = QColor("#654638")
-                if bg != QColor("#1c1a18"):
+                    fg = QColor(FOREGROUND)
+                if bg != QColor(BACKGROUND):
                     p.fillRect(rectangle, bg)
                 if char.data and char.data != " ":
                     glyphs.append((rectangle, char, fg))
             # Paint wide glyphs after ALL cell backgrounds, so a CJK character
             # cannot have its second half erased by the continuation cell.
             for rectangle, char, fg in glyphs:
-                    key = (char.bold, char.italics, char.underscore)
+                    key = (char.bold, char.italics, char.underscore, char.strikethrough)
                     font = self.fonts.get(key)
                     if font is None:
                         font = QFont(self.font)
                         font.setBold(char.bold)
                         font.setItalic(char.italics)
                         font.setUnderline(char.underscore)
+                        font.setStrikeOut(char.strikethrough)
                         self.fonts[key] = font
                     p.setFont(font)
                     p.setPen(fg)
                     p.drawText(rectangle.left(), rectangle.top() + self.metrics.ascent(), char.data)
         cursor = self.screen.cursor
-        if self.blink and self.offset == 0 and not cursor.hidden:
-            p.fillRect(QRectF(8 + cursor.x * self.cell_width, 4 + cursor.y * self.cell_height, 2, self.cell_height), QColor("#d89979"))
+        if self.blink and self.hasFocus() and self.selection_lines is None and self.offset == 0 and not cursor.hidden:
+            p.fillRect(QRectF(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + cursor.y * self.cell_height, 2, self.cell_height), QColor("#d89979"))
         if self.preedit:
             p.setPen(QColor("#e8e3dc"))
-            p.drawText(8 + cursor.x * self.cell_width, 4 + (cursor.y + 1) * self.cell_height, self.preedit)
+            p.drawText(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + (cursor.y + 1) * self.cell_height, self.preedit)
 
     def resizeEvent(self, event):
-        self.scrollbar.setGeometry(self.width() - 14, 0, 14, self.height())
-        columns = max(20, int((self.width() - 30) / self.cell_width))
-        rows = max(5, int((self.height() - 8) / self.cell_height))
+        self._resize_grid()
+
+    def _resize_grid(self):
+        self.scrollbar.setGeometry(self.width() - 12, 4, 10, self.height() - 8)
+        columns = max(20, int((self.width() - 12 - 2 * self.PAD_X) / self.cell_width))
+        rows = max(5, int((self.height() - 2 * self.PAD_Y) / self.cell_height))
         self.screen.resize(lines=rows, columns=columns)
-        self.pty.resize(columns, rows)
-        self.selection = None
+        if not self.stopping.is_set():
+            self.pty.resize(columns, rows)
+        self.clear_selection()
 
     def paste(self):
         if self.stopping.is_set():
@@ -435,19 +553,34 @@ class TerminalView(QWidget):
         if self.clipboard is None:
             self.status.emit("系统剪贴板桥接仅在 Windows 中启用。")
             return
+        self.clear_selection()
         self.offset = 0
         self.sender.paste(self.clipboard)
 
     def keyPressEvent(self, event):
+        modifiers = event.modifiers()
+        if modifiers & Qt.KeyboardModifier.ControlModifier and modifiers & Qt.KeyboardModifier.ShiftModifier and event.key() == Qt.Key.Key_A:
+            self.select_all()
+            event.accept()
+            return
+        if modifiers & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus, Qt.Key.Key_0):
+            self.zoom(-1 if event.key() == Qt.Key.Key_Minus else 1, event.key() == Qt.Key.Key_0)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Escape and self.has_selection:
+            self.clear_selection()
+            event.accept()
+            return
         if event.matches(QKeySequence.StandardKey.Paste) or (event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
             self.paste()
             event.accept()
             return
         ctrl_c = event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        if (self.selection and (event.matches(QKeySequence.StandardKey.Copy) or ctrl_c)) or (ctrl_c and event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+        if (self.has_selection and (event.matches(QKeySequence.StandardKey.Copy) or ctrl_c)) or (ctrl_c and event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
             self.copy()
+            event.accept()
             return
-        self.selection = None
+        self.clear_selection()
         self.offset = 0
         data = key_bytes(event, self.screen.application_cursor)
         if data:
@@ -475,34 +608,39 @@ class TerminalView(QWidget):
     def inputMethodQuery(self, query):
         if query == Qt.InputMethodQuery.ImCursorRectangle:
             cursor = self.screen.cursor
-            return QRectF(8 + cursor.x * self.cell_width, 4 + cursor.y * self.cell_height, self.cell_width, self.cell_height).toRect()
+            return QRectF(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + cursor.y * self.cell_height, self.cell_width, self.cell_height).toRect()
         if query == Qt.InputMethodQuery.ImFont:
             return self.font
         return super().inputMethodQuery(query)
 
     def cell(self, event):
-        return (max(0, min(self.screen.lines - 1, int((event.position().y() - 4) / self.cell_height))),
-                max(0, min(self.screen.columns - 1, int((event.position().x() - 8) / self.cell_width))))
+        return (max(0, min(self.screen.lines - 1, int((event.position().y() - self.PAD_Y) / self.cell_height))),
+                max(0, min(self.screen.columns - 1, int((event.position().x() - self.PAD_X) / self.cell_width))))
 
     def mousePressEvent(self, event):
         self.setFocus()
         y, x = self.cell(event)
-        if self.screen.mouse and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        if event.button() == Qt.MouseButton.RightButton:
+            event.accept()
+            return
+        if self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             button = {Qt.MouseButton.LeftButton: 0, Qt.MouseButton.MiddleButton: 1, Qt.MouseButton.RightButton: 2}.get(event.button(), 0)
             self.sender.put("keys", f"\x1b[<{button};{x+1};{y+1}M".encode())
             self.selecting = False
         elif event.button() == Qt.MouseButton.LeftButton:
-            self.selection = ((y, x), (y, x))
+            self.clear_selection()
+            self.snapshot_selection()
+            self.selection = ((y + self.selection_start(), x), (y + self.selection_start(), x))
             self.selecting = True
             self.update()
-        elif event.button() == Qt.MouseButton.RightButton:
-            self.paste()
 
     def mouseMoveEvent(self, event):
         if self.selecting:
-            self.selection = (self.selection[0], self.cell(event))
+            y, x = self.cell(event)
+            self.selection = (self.selection[0], (y + self.selection_start(), x))
+            self.selection_changed.emit(self.has_selection)
             self.update()
-        elif self.screen.mouse and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        elif self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             motion = (1003 << 5) in self.screen.mode or ((1002 << 5) in self.screen.mode and event.buttons())
             if motion:
                 y, x = self.cell(event)
@@ -510,30 +648,91 @@ class TerminalView(QWidget):
                 self.sender.put("keys", f"\x1b[<{32+button};{x+1};{y+1}M".encode())
 
     def mouseReleaseEvent(self, event):
-        if self.screen.mouse and not self.selecting and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        if event.button() == Qt.MouseButton.RightButton:
+            event.accept()
+            return
+        if self.screen.mouse and not self.selection_mode and not self.selecting and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             y, x = self.cell(event)
             button = {Qt.MouseButton.LeftButton: 0, Qt.MouseButton.MiddleButton: 1, Qt.MouseButton.RightButton: 2}.get(event.button(), 0)
             self.sender.put("keys", f"\x1b[<{button};{x+1};{y+1}m".encode())
         self.selecting = False
+        if not self.has_selection:
+            self.clear_selection()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton or (self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            return self.mousePressEvent(event)
+        self.clear_selection()
+        self.snapshot_selection()
+        y, x = self.cell(event)
+        y += self.selection_start()
+        line = self.selection_lines[y]
+        while x > 0 and not line[x].data:
+            x -= 1
+        def word(column):
+            value = line[column].data
+            return not value or all(c.isalnum() or c in "_./:~-@%+\\" for c in value)
+        left = right = x
+        if word(x):
+            while left > 0 and word(left - 1):
+                left -= 1
+            while right + 1 < self.screen.columns and word(right + 1):
+                right += 1
+        self.selection = ((y, left), (y, right))
+        self.explicit_selection = True
+        self.selecting = False
+        self.selection_changed.emit(True)
+        self.update()
 
     def wheelEvent(self, event):
-        if self.screen.mouse and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.zoom(1 if event.angleDelta().y() > 0 else -1)
+        elif self.screen.mouse and not self.selection_mode and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             y, x = self.cell(event)
             self.sender.put("keys", f"\x1b[<{64 if event.angleDelta().y()>0 else 65};{x+1};{y+1}M".encode())
         else:
             self.scrollbar.setValue(self.scrollbar.value() - event.angleDelta().y() // 40)
 
     def copy(self):
-        if not self.selection:
+        if not self.has_selection:
             return
         (y1, x1), (y2, x2) = sorted(self.selection)
-        lines = self.rows()
+        lines = self.selection_lines if self.selection_lines is not None else self.rows()
         text = []
         for y in range(y1, y2 + 1):
             left, right = (x1 if y == y1 else 0), (x2 + 1 if y == y2 else self.screen.columns)
             text.append("".join(lines[y][x].data for x in range(left, right)).rstrip())
-        QGuiApplication.clipboard().setText("\n".join(text))
+        QGuiApplication.clipboard().setText("\n".join(text).rstrip("\n"))
         self.status.emit("已复制所选终端文字。")
+
+    def create_context_menu(self):
+        menu = QMenu(self)
+        menu.setObjectName("TerminalMenu")
+        copy = menu.addAction("复制\tCtrl+Shift+C", self.copy)
+        copy.setObjectName("TerminalCopy")
+        copy.setEnabled(self.has_selection)
+        paste = menu.addAction("粘贴文字、截图或文件\tCtrl+V", self.paste)
+        paste.setObjectName("TerminalPaste")
+        paste.setEnabled(not self.stopping.is_set() and self.clipboard is not None and self.ready.is_set())
+        menu.addAction("全选输出\tCtrl+Shift+A", self.select_all)
+        clear = menu.addAction("取消选择\tEsc", self.clear_selection)
+        clear.setEnabled(self.has_selection)
+        menu.addSeparator()
+        selection = menu.addAction("鼠标选择模式")
+        selection.setCheckable(True)
+        selection.setChecked(self.selection_mode)
+        selection.toggled.connect(lambda enabled: setattr(self, "selection_mode", enabled))
+        menu.addSeparator()
+        menu.addAction("放大字号\tCtrl++", lambda: self.zoom(1))
+        menu.addAction("缩小字号\tCtrl+-", lambda: self.zoom(-1))
+        menu.addAction("重置字号\tCtrl+0", lambda: self.zoom(reset=True))
+        return menu
+
+    def contextMenuEvent(self, event):
+        menu = self.create_context_menu()
+        menu.aboutToHide.connect(menu.deleteLater)
+        menu.popup(event.globalPos())
+        event.accept()
 
     def stop(self):
         self.stopping.set()
@@ -541,35 +740,145 @@ class TerminalView(QWidget):
         self.sender.close()
 
 
+class TerminalResizeEdge(QWidget):
+    def __init__(self, window, edges, cursor):
+        super().__init__(window)
+        self.edges = edges
+        self.setCursor(cursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.window().windowHandle():
+            self.window().windowHandle().startSystemResize(self.edges)
+
+
 class TerminalWindow(QMainWindow):
     def __init__(self, pty, tool, project, transfer=None, clipboard=None):
-        super().__init__()
+        super().__init__(None, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setWindowTitle("ENGE SPX · " + tool + " · 智能粘贴终端")
+        self.setObjectName("SmartTerminal")
         from .platform_ui import ASSETS
+        from .ui.widgets import TitleBar
         self.setWindowIcon(QIcon(str(ASSETS / "app.ico")))
-        self.resize(1120, 760)
-        self.setStyleSheet("QMainWindow,QWidget{background:#1c1a18;color:#e8e3dc} QLabel{padding:6px} QPushButton{background:#3b302a;border:1px solid #695044;border-radius:5px;padding:5px 12px} QScrollBar:vertical{background:#23201d;width:12px} QScrollBar::handle:vertical{background:#574b42;min-height:24px}")
-        root = QWidget()
+        self.resize(1180, 780)
+        self.setMinimumSize(640, 400)
+        self.setStyleSheet("""
+QMainWindow#SmartTerminal { background: #1c1a18; }
+QFrame#TerminalShell { background: #1c1a18; border: 1px solid #4a4239; }
+QWidget { color: #e8e3dc; }
+QWidget#TitleBar { background: #24221f; border-bottom: 1px solid #39352f; }
+QLabel#Caption { color: #aaa296; font-size: 12px; }
+QPushButton#WindowControl, QPushButton#WindowClose { background: transparent; border: none; border-radius: 4px; color: #aaa296; font-size: 16px; padding: 0; }
+QPushButton#WindowControl:hover { color: #eee7dc; background: #39342e; }
+QPushButton#WindowClose:hover { color: #fff0e5; background: #8b423b; }
+QFrame#SessionBar { background: #24221f; border-bottom: 1px solid #39352f; }
+QLabel#ToolBadge { color: #e5b194; background: #3a2e26; border: 1px solid #5e4333; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+QLabel#ProjectName { color: #b8afa3; font-size: 12px; }
+QLabel#ConnectionState { color: #91ad83; font-size: 11px; }
+QToolButton#TerminalOptions { color: #aaa296; background: transparent; border: none; border-radius: 5px; font-size: 22px; }
+QToolButton#TerminalOptions:hover { color: #f0d2bc; background: #39312a; }
+QFrame#TerminalFooter { background: #24221f; border-top: 1px solid #39352f; }
+QLabel#TerminalMessage { color: #b2a79b; font-size: 11px; }
+QLabel#FontSize { color: #8e847a; font-size: 11px; }
+QMenu#TerminalMenu { color: #e8e3dc; background: #2a2722; border: 1px solid #54483c; border-radius: 7px; padding: 5px; }
+QMenu#TerminalMenu::item { padding: 7px 18px; border-radius: 4px; }
+QMenu#TerminalMenu::item:selected { background: #4b382c; color: #f6dfcc; }
+QMenu#TerminalMenu::item:disabled { color: #71685e; }
+QMenu#TerminalMenu::separator { height: 1px; background: #423a31; margin: 5px 9px; }
+QScrollBar:vertical { background: #1c1a18; width: 10px; margin: 0; border: none; }
+QScrollBar::handle:vertical { background: #53473d; min-height: 36px; border-radius: 4px; margin: 1px; }
+QScrollBar::handle:vertical:hover { background: #7e604b; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+""")
+        root = QFrame()
+        root.setObjectName("TerminalShell")
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(8, 4, 8, 4)
-        header = QHBoxLayout()
-        header.addWidget(QLabel(tool + "  /  " + project.name), 1)
-        copy = QPushButton("复制 Ctrl+Shift+C")
-        header.addWidget(copy)
-        layout.addLayout(header)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        self.titlebar = TitleBar(self, "ENGE SPX  /  智能终端")
+        logo = QLabel()
+        logo.setPixmap(QIcon(str(ASSETS / "logo-64.png")).pixmap(QSize(20, 20)))
+        self.titlebar.layout().insertWidget(0, logo)
+        layout.addWidget(self.titlebar)
+        session = QFrame()
+        session.setObjectName("SessionBar")
+        header = QHBoxLayout(session)
+        header.setContentsMargins(16, 8, 8, 8)
+        header.setSpacing(12)
+        badge = QLabel({"codex": "Codex", "claude": "Claude Code", "shell": "Linux 终端"}.get(tool, tool))
+        badge.setObjectName("ToolBadge")
+        badge.setTextFormat(Qt.TextFormat.PlainText)
+        header.addWidget(badge)
+        project_label = QLabel(project.name or str(project))
+        project_label.setTextFormat(Qt.TextFormat.PlainText)
+        project_label.setObjectName("ProjectName")
+        project_label.setToolTip(str(project))
+        project_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        header.addWidget(project_label, 1)
+        self.connection = QLabel("●  等待 CLI 输入区")
+        self.connection.setObjectName("ConnectionState")
+        header.addWidget(self.connection)
+        options = QToolButton()
+        options.setObjectName("TerminalOptions")
+        options.setText("⋯")
+        options.setFixedSize(32, 28)
+        options.setAccessibleName("终端显示选项")
+        options.setToolTip("字号与鼠标选择模式；右键打开复制和粘贴菜单")
+        header.addWidget(options)
+        layout.addWidget(session)
         self.view = TerminalView(pty, transfer, clipboard)
-        copy.clicked.connect(self.view.copy)
         layout.addWidget(self.view, 1)
-        self.message = QLabel("Ctrl+V 粘贴文字、截图或文件 · 由 CLI 保留草稿，按 Enter 才发送")
+        footer = QFrame()
+        footer.setObjectName("TerminalFooter")
+        bottom = QHBoxLayout(footer)
+        bottom.setContentsMargins(16, 9, 16, 9)
+        bottom.setSpacing(16)
+        self.message = QLabel("Ctrl+V 粘贴 · 拖选后右键复制 · CLI 接管鼠标时可按住 Shift 拖选")
+        self.message.setObjectName("TerminalMessage")
+        self.message.setTextFormat(Qt.TextFormat.PlainText)
         self.message.setWordWrap(True)
-        layout.addWidget(self.message)
+        bottom.addWidget(self.message, 1)
+        self.font_size = QLabel("11 pt  ·  UTF-8")
+        self.font_size.setObjectName("FontSize")
+        bottom.addWidget(self.font_size)
+        layout.addWidget(footer)
+        self.view.font_changed.connect(lambda size: self.font_size.setText(str(size) + " pt  ·  UTF-8"))
         self.view.status.connect(self.message.setText)
+        self.view.readiness_changed.connect(lambda ready: self.connection.setText("●  输入区就绪" if ready else "●  等待 CLI 输入区"))
         self.view.ended.connect(self.connection_ended)
+        options.clicked.connect(lambda: self.show_options(options))
         self.setCentralWidget(root)
+        self.resize_edges = []
+        for edges, cursor in ((Qt.Edge.LeftEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.RightEdge, Qt.CursorShape.SizeHorCursor), (Qt.Edge.TopEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.BottomEdge, Qt.CursorShape.SizeVerCursor), (Qt.Edge.LeftEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeFDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.TopEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.LeftEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeBDiagCursor), (Qt.Edge.RightEdge | Qt.Edge.BottomEdge, Qt.CursorShape.SizeFDiagCursor)):
+            self.resize_edges.append(TerminalResizeEdge(self, edges, cursor))
         self.view.setFocus()
+
+    def show_options(self, button):
+        menu = QMenu(self)
+        menu.setObjectName("TerminalMenu")
+        menu.addAction("放大字号\tCtrl++", lambda: self.view.zoom(1))
+        menu.addAction("缩小字号\tCtrl+-", lambda: self.view.zoom(-1))
+        menu.addAction("重置字号\tCtrl+0", lambda: self.view.zoom(reset=True))
+        menu.addSeparator()
+        select = menu.addAction("鼠标选择模式")
+        select.setCheckable(True)
+        select.setChecked(self.view.selection_mode)
+        select.toggled.connect(lambda enabled: setattr(self.view, "selection_mode", enabled))
+        menu.aboutToHide.connect(menu.deleteLater)
+        menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w, h, b = self.width(), self.height(), 5
+        positions = [(0, b, b, h - 2*b), (w - b, b, b, h - 2*b), (b, 0, w - 2*b, b), (b, h - b, w - 2*b, b), (0, 0, b, b), (w - b, 0, b, b), (0, h - b, b, b), (w - b, h - b, b, b)]
+        for edge, position in zip(getattr(self, "resize_edges", []), positions):
+            edge.setGeometry(*position)
+            edge.setVisible(not self.isMaximized())
+            edge.raise_()
 
     def connection_ended(self):
         self.view.stop()
+        self.connection.setText("○  连接已结束")
         self.message.setText("终端连接已结束。工作区和持久资料按现有规则保留；可关闭此窗口。")
 
     def closeEvent(self, event):
@@ -581,7 +890,9 @@ def run(engine, project, tool, session, container):
     from pathlib import Path
     from .terminal_pty import start
     app = QApplication.instance() or QApplication([])
-    command = engine.attach_command(project, tool, session, container, interactive=True)
+    from .ui import style
+    style.apply(app)
+    command = engine.attach_command(project, tool, session, container, interactive=True, terminal_capabilities=True)
     transfer = Transfer(engine, project, tool, session, container) if tool in ("claude", "codex") else None
     pty = start(command, engine.docker.environment(), project)
     clipboard = WindowsClipboard() if os.name == "nt" else None
@@ -606,6 +917,8 @@ def preview():
     from .terminal import discover
     from .terminal_pty import start
     app = QApplication.instance() or QApplication([])
+    from .ui import style
+    style.apply(app)
     shell = discover("powershell") if os.name == "nt" else "/bin/bash"
     if not shell:
         raise SPXError("未找到测试用命令行。")

@@ -1,5 +1,21 @@
 # Changes
 
+## 0.14.1 smart terminal usability and updated CLI paste — 2026-11-13
+
+- Remove the exact CLI version allowlist and per-import version subprocess.
+  Require each image to produce a new native attachment marker in the live TUI;
+  cancel all Enter keys queued before a failed import and preserve the draft.
+- Add a genuine copy/paste/select-all context menu, Unicode word and history
+  selection snapshots, mouse selection mode and font zoom. Keep ordinary Ctrl+C
+  and Ctrl+A behavior when no host selection applies; remove the header copy button.
+- Reuse the app custom Qt title bar with native move/maximize/resize. Preserve
+  the warm charcoal/clay style; handle ANSI/256/RGB colours, faint/bold/underline
+  and strike, safe colour queries and public terminal capability hints.
+- Exercise actual Qt Ctrl+V through Codex 0.169.0 and the bundled CLI versions,
+  recording executable versions and native visual payloads via a synthetic API.
+  Keep physical Windows/real-model acceptance separate. No new dependencies,
+  image recipes, mounts, privileges, proxy changes or license changes.
+
 ## 0.14.0 Smart Clipboard Paste — 2026-11-13
 
 - Add an owned Qt/ConPTY display for the existing Claude/Codex TUI. Handle

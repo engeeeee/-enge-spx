@@ -11,16 +11,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import secrets
+import subprocess
 import tempfile
 import threading
 import time
 
-import pyte
+if os.name != "nt":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 from PySide6.QtGui import QImage, QColor
 
 from enge_spx.clipboard_transfer import Attachment, InputAdapter, text_frame
-from enge_spx.smart_terminal import TerminalScreen
+from enge_spx.smart_terminal import TerminalScreen, TerminalStream, TerminalWindow
+from enge_spx.clipboard import Snapshot
+import codecs
 from enge_spx.terminal_pty import PosixPTY
 
 
@@ -128,7 +134,8 @@ class TUI:
         self.lock = threading.RLock()
         self.screen = TerminalScreen(120, 40, self.pty.write)
         self.pty.resize(120, 40)
-        self.stream = pyte.ByteStream(self.screen)
+        self.stream = TerminalStream(self.screen)
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
 
@@ -138,7 +145,7 @@ class TUI:
             if not data:
                 return
             with self.lock:
-                self.stream.feed(data)
+                self.stream.feed(self.decoder.decode(data))
 
     def text(self):
         with self.lock:
@@ -160,7 +167,77 @@ class TUI:
         self.reader.join(3)
 
 
-def run_tool(tool, executable):
+class QtTUI:
+    """Actual product window and Ctrl+V events; only clipboard/transport are fixtures."""
+    def __init__(self, command, environment, project, tool, version):
+        from PySide6.QtWidgets import QApplication
+        from enge_spx.ui import style
+        self.app = QApplication.instance() or QApplication([])
+        style.apply(self.app)
+        self.pty = PosixPTY(command, environment, str(project))
+        self.snapshot = Snapshot("empty")
+        self.serial = 0
+        owner = self
+        class Clipboard:
+            def sequence(self):
+                return owner.serial
+            def read(self, sequence):
+                if sequence != owner.serial:
+                    raise AssertionError("fixture snapshot changed")
+                return owner.snapshot
+        class Import:
+            last_images = []
+            def paste(self, snapshot):
+                events = InputAdapter(tool, version).events([Attachment(p, True, "图片.png") for p in snapshot.value])
+                self.last_images = [image for frame, image in events]
+                return [frame for frame, image in events]
+            def close(self):
+                pass
+        transfer = Import()
+        transfer.tool = tool
+        self.window = TerminalWindow(self.pty, tool, project, transfer, Clipboard())
+        self.window.show()
+        self.window.view.setFocus()
+
+    def text(self):
+        self.app.processEvents()
+        screen = self.window.view.screen
+        return "\n".join("".join(screen.buffer[y][x].data for x in range(screen.columns)) for y in range(screen.lines))
+
+    def wait(self, predicate, seconds=20):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            text = self.text()
+            if predicate(text):
+                return text
+            if self.pty.poll() is not None:
+                raise AssertionError("Owned CLI exited before Qt clipboard evidence")
+            time.sleep(.01)
+        raise AssertionError("Actual Qt/CLI window did not reach expected fixture state")
+
+    def paste(self, snapshot):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        self.serial += 1
+        self.snapshot = snapshot
+        QTest.keyClick(self.window.view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+
+    def submit(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        QTest.keyClick(self.window.view, Qt.Key.Key_Return)
+
+    def capture(self, path):
+        self.app.processEvents()
+        assert self.window.grab().save(str(path), "PNG")
+
+    def close(self):
+        self.window.close()
+        self.window.view.reader.join(3)
+        self.app.processEvents()
+
+
+def run_tool(tool, executable, qt_terminal=False, capture=None):
     if os.name == "nt":
         raise RuntimeError("Native Linux TUI fixture; use Windows API/ConPTY tests separately")
     api = FixtureAPI()
@@ -188,15 +265,22 @@ def run_tool(tool, executable):
         endpoint = "http://127.0.0.1:" + str(api.server_port)
         env.update(HOME=str(home), USERPROFILE=str(home), LANG="C.UTF-8", TERM="xterm-256color", COLORTERM="truecolor", NO_PROXY="127.0.0.1,localhost", HTTP_PROXY=endpoint, HTTPS_PROXY=endpoint, DO_NOT_TRACK="1")
         command = [str(Path(executable).resolve())]
-        version = (2, 1, 319) if tool == "claude" else (0, 167, 0)
+        # Record the executable actually tested, never a hardcoded target.
+        version_output = subprocess.run([command[0], "--version"], env=env, capture_output=True,
+                                        text=True, timeout=20, check=True).stdout.strip()
+        match = re.search(r"\b(\d+)\.(\d+)\.(\d+)([-+][\w.-]+)?\b", version_output)
+        if match is None:
+            raise AssertionError("Fixture executable did not report a CLI version")
+        version = tuple(map(int, match.group(1, 2, 3)))
+        version_label = match.group(0)
         if tool == "claude":
             env.update(ANTHROPIC_API_KEY="sk-ant-synthetic-fixture-not-real", ANTHROPIC_BASE_URL=endpoint, CLAUDE_CONFIG_DIR=str(home / ".claude"), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1", DISABLE_AUTOUPDATER="1")
             config = home / ".claude"
             config.mkdir()
-            fixture_config = {"numStartups": 1, "firstStartVersion": "2.1.319", "migrationVersion": 14,
+            fixture_config = {"numStartups": 1, "firstStartVersion": version_label, "migrationVersion": 14,
                               "opusProMigrationComplete": True, "sonnet1m45MigrationComplete": True,
                               "hasResetAutoModeOptInForDefaultOffer": True,
-                              "hasCompletedOnboarding": True, "lastOnboardingVersion": "2.1.319",
+                              "hasCompletedOnboarding": True, "lastOnboardingVersion": version_label,
                               "customApiKeyResponses": {"approved": [env["ANTHROPIC_API_KEY"][-20:]], "rejected": []},
                               "projects": {str(project): {"hasTrustDialogAccepted": True}}}
             (config / ".claude.json").write_text(json.dumps(fixture_config))
@@ -212,7 +296,7 @@ def run_tool(tool, executable):
                         "-c", 'model_providers.clipboard_fixture.supports_websockets=false',
                         "-c", 'model_providers.clipboard_fixture.env_key="SPX_CLIPBOARD_TEST_KEY"',
                         "-c", 'check_for_update_on_startup=false']
-        tui = TUI(command, env, project)
+        tui = QtTUI(command, env, project, tool, version) if qt_terminal else TUI(command, env, project)
         try:
             for _ in range(10):
                 text = tui.wait(lambda value: any(x in value for x in ("custom API key", "Yes, I trust this folder", "To get started", "Claude Code v", "OpenAI Codex")))
@@ -227,20 +311,50 @@ def run_tool(tool, executable):
                 time.sleep(.5)
             # Wait for the actual composer, not an onboarding/trust/menu input.
             tui.wait(lambda value: ("❯" in value and "Claude Code v" in value and "Yes, I trust" not in value) if tool == "claude" else ("To get started" in value or "GPT-6-Sol" in value))
-            tui.pty.write(text_frame("请分析图片 " + nonce + "："))
+            if qt_terminal:
+                tui.wait(lambda value: tui.window.view.ready.is_set())
+                tui.paste(Snapshot("text", "请分析图片 " + nonce + "："))
+                tui.wait(lambda value: nonce in value)
+            else:
+                tui.pty.write(text_frame("请分析图片 " + nonce + "："))
             adapter = InputAdapter(tool, version)
             first = time.monotonic()
             for i, path in enumerate(paths, 1):
-                for frame, image in adapter.events([Attachment(str(path), True, "图片-" + str(i) + ".png")]):
-                    tui.pty.write(frame)
-                    if image:
-                        tui.wait(lambda value: "[Image #" + str(i) + "]" in value)
-            tui.pty.write(text_frame(" 保留这段后续文字"))
+                if qt_terminal:
+                    tui.paste(Snapshot("files", (str(path),)))
+                    tui.wait(lambda value: "[Image #" + str(i) + "]" in value)
+                    tui.wait(lambda value: "已交给" in tui.window.message.text())
+                else:
+                    for frame, image in adapter.events([Attachment(str(path), True, "图片-" + str(i) + ".png")]):
+                        tui.pty.write(frame)
+                        if image:
+                            tui.wait(lambda value: "[Image #" + str(i) + "]" in value)
+            if qt_terminal:
+                tui.paste(Snapshot("text", " 保留这段后续文字"))
+            else:
+                tui.pty.write(text_frame(" 保留这段后续文字"))
             tui.wait(lambda value: nonce in value and "[Image #2]" in value and "后续文字" in value)
+            if qt_terminal:
+                from PySide6.QtGui import QGuiApplication
+                view = tui.window.view
+                view.select_all()
+                menu = view.create_context_menu()
+                copy = next(action for action in menu.actions() if action.objectName() == "TerminalCopy")
+                assert copy.isEnabled()
+                copy.trigger()
+                copied = QGuiApplication.clipboard().text()
+                assert nonce in copied and "[Image #2]" in copied
+                menu.deleteLater()
+                view.clear_selection()
+            if qt_terminal and capture:
+                tui.capture(capture)
             with api.lock:
                 assert not api.requests, "Pasting must not submit any image data before Enter"
             alive_pid = tui.pty.pid
-            tui.pty.write(b"\r")  # explicit user submission, only in this test
+            if qt_terminal:
+                tui.submit()
+            else:
+                tui.pty.write(b"\r")  # explicit user submission, only in this test
             if not api.got_images.wait(25):
                 raise AssertionError("Native CLI never serialized two visual image inputs")
             assert tui.pty.pid == alive_pid and tui.pty.poll() is None
@@ -248,7 +362,7 @@ def run_tool(tool, executable):
                 requests = list(api.requests)
             images = next(x["images"] for x in requests if len(x["images"]) == 2)
             assert [x["pixel"] for x in images] == ["#d97757", "#87bbb6"], images
-            return {"tool": tool, "version": ".".join(map(str, version)), "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": round(time.monotonic() - first, 3), "fixture_only": True, "real_model_understanding": "not_tested"}
+            return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": round(time.monotonic() - first, 3), "fixture_only": True, "real_model_understanding": "not_tested"}
         finally:
             tui.close()
             api.shutdown()
@@ -264,8 +378,10 @@ if __name__ == "__main__":
     parser.add_argument("--claude", type=Path)
     parser.add_argument("--codex", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--qt-terminal", action="store_true")
+    parser.add_argument("--capture-terminal", type=Path)
     args = parser.parse_args()
-    results = [run_tool(tool, executable) for tool, executable in (("claude", args.claude), ("codex", args.codex)) if executable]
+    results = [run_tool(tool, executable, args.qt_terminal, args.capture_terminal) for tool, executable in (("claude", args.claude), ("codex", args.codex)) if executable]
     if not results:
         parser.error("provide at least one official CLI executable")
     args.output.write_text(json.dumps({"schema": 1, "tests": results}, indent=2), encoding="utf-8")

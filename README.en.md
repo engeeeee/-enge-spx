@@ -2,7 +2,7 @@
 <h1 align="center">ENGE SPX</h1>
 <p align="center"><strong>An isolated AI coding workspace for Windows</strong></p>
 <p align="center">Run Claude Code, Codex and a workspace browser in Linux containers with a chosen, verified proxy exit.</p>
-<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.0-windows">Download</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.1-windows">Download</a></p>
 
 [Official website](https://enge1337.cn/) · [Website source](website/README.md)
 
@@ -58,12 +58,12 @@ These are actual **0.13.2 native Windows UI captures** using temporary data with
 
 ## Download and start
 
-Current release: **[0.14.0 stable](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.0-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
+Current release: **[0.14.1 stable](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.1-windows)**. Windows x64 requires Docker Desktop with Linux containers / WSL 2 and Docker Engine 28+. Packaged builds do not require a separate Python installation. Executables are currently unsigned.
 
-**0.14.0 stable** adds native Windows clipboard bridging and an owned ConPTY terminal for the existing Claude/Codex TUI. Paste text, screenshots and file references without another dialog, restarting the session or automatic submission. Existing data, proxy settings, identities, images, tool updates and Docker exit fixes remain compatible. See [Smart Clipboard](docs/smart-clipboard.zh-CN.md), [release notes](docs/releases/0.14.0.zh-CN.md) and [validation scope](docs/validation-smart-clipboard.zh-CN.md).
+**0.14.1 stable** fixes upgraded-CLI image paste, adds a right-click copy/paste menu, scrollback selection and font zoom, improves ANSI/truecolour/dim text, and replaces the system frame with the existing app title-bar style. Paste text, screenshots and file references without another dialog, restarting the session or automatic submission. Existing data, proxy settings, identities, images, tool updates and Docker exit fixes remain compatible. See [Smart Clipboard](docs/smart-clipboard.zh-CN.md), [release notes](docs/releases/0.14.1.zh-CN.md) and [validation scope](docs/validation-smart-clipboard.zh-CN.md).
 
-- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.0-windows/ENGE-SPX-Windows-x64-0.14.0-Setup.exe)**: per-user setup with shortcuts.
-- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.0-windows/ENGE-SPX-Windows-x64-0.14.0-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
+- **[Windows installer](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.1-windows/ENGE-SPX-Windows-x64-0.14.1-Setup.exe)**: per-user setup with shortcuts.
+- **[Portable ZIP](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.1-windows/ENGE-SPX-Windows-x64-0.14.1-Portable.zip)**: extract everything, run `ENGE-SPX.exe` and keep `_internal` beside it.
 - Both packages contain `spx.exe`. Checksums and the matching runtime are on the release page.
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) once and complete its license, WSL and Linux-engine initialization.
@@ -108,7 +108,7 @@ Containers depend on the host, Docker and WSL. DPAPI does not protect against ma
 
 ## Terminal, downloads and storage
 
-[Smart Clipboard Paste](docs/smart-clipboard.zh-CN.md) is included in 0.14.0: Ctrl+V in the existing Claude/Codex TUI can paste text, screenshots and file references without an upload dialog or automatic submission. Full clipboard bridging requires the owned smart terminal. Explicit Windows Terminal, PowerShell and custom terminal preferences keep their original behavior. Native images are validated for Claude 2.1.319 / Codex 0.167.0; see the [validation status](docs/validation-smart-clipboard.zh-CN.md).
+[Smart Clipboard Paste](docs/smart-clipboard.zh-CN.md) is included in 0.14.1: Ctrl+V in the existing Claude/Codex TUI can paste text, screenshots and file references without an upload dialog or automatic submission. Full clipboard bridging requires the owned smart terminal. Explicit Windows Terminal, PowerShell and custom terminal preferences keep their original behavior. Image delivery requires live native-image acknowledgement; compatible updates are no longer blocked by an exact version allowlist; see the [validation status](docs/validation-smart-clipboard.zh-CN.md).
 
 The native Qt interface uses warm charcoal surfaces and muted clay accents,
 with consistent controls and custom title bars. Pages are built on first use,
