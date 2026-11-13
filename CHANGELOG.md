@@ -1,5 +1,22 @@
 # Changes
 
+## 0.13.6 implicit WSL2 configuration exit fix — 2026-11-13
+
+- Recognize Docker's documented WSL2 default in valid sparse settings instead
+  of requiring an explicit enabled user override. Resolve known user, installer
+  and admin settings; reject disabled, malformed, conflicting or other backends.
+  Do not infer that an ambiguous managed policy is active offline.
+- For implicit selections require current-user Docker distribution registration
+  with Version=2, plus the existing complete process, pipe and WSL stop proof.
+  Recheck configuration/registration before final process/pipe observations.
+- Add fixed configuration failure codes without exporting settings or paths;
+  bound transient read/sharing retries and avoid spinning on explicit rejection.
+- Add real sparse-file, policy/default/invalid-value tests and an owned Windows
+  registry/process/pipe Engine.shutdown regression. WSL query results remain
+  fixtures in Windows CI, not physical Docker Desktop acceptance.
+- Keep Codex/Claude update and terminal behavior, runtime recipes, data formats,
+  permissions, dependencies and licenses unchanged.
+
 ## 0.13.5 exit budgets and rootless tool updates — 2026-11-13
 
 - Capture Desktop management output in bounded private temporary files instead

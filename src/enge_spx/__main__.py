@@ -93,6 +93,10 @@ def main():
             from .platform_ui import ASSETS
             from .brand import PACKAGE_RESOURCES
             from .credentials import CredentialCodec
+            from .desktop_settings import resolve as resolve_desktop_backend
+            implicit = resolve_desktop_backend({})
+            assert implicit.enabled and implicit.implicit
+            assert not resolve_desktop_backend({"wslEngineEnabled": False}).enabled
             for proxy in ("http://127.0.0.1:9", "socks5://127.0.0.1:9"):
                 with client(proxy):
                     pass
