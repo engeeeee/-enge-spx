@@ -75,6 +75,8 @@ flowchart LR
 
 ## 下载并开始使用
 
+开发分支新增 **[Smart Clipboard 智能粘贴](docs/smart-clipboard.zh-CN.md)**：在自有终端的 Claude Code / Codex 当前输入区 Ctrl+V 粘贴文字、截图和文件，无额外上传对话框、不自动发送。完整功能需要智能粘贴终端；显式 Windows Terminal / PowerShell / 自定义终端保留原有行为。**以下正式版下载尚不包含该开发功能**，测试与限制见[验证记录](docs/validation-smart-clipboard.zh-CN.md)。
+
 当前版本为 **[0.13.6 正式版](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.13.6-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
 本版修复 Docker 省略默认 WSL2 开关时无法退出的问题：识别用户、安装与策略设置，再用 WSL2 注册记录及完整进程/管道/发行版状态核验。保留上一版的 Codex / Claude 更新及终端停留行为，已有账号、代理、身份、预算和镜像继续使用。见 [发布记录](CHANGELOG.md)、[退出说明](docs/exit.zh-CN.md)与 [实际验证](docs/validation-0.13.6.zh-CN.md)。

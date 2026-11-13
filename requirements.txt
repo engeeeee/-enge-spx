@@ -3,3 +3,5 @@ tzdata==2026.6
 websockets==17.3
 httpx[socks]==0.28.1
 PySide6-Essentials==6.12.0
+pyte==0.8.2
+wcwidth==0.2.14

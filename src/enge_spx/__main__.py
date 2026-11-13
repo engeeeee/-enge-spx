@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--without-browser", action="store_true", help="显式仅运行 CLI，不启动浏览器；不会回退到本机或无沙箱浏览器")
     parser.add_argument("--smoke-gui", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--terminal-preview", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="action")
     for action in ("gui", "doctor", "diagnostics", "check", "confirm", "browser", "stop", "status", "guard", "relay", "forward", "shell"):
         sub.add_parser(action)
@@ -73,6 +74,7 @@ def main():
     attach.add_argument("tool", choices=("claude", "codex", "shell", "login-claude", "login-codex"))
     attach.add_argument("--session", required=True)
     attach.add_argument("--container", required=True)
+    attach.add_argument("--smart-terminal", action="store_true", help=argparse.SUPPRESS)
     credentials = sub.add_parser("credentials", help="凭据保护、迁移、删除和显式旧格式导出")
     credentials.add_argument("operation", choices=("status", "migrate", "clear-proxies", "export-legacy"))
     credentials.add_argument("--output", type=Path)
@@ -87,7 +89,12 @@ def main():
         parser.error("unrecognized arguments: " + " ".join(forwarded))
     resource_query = args.action == "resources" and not (args.apply or args.restore or args.show_settings)
     try:
+        if args.terminal_preview:
+            from .smart_terminal import preview
+            return preview()
         if args.self_test:
+            from .smart_terminal import TerminalScreen
+            assert TerminalScreen(80, 24).columns == 80
             from .downloads import client
             from .forward import tunnel_type
             from .platform_ui import ASSETS
@@ -222,6 +229,9 @@ def main():
                 engine.stop()
                 result = store.export_legacy_credentials(args.output, args.allow_plaintext)
         elif args.action == "attach":
+            if args.smart_terminal:
+                from .smart_terminal import run as smart_attach
+                return smart_attach(engine, args.project, args.tool, args.session, args.container)
             command = engine.attach_command(args.project, args.tool, args.session, args.container, interactive=bool(sys.stdin and sys.stdin.isatty()))
             return subprocess.call(command, env=engine.docker.environment())
         elif args.action == "start":

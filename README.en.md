@@ -114,6 +114,8 @@ Containers depend on the host, Docker and WSL. DPAPI does not protect against ma
 
 ## Terminal, downloads and storage
 
+The development branch adds [Smart Clipboard Paste](docs/smart-clipboard.zh-CN.md): Ctrl+V in the existing Claude/Codex TUI can paste text, screenshots and file references without an upload dialog or automatic submission. Full clipboard bridging requires the owned smart terminal. Explicit Windows Terminal, PowerShell and custom terminal preferences keep their original behavior. Published 0.13.6 downloads do not include this development feature; see the [validation status](docs/validation-smart-clipboard.zh-CN.md).
+
 The native Qt interface uses warm charcoal surfaces and muted clay accents,
 with consistent controls and custom title bars. Pages are built on first use,
 unchanged state is not repeatedly rewritten, and navigation adapts to narrow

@@ -1,5 +1,19 @@
 # Changes
 
+## Unreleased — Smart Clipboard Paste
+
+- Add an owned Qt/ConPTY display for the existing Claude/Codex TUI. Handle
+  Ctrl+V locally, preserve native bracketed text paste, IME and draft editing;
+  serialize typing, imports and user Enter without a separate chat/upload UI.
+- Read Unicode, CF_HDROP, registered PNG and DIB/V5 on demand. Stream selected
+  files into the existing bind, or private project-container tmp for read-only
+  grants; validate hashes, limits, paths, live sessions and native image chips.
+- Keep explicit external terminal settings and existing headless CLI behavior.
+  Do not claim image clipboard support for opaque terminal paste bindings.
+- Add bounded caches, inactive-only retention, failure recovery, API/PTY tests,
+  repeatable Windows acceptance fixtures, dependency notices and documentation.
+  Physical Windows/Desktop and real model acceptance remain separately tracked.
+
 ## 0.13.6 implicit WSL2 configuration exit fix — 2026-11-13
 
 - Recognize Docker's documented WSL2 default in valid sparse settings instead

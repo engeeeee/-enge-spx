@@ -1130,6 +1130,10 @@ class Engine:
         if os.name != "nt":
             raise SPXError("此按钮在 Windows 中打开终端；其他系统请使用命令行入口。")
         config = self.store.settings()["terminal"]
+        # Explicit external preferences, login windows and Linux shells keep
+        # their original display host. Auto AI sessions use the owned input UI.
+        if config.get("kind", "auto") == "auto" and tool in ("claude", "codex"):
+            config = {"kind": "smart"}
         resolve(config)
         _, url = self._tool_session(path, TOOLS[tool], browser=True if tool.startswith("login-") else None, expected_workspace=expected_workspace)
         directory, _ = self.store.project(path)

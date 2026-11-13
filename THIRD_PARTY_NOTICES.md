@@ -7,6 +7,8 @@ The project retains its PolyForm Noncommercial license. The following independen
 - Python: https://www.python.org/psf/license/
 - Qt / PySide6 Essentials / Shiboken6 6.12.0 (LGPL-3.0 and applicable third-party notices): https://doc.qt.io/qt-6/lgpl.html and https://doc.qt.io/qtforpython-6/licenses.html. Exact source links, license texts and notices are supplied in `licenses/Qt-SOURCES.md`, `licenses/LGPL-3.0.txt`, `licenses/GPL-3.0.txt` and `licenses/qt-6.12.0-notices.zip`. Windows builds expand the bundle into `THIRD-PARTY-LICENSES/Qt`; the dynamically loaded libraries remain replaceable. The application's restrictions do not apply to these LGPL-covered parts or to reverse engineering for debugging modifications to them.
 - PyYAML (MIT): https://github.com/yaml/pyyaml/blob/main/LICENSE
+- pyte 0.8.2 (LGPL-3.0), unmodified VT parser: https://github.com/selectel/pyte and https://pypi.org/project/pyte/0.8.2/. The license is in `licenses/pyte-0.8.2-LICENSE.txt`; Windows packages ship replaceable Python sources outside the frozen PYZ archive. Source builds accept a modified installed pyte. The application's restrictions do not apply to pyte or reverse engineering to debug library modifications.
+- wcwidth 0.2.14 (MIT), Unicode terminal cell widths: https://github.com/jquast/wcwidth and https://pypi.org/project/wcwidth/0.2.14/. License and Unicode implementation notice: `licenses/wcwidth-0.2.14-LICENSE.txt`.
 - tzdata (Apache-2.0, IANA time-zone data public-domain notices): https://github.com/python/tzdata
 - websockets (BSD-3-Clause): https://github.com/python-websockets/websockets
 - HTTPX and httpcore (BSD-3-Clause): https://github.com/encode/httpx/blob/master/LICENSE.md and https://github.com/encode/httpcore/blob/master/LICENSE.md

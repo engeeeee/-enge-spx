@@ -9,7 +9,7 @@ import subprocess
 
 from .state import SPXError
 
-PRESETS = {"自动选择": "auto", "Windows Terminal": "wt", "PowerShell 7": "pwsh", "Windows PowerShell": "powershell", "自定义程序": "custom"}
+PRESETS = {"自动（AI 智能粘贴）": "auto", "智能粘贴终端": "smart", "Windows Terminal": "wt", "PowerShell 7": "pwsh", "Windows PowerShell": "powershell", "自定义程序": "custom"}
 DEFAULT_ARGUMENTS = "{command}"
 # Read compatibility only: this old preset used fixed flags, regardless of its
 # stored arguments. Normalize it into the same custom launcher as any other exe.
@@ -113,6 +113,8 @@ def discover(kind: str) -> str | None:
 def resolve(config: dict | None) -> tuple[str, str]:
     config = validate(config)
     kind, executable = config["kind"], config["executable"]
+    if kind == "smart":
+        return kind, "ENGE SPX"
     if kind == "auto":
         for candidate in ("wt", "pwsh", "powershell"):
             found = discover(candidate)
@@ -132,6 +134,8 @@ def resolve(config: dict | None) -> tuple[str, str]:
 def launch_command(config: dict | None, command: list[str], project: str, title: str) -> tuple[list[str], int]:
     config = validate(config)
     kind, executable = resolve(config)
+    if kind == "smart":
+        return [*command, *(["--smart-terminal"] if "attach" in command else [])], getattr(subprocess, "CREATE_NO_WINDOW", 0)
     if kind == "wt":
         # Semicolons are wt's own command separators, even inside quoted argv.
         if any(";" in arg for arg in [*command, project, title]):
@@ -175,6 +179,9 @@ def launch(config: dict | None, command: list[str], project: str, title: str, en
 
 
 def test(config: dict | None, env=None):
+    if validate(config)["kind"] == "smart":
+        from .invocation import console_entry
+        return launch(config, [*console_entry(), "--terminal-preview"], str(Path.home()), "ENGE SPX · 终端测试", env)
     shell = discover("powershell")
     if not shell:
         raise SPXError("未找到 Windows PowerShell，无法执行终端测试。")
