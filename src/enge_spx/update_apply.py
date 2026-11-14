@@ -50,9 +50,11 @@ def load_plan(path, executable_dir):
         raise SPXError('更新源与当前运行的助手或程序目录不符。')
     if not all((root / name).is_file() for name in ('ENGE-SPX.exe', 'spx.exe')):
         raise SPXError('原程序目录不完整，未自动覆盖。')
-    identity = json.loads((data / 'instance.json').read_text(encoding='utf-8'))
-    runtime = json.loads((data / 'runtime.json').read_text(encoding='utf-8'))
-    if identity.get('id') != value.get('instance') or runtime.get('phase') != 'stopped':
+    if not (data / 'instance.json').is_file():
+        raise SPXError('原数据实例不存在，未开始更新。')
+    store = Store(data)
+    runtime = store.read('runtime.json', {})
+    if store.instance != value.get('instance') or not isinstance(runtime, dict) or runtime.get('phase') != 'stopped':
         raise SPXError('工作区尚未停止或数据实例不同，未开始更新。')
     if digest(value['archive']) != value['archive_sha256']:
         raise SPXError('更新归档校验发生变化，未修改程序。')
@@ -167,6 +169,7 @@ def run(plan_path):
             shutil.copytree(plan['payload'], ready)
         print('SPX_UPDATE_READY', flush=True)
         parent.wait()
+        parent.close()
         parent_exited = True
         # A frozen process changes Windows DLL search paths. External installers
         # and the new independent app must resolve their own runtime libraries.

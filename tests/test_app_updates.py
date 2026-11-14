@@ -9,7 +9,8 @@ import httpx
 
 from enge_spx.app_updates import API, check, extract_package, parse_release, preferences
 from enge_spx.state import Store, SPXError
-from enge_spx.update_apply import swap_portable
+from enge_spx.update_apply import swap_portable, load_plan
+from enge_spx import __version__
 
 
 def official_release(version='1.2.3'):
@@ -128,3 +129,29 @@ class AppUpdateTests(unittest.TestCase):
         for name in ('ENGE-SPX.exe', 'spx.exe'):
             self.assertEqual((root / name).read_bytes(), b'old-' + name.encode())
         self.assertFalse((root / '_internal').exists())
+
+    def test_plan_reads_dpapi_protected_runtime_and_rejects_an_active_workspace(self):
+        import hashlib
+        import json
+        import os
+        from enge_spx.state import atomic_json
+        root = self.root / 'app'
+        root.mkdir()
+        for name in ('ENGE-SPX.exe', 'spx.exe'):
+            (root / name).write_bytes(b'MZ-fixture')
+        store = Store(root / 'data')
+        store.write('runtime.json', {'phase': 'stopped', 'browser_token': 'synthetic-fixture-only'})
+        stage = self.root / 'stage'
+        stage.mkdir()
+        archive = self.archive()
+        payload = stage / 'payload'
+        extract_package(archive, payload)
+        plan = {'schema': 1, 'version': __version__, 'root': str(root), 'data': str(store.home), 'payload': str(payload),
+                'archive': str(archive), 'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                'parent_pid': os.getpid(), 'instance': store.instance, 'installer': None}
+        atomic_json(stage / 'plan.json', plan)
+        self.assertEqual(load_plan(stage / 'plan.json', payload)['instance'], store.instance)
+        self.assertNotIn('browser_token', json.dumps(plan))
+        store.write('runtime.json', {'phase': 'ready'})
+        with self.assertRaises(SPXError):
+            load_plan(stage / 'plan.json', payload)
