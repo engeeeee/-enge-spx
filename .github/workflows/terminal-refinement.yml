@@ -1,0 +1,42 @@
+name: Terminal refinement probes
+on:
+  push:
+    branches: [fix/terminal-performance-input]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  timezone:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python tools/probe_workspace_timezone.py '${{ runner.temp }}/timezone-probe.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-timezone-probe
+          path: ${{ runner.temp }}/timezone-probe.json
+  rendering:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - shell: pwsh
+        run: |
+          $baseline = Join-Path $env:RUNNER_TEMP 'terminal-baseline'
+          git worktree add --detach $baseline 913d8402f933ebf4407e7a838c5de10f789c532b
+          python tools/benchmark_terminal.py --source "$baseline/src" --output '${{ runner.temp }}/terminal-before.json' --frames 40
+          python tools/benchmark_terminal.py --output '${{ runner.temp }}/terminal-after.json' --frames 40
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-terminal-rendering
+          path: ${{ runner.temp }}/terminal-*.json

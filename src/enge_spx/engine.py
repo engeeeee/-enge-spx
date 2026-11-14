@@ -994,10 +994,19 @@ class Engine:
         ids = self.image_ids()
         # A stopped browser may contain an old one-time display token. Replace its
         # container, keeping its profile and downloads in dedicated persistent volumes.
+        from .workspace_timezone import browser_image
+        browser_image_id = browser_image(self, ids['browser'])
+        previous = self.inspect('browser')
+        if previous and previous['State']['Running'] and previous['Image'] != browser_image_id:
+            self.log('正在更新浏览器系统时区，账号及浏览器资料保留。')
+            self.docker.run('stop', previous['Id'])
         old = self._retire_stopped_browser()
         try:
-            obj = self.ensure_container("browser", ids["browser"], ["--label", PROFILE + "=" + identity, "--network", "container:" + state["session"], "--shm-size", "512m", *arguments(), "--volume", data["browser-home"] + ":/home/workspace", "--volume", data["downloads"] + ":/home/workspace/Downloads", *self.proxy_env(state)], validate_existing=verify)
+            obj = self.ensure_container("browser", browser_image_id, ["--label", PROFILE + "=" + identity, "--network", "container:" + state["session"], "--shm-size", "512m", *arguments(), "--volume", data["browser-home"] + ":/home/workspace", "--volume", data["downloads"] + ":/home/workspace/Downloads", *self.proxy_env(state)], validate_existing=verify)
             verify(obj)
+            from .workspace_timezone import probe as timezone_probe, ready as timezone_ready, zone_name
+            if not timezone_ready(timezone_probe(self, obj['Id'], zone_name(self))):
+                raise SPXError('浏览器系统时区没有与所选时区一致，已拒绝启动浏览器。')
         except SPXError:
             self._stop("浏览器身份、挂载或沙箱核验失败，工作区已停止。")
             raise
@@ -1089,6 +1098,8 @@ class Engine:
         try:
             obj = self.ensure_container("project", ids["work"], ["--network", "container:" + state["session"], *project_arguments(plan), "--volume", data["tools-home"] + ":/home/workspace", "--workdir", "/workspace/" + key, *self.proxy_env(state)], name=plan["name"], resource_key=key, validate_existing=verify)
             verify(obj)
+            from .workspace_timezone import prepare_project
+            prepare_project(self, obj)
         except SPXError:
             self._stop("项目身份、目录或权限核验失败，工作区已停止。")
             raise

@@ -55,7 +55,7 @@ class TerminalStream:
 
     def _osc(self, payload):
         if payload in ("10;?", "11;?"):
-            color = FOREGROUND if payload.startswith("10;") else BACKGROUND
+            color = FOREGROUND if payload.startswith("10;") else getattr(self.screen, "terminal_background", BACKGROUND)
             self.screen.respond(("\x1b]" + payload[:2] + ";rgb:" + self._rgb(color) + "\x1b\\").encode())
         elif re.fullmatch(r"4;(?:[0-9]{1,3});\?", payload):
             index = int(payload.split(";")[1])
