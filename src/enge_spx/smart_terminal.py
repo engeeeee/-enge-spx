@@ -15,8 +15,10 @@ import queue
 import re
 import threading
 import time
+import unicodedata
 
 import pyte
+from wcwidth import wcwidth
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF, QSize, QPointF
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter, QContextMenuEvent, QInputMethodEvent, QTextLayout, QTextOption, QTextCharFormat, QRegion, QImage
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QFrame, QMenu, QToolButton, QSizePolicy, QSlider, QWidgetAction, QFontComboBox
@@ -29,10 +31,56 @@ from .terminal_paint import RowPainter
 
 
 class TerminalScreen(pyte.HistoryScreen):
+    TEXT_RUNS = re.compile(r'[ -~]+|[^ -~]+')
+
     def __init__(self, columns, lines, respond=lambda data: None):
         self.respond = respond
         self.primary = None
+        self.ascii_tables = {}
         super().__init__(columns, lines, history=2000)
+
+    def draw(self, data):
+        # pyte's history dispatcher intercepts every attribute access. Bulk
+        # ordinary in-row ASCII writes avoid doing that for every character;
+        # the original parser still owns wrapping, insertion and Unicode edits.
+        charset = self.g1_charset if self.charset else self.g0_charset
+        if (not data or not data.isprintable() or pyte.modes.IRM in self.mode
+                or charset is not pyte.charsets.LAT1_MAP
+                or any(not char.isascii() and wcwidth(char) <= 0 and not unicodedata.combining(char) for char in data)):
+            return super().draw(data)
+        cursor, columns, buffer, dirty = self.cursor, self.columns, self.buffer, self.dirty
+        tables = self.ascii_tables
+        for match in self.TEXT_RUNS.finditer(data):
+            run = match[0]
+            x = cursor.x
+            widths = None if run.isascii() else [wcwidth(char) for char in run]
+            width = len(run) if widths is None else sum(widths)
+            if width <= columns - x and (widths is None or all(value > 0 for value in widths)):
+                attrs = cursor.attrs
+                cached = tables.get(attrs)
+                if cached is None:
+                    if len(tables) >= 64:
+                        tables.clear()
+                    cached = (tuple(attrs._replace(data=chr(char)) for char in range(32, 127)), {})
+                    tables[attrs] = cached
+                table, unicode_cells = cached
+                line = buffer[cursor.y]
+                if widths is None:
+                    line.update((x + index, table[ord(char)-32]) for index, char in enumerate(run))
+                else:
+                    for char, advance in zip(run, widths):
+                        if char not in unicode_cells:
+                            if len(unicode_cells) >= 256:
+                                unicode_cells.clear()
+                            unicode_cells[char] = attrs._replace(data=char)
+                        line[x] = unicode_cells[char]
+                        if advance == 2:
+                            line[x + 1] = attrs._replace(data='')
+                        x += advance
+                cursor.x += width
+                dirty.add(cursor.y)
+            else:
+                super().draw(run)
 
     @property
     def default_char(self):

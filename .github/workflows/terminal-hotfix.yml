@@ -22,16 +22,23 @@ jobs:
           PYTHONFAULTHANDLER: '1'
           PYTHONUNBUFFERED: '1'
       - shell: pwsh
+        if: always()
         run: |
           python tools/probe_windows_terminal_window.py --output '${{ runner.temp }}/glass/native.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Native Acrylic frame probe failed' }
           python tools/probe_windows_terminal_window.py --legacy-accent --output '${{ runner.temp }}/glass/legacy.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Accent Acrylic compatibility probe failed' }
           $env:QT_SCALE_FACTOR = '1.5'
           python tools/probe_windows_terminal_window.py --output '${{ runner.temp }}/glass/native-dpi150.json'
+          if ($LASTEXITCODE -ne 0) { throw 'High DPI frame probe failed' }
           Remove-Item Env:QT_SCALE_FACTOR
           $baseline = Join-Path $env:RUNNER_TEMP 'terminal-before'
           git worktree add --detach $baseline 671023b8124b7e75c0cbfc19986eaa43d56fda7f
           python tools/probe_terminal_scroll.py --source "$baseline/src" --output '${{ runner.temp }}/glass/scroll-before.json' --frames 30
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline scroll probe failed' }
           python tools/probe_terminal_scroll.py --output '${{ runner.temp }}/glass/scroll-after.json' --frames 30
+          if ($LASTEXITCODE -ne 0) { throw 'Updated scroll probe failed' }
+          if ((Get-Content '${{ runner.temp }}/glass/scroll-after.json' -Raw | ConvertFrom-Json).premature_or_torn_paints -ne 0) { throw 'Updated scroll still exposes incomplete frames' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

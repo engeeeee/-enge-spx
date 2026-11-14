@@ -63,7 +63,7 @@ class PipeTests(TransportHarness, unittest.TestCase):
             def do_HEAD(self):
                 self.answer("OK")
             def do_GET(self):
-                self.answer({"Running": False, "ExitCode": 0} if "/exec/" in self.path else {"ApiVersion": "1.47", "Version": "fixture"})
+                self.answer({"Running": not self.server.finished.is_set(), "ExitCode": 0} if "/exec/" in self.path else {"ApiVersion": "1.47", "Version": "fixture"})
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 value = json.loads(body or b"{}")
@@ -92,8 +92,12 @@ class PipeTests(TransportHarness, unittest.TestCase):
                 kind, data = frame()
                 assert kind == b"D"
                 output(b"RESULT:" + data.hex().encode() + b"END")
+                self.server.finished.set()
                 self.close_connection = True
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        # Real docker CLI may inspect immediately after attach. Reporting an
+        # already-exited exec races the first resize frame and closes stdin.
+        server.finished = threading.Event()
         server.daemon_threads = True
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
