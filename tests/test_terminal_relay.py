@@ -11,6 +11,8 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
+from pathlib import Path
 
 from enge_spx.brand import PACKAGE_RESOURCES
 from enge_spx.terminal_pty import DockerPTY
@@ -72,7 +74,7 @@ class PipeTests(TransportHarness, unittest.TestCase):
                     return self.answer({"Id": "owned-fixture-exec"})
                 if not self.path.endswith("/start"):
                     return self.answer({})
-                self.connection.settimeout(5)
+                self.connection.settimeout(15)
                 self.send_response(101)
                 self.send_header("Connection", "Upgrade")
                 self.send_header("Upgrade", "tcp")
@@ -86,9 +88,11 @@ class PipeTests(TransportHarness, unittest.TestCase):
                 def output(data):
                     self.wfile.write(struct.pack("!BxxxI", 1, len(data)) + data)
                     self.wfile.flush()
+                # Output and stdin are independent on a hijacked connection.
+                # Do not deadlock clients that initialize their reader first.
+                output(b"\x1b[?1000h\x1b[?1006hREADY")
                 kind, data = frame()
                 assert kind == b"R" and data == struct.pack("!HH", 110, 32)
-                output(b"\x1b[?1000h\x1b[?1006hREADY")
                 kind, data = frame()
                 assert kind == b"D"
                 output(b"RESULT:" + data.hex().encode() + b"END")
@@ -109,8 +113,24 @@ class PipeTests(TransportHarness, unittest.TestCase):
             allowed = {"PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "TMP", "TEMP", "HOME"}
             environment = {key: value for key, value in os.environ.items() if key.upper() in allowed}
             environment.update(DOCKER_API_VERSION="1.47", NO_PROXY="127.0.0.1,localhost")
-            pty = self.open(command, environment)
-            self.wait(b"READY")
+            launch = subprocess.Popen
+            diagnostics = Path(folder) / 'synthetic-docker-stderr.txt'
+            # This fixture has an empty Docker config and sanitized env; its
+            # bounded stderr can explain a runner/client failure without ever
+            # enabling production transport logging or recording user input.
+            with diagnostics.open('wb') as errors:
+                def capture(*args, **kwargs):
+                    kwargs['stderr'] = errors
+                    return launch(*args, **kwargs)
+                with patch('enge_spx.terminal_pty.subprocess.Popen', side_effect=capture):
+                    pty = self.open(command, environment)
+            try:
+                self.wait(b"READY", seconds=15)
+            except AssertionError as error:
+                pty.close()
+                with diagnostics.open('rb') as errors:
+                    detail = errors.read(2048).decode('utf-8', errors='replace')
+                raise AssertionError(f'Synthetic Docker CLI handshake failed; exit={pty.poll()}; stderr={detail!r}') from error
             self.assertFalse(server.tty)
             data = "\x1b[<0;21;9M\x1b[<0;21;9m\x1b[200~中文\n\n\x1b[201~".encode()
             pty.write(data)

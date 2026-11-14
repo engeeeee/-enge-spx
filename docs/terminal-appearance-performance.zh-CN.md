@@ -89,6 +89,8 @@ PYTHONPATH=src python -m unittest discover -s tests -p 'test_terminal*.py' -v
 
 记录解析加提交的中位数／P95、分包期间的半帧次数、最终像素一致性及缓存字节数。新实现要求半帧次数为零；合成视口不是物理显示器帧率。Windows10实机鼠标拖动、真实触控板、高刷新率和最终材质观感仍需实测反馈；不以API成功代替这些体验检查。
 
+Windows实测（构建26100、AMD64、Python3.12.10、Qt6.12、DPR1、1920×1080、208×52格、30帧）：0.14.4解析加提交中位数46.837ms／P95 56.723ms，修复实现15.317ms／P95 16.351ms；三个分包检查点的半帧由3次变为0，最终像素一致。该次窗口像素／WindowFromPoint、原生／兼容材质和150%DPI检查也通过；记录见[专项运行](https://github.com/engeeeee/ENGE-SPX/actions/runs/43583423905)。该运行另有旧Docker CLI模拟传输用例超时，图形结果独立记录，传输夹具已修正先输出再接收的双工握手并由最终发布回归复核，不能将这个专项任务整体称为全通过。
+
 依据：[Microsoft窗口命中](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest)、[进入移动循环](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-entersizemove)、[退出移动循环](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-exitsizemove)、[Qt样式背景属性](https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum)。没有并入其它终端的代码、字体或渲染器，许可不变。
 
 ## 工作区系统时区
