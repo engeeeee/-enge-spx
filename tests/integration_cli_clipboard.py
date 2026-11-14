@@ -40,6 +40,7 @@ class FixtureAPI(ThreadingHTTPServer):
         self.got_images = threading.Event()
         self.hold_response = False
         self.release_response = threading.Event()
+        self.disconnected = threading.Event()
 
 
 def image_blocks(value):
@@ -146,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(("event: " + event["type"] + "\ndata: " + json.dumps(event) + "\n\n").encode())
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            self.server.disconnected.set()
 
 
 class TUI:
@@ -500,12 +501,17 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 raise AssertionError("Native CLI never serialized two visual image inputs")
             if qt_terminal and tool == 'codex':
                 tui.wait(lambda value: 'SCROLL-FIXTURE-119' in value)
+                with api.lock:
+                    stream_requests = len(api.requests)
                 tui.paste(Snapshot('text', 'LIVE-DRAFT-TO-DELETE'))
                 tui.wait(lambda value: 'LIVE-DRAFT-TO-DELETE' in value)
                 tui.delete_selection(all_draft=True)
                 tui.wait(lambda value: 'LIVE-DRAFT-TO-DELETE' not in value)
                 api.release_response.set()
                 tui.wait(lambda value: 'SPX-STREAM-REMAINS' in value)
+                assert not api.disconnected.is_set(), 'Draft deletion interrupted the response stream'
+                with api.lock:
+                    assert len(api.requests) == stream_requests, 'Draft deletion started another API request'
             assert tui.pty.pid == alive_pid and tui.pty.poll() is None
             with api.lock:
                 requests = list(api.requests)
@@ -517,7 +523,10 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 assert any("EDIT-A中点|EDIT-B" in text and "mouse-" in text for req in requests for text in req["text"])
             if qt_terminal:
                 text = "\n".join(text for request in requests for text in request["text"])
-                assert "wo xiang" not in text and text.count("输入法确认") == 1
+                assert 'LIVE-DRAFT-TO-DELETE' not in text
+                for request in requests:
+                    request_text = '\n'.join(request['text'])
+                    assert 'wo xiang' not in request_text and request_text.count('输入法确认') == 1
             if mouse_edit:
                 tui.wait(lambda value: "SPX-STREAM-REMAINS" in value)
                 tui.paste(Snapshot("text", "HISTORY-DRAFT"), right_click=True)

@@ -25,7 +25,8 @@ try:
 except OSError:
     actual = b''
 try:
-    text = Path('/etc/timezone').read_text(encoding='ascii').strip()
+    with Path('/etc/timezone').open(encoding='ascii') as stream:
+        text = stream.read(129).strip()
 except (OSError, UnicodeError):
     text = ''
 time.tzset()

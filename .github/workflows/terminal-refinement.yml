@@ -1,7 +1,5 @@
-name: Terminal refinement probes
+name: Terminal rendering and timezone probes
 on:
-  push:
-    branches: [fix/terminal-performance-input]
   workflow_dispatch:
 permissions:
   contents: read

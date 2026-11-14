@@ -36,6 +36,8 @@ def read(store):
 
 def save(store, patch, reset=False):
     with store.lock("terminal-preferences", timeout=2):
+        from .credentials import check_path
+        check_path(store.home, FILE)
         current = dict(DEFAULTS) if reset else read(store)
         updated = validate({"schema": 1, **current, **patch})
         if reset and (store.home / FILE).exists():

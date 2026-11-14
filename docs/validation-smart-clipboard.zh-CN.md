@@ -74,3 +74,14 @@ PYTHONPATH=src python tests/integration_cli_clipboard.py \
 - 时区以真实 TZif 分别核对进程与系统文件，LA/UTC不一致和相同文件均有测试；只读报告，不改设置、文件或容器权限。**系统时区统一仍未实现。**
 
 物理 Windows 10 + Docker Desktop、具体输入法候选窗与真实模型理解仍未人工验收。没有实机修改前后 CPU/内存比较；每个打开的智能终端多一个 Python 标准库 PTY relay，缓冲有界，不为每次粘贴创建进程或 AI 会话。
+
+
+## 0.14.4 外观、选择删除与性能
+
+本地Linux ARM64全部550项单元测试完成（521通过，29按平台跳过）。真实Codex0.169.0、镜像内0.167.0和Claude2.1.319的Qt路径回归通过；Codex覆盖Ctrl+A/Delete、空草稿重复删除、拖选部分删除、连续混合粘贴和回答期间清空草稿。合成API检查删除不新增请求、不截断返回流；仍未使用真实账号/模型。
+
+[独立Windows与Docker探针](https://github.com/engeeeee/ENGE-SPX/actions/runs/43575988169)两项通过：同机渲染前后对比、旧项目可写层/容器ID保留、只读非root浏览器时区一致、UTC数据库未改写、缓存镜像复用、无新端口/挂载。最终Windows单元、冻结包和完整网络沙箱回归由该版本发布流水线记录。
+
+新增偏好跨进程合并、损坏配置保留、权限失败、关闭提交、重开真实产品窗口恢复、透明背景不累积、行缓存界限、大量输出/EOF让出键盘处理测试；Windows平台还调用自有窗口的真实背景API，但接受接口返回不等于物理桌面观感验收。
+
+性能数值、复现命令、Acrylic系统兼容及Codex默认编辑模式限制见[终端外观与性能](terminal-appearance-performance.zh-CN.md)。实体Windows10/11、多DPI显示器切换、高刷新率手感、Vim/自定义键位和真实模型验收仍需人工记录，不能用本次合成测试替代。

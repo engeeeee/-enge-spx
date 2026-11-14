@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,19 @@ if os.name != 'nt':
 from PySide6.QtWidgets import QApplication
 from enge_spx.state import Store, SPXError
 from enge_spx.terminal_preferences import DEFAULTS, FILE, Preferences, read, save, validate
+
+
+class FixturePTY:
+    def __init__(self):
+        self.output = queue.Queue()
+    def read(self):
+        return self.output.get()
+    def write(self, data):
+        pass
+    def resize(self, *args):
+        pass
+    def close(self):
+        self.output.put(b'')
 
 
 class TerminalPreferenceTests(unittest.TestCase):
@@ -79,7 +93,56 @@ class TerminalPreferenceTests(unittest.TestCase):
         self.assertEqual(read(self.store)['font_size'], 16)
 
     def test_unknown_versions_invalid_types_and_ranges_do_not_overwrite(self):
-        for patch in ({'schema': 2}, {'font_size': True}, {'opacity': 5}, {'tint': 'unsafe'}, {'font_family': 'x\ncmd'}):
+        for patch in ({'schema': 2}, {'font_size': True}, {'opacity': 5}, {'tint': 'unsafe'}, {'tint': []}, {'appearance': {}}, {'font_family': 'x\ncmd'}):
             with self.assertRaises(SPXError):
                 validate({'schema': 1, **patch})
         self.assertFalse((self.store.home / FILE).exists())
+
+    def test_reopening_product_window_restores_display_and_mouse_preferences(self):
+        from enge_spx.smart_terminal import TerminalWindow
+        first = TerminalWindow(FixturePTY(), 'codex', self.store.home, preferences_store=self.store)
+        try:
+            first.show()
+            self.app.processEvents()
+            for name, value in {'font_size': 15, 'tint': 'purple', 'appearance': 'acrylic', 'opacity': 68,
+                                'copy_on_select': False, 'right_click_paste': False}.items():
+                first.preferences.set(name, value)
+            first.close()
+            worker = first.preferences.worker
+            if worker:
+                worker.join(3)
+            first.view.reader.join(2)
+            second = TerminalWindow(FixturePTY(), 'codex', self.store.home, preferences_store=self.store)
+            try:
+                second.show()
+                self.app.processEvents()
+                self.assertEqual(second.view.font.pointSize(), 15)
+                self.assertEqual(second.view.background.name(), '#302034')
+                self.assertFalse(second.view.copy_on_select)
+                self.assertFalse(second.view.right_click_paste)
+                self.assertEqual(second.preferences.value['opacity'], 68)
+                self.assertEqual(second.translucent_surface, os.name == 'nt')
+                self.assertIn(second.backdrop_backend, ('system-acrylic', 'accent-acrylic', 'solid', 'unsupported', 'system-disabled'))
+                self.assertEqual(second.windowOpacity(), 1.0)
+            finally:
+                second.close()
+                second.view.reader.join(2)
+        finally:
+            first.close()
+            first.view.reader.join(2)
+
+    @unittest.skipUnless(os.name == 'nt', 'requires an owned native Windows window')
+    def test_windows_backdrop_can_be_disabled_without_changing_foreground_opacity(self):
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QWidget
+        from enge_spx.window_effects import apply_acrylic
+        window = QWidget()
+        window.show()
+        self.app.processEvents()
+        try:
+            self.assertIn(apply_acrylic(window, QColor('#302034'), True),
+                          ('system-acrylic', 'accent-acrylic', 'unsupported', 'system-disabled'))
+            self.assertIn(apply_acrylic(window, QColor('#302034'), False), ('solid', 'unsupported'))
+            self.assertEqual(window.windowOpacity(), 1.0)
+        finally:
+            window.close()

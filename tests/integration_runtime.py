@@ -196,6 +196,11 @@ def run(context, output):
                 worker, key = engine._project(str(project), state)
             browser = engine.inspect("browser")
             validate_container(browser)
+            from enge_spx.workspace_timezone import probe as timezone_probe, ready as timezone_ready
+            timezone = store.settings()['timezone']
+            assert timezone_ready(timezone_probe(engine, browser['Id'], timezone))
+            assert timezone_ready(timezone_probe(engine, worker['Id'], timezone))
+            passed('actual project and read-only Chromium system timezone files match process TZ; runtime uid and mounts unchanged')
             sandbox = validate_status(json.loads(execute(engine, browser["Id"], "print(open('/tmp/spx-sandbox-status.json').read())")))
             passed("Chromium namespace/PID/network/seccomp sandbox and actual renderer kernel evidence verified")
             assert browser["Id"] != old_browser["Id"]

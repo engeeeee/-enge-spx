@@ -66,6 +66,7 @@ try {
     screenshot_claude = 'pending'; screenshot_codex = 'pending'; pdf = 'pending'
     mixed_order = 'pending'; native_keyboard = 'pending'; readonly = 'pending'; isolation = 'pending'
     restart = 'pending'; external_terminals = 'pending'; performance = 'not_measured'
+    draft_delete = 'pending'; acrylic_visual = 'pending'; terminal_preferences = 'pending'; timezone_files = 'pending'
 } | ConvertTo-Json), $utf8)
 if ($RunNativeApiTests) {
     Push-Location (Split-Path -Parent $PSScriptRoot)
@@ -80,4 +81,7 @@ Write-Host "测试项目：$root"
 Write-Host "合成数据标识：$nonce"
 Write-Host '在 ENGE SPX 选择该测试项目及智能粘贴终端。先输入一段文字，再截图/复制图片 Ctrl+V，确认原生图片标记；自行回车验证模型读取。'
 Write-Host '复制 PDF/日志/代码文件，核对路径和实际读取内容；另测只读、多项目、容器重启及 Windows Terminal/PowerShell。'
+Write-Host 'Codex输入多行中文：Ctrl+A/Delete清空；拖选中间文字/Delete只删选区；回答时也应可删草稿且不中断回答。右键只粘贴，不发送或弹菜单。'
+Write-Host '右上角⋯选择紫晶/Acrylic/字号和鼠标设置，关闭后重新打开；核对恢复、文字清晰、拖动/缩放，另测Windows关闭透明效果后的纯色回退。'
+Write-Host '在新CLI核对 echo $TZ、date、cat /etc/timezone、readlink -f /etc/localtime；均对应设置中的同一IANA时区。旧网络控制容器文件另行展示。'
 Write-Host 'manual-results.json 初始全为 pending；只有亲自完成并记录证据后才能改为 passed。'

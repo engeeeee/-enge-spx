@@ -1,5 +1,22 @@
 # Changes
 
+## 0.14.4 terminal rendering, persistent appearance and workspace timezone — 2026-11-14
+
+- Cache bounded terminal row layouts, batch output parsing and repaint dirty regions;
+  preserve Unicode, ANSI styles, protocol replies and final output at EOF.
+- Improve nearest-boundary caret hit-testing, forward native Codex input selection,
+  and support Ctrl+A/Delete without submitting, restarting or editing history.
+- Keep right-click paste-only; move every terminal option to the header menu.
+- Save font, copy/paste and optional Windows Acrylic/tint/background-opacity choices
+  in independent versioned preferences with atomic writes and merged updates.
+- Reconcile project process TZ and system files without replacing project layers;
+  prepare cached, public timezone-only browser images offline and preserve readonly,
+  uid 1000, sandbox and existing Profile/download volumes. Report control-container
+  files separately. No new dependencies, listeners, mounts or runtime privileges.
+- Exercise actual Codex 0.169/0.167 and Claude 2.1.319, Windows rendering/API checks,
+  disposable Docker timezone proof and existing security/packaging regressions.
+  Physical Windows Acrylic appearance and whole-machine FPS remain unverified.
+
 ## 0.14.3 Windows mouse transport, IME and conversation scrolling — 2026-11-14
 
 - Keep smart-terminal VT bytes out of the inbox Windows ConPTY renderer:

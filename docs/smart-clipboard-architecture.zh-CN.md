@@ -102,3 +102,14 @@ Windows 10 内置 ConPTY 会丢弃鼠标跟踪开关，Windows Server 新版的�
 智能终端改用不带本机控制台的 `docker exec -i`，在已审计的同一个项目容器、同一 UID 和访问范围下用 Python 标准库建立 Linux PTY。可信包脚本通过 `python3 -I -c` 运行，不从项目导入模块。宿主 stdin 为 D（输入）/R（网格）/C（关闭）长度帧，单帧不超过64KiB，stdout 原样保留 VT。远端使用有界非阻塞缓冲、PTY 窗口大小和同一终端前台作业的挂断；关闭只结束自己创建的 exec 客户端和 PTY，不关闭 Docker 或其它会话。无需重建镜像、新挂载、端口或权限。每个打开的终端增加一个容器内 Python 中继进程，退出时回收。
 
 `QTextLayout` 仅在 Qt 本地显示 IME 预编辑：按终端基线排列、覆盖提示文本、处理原生格式与 UTF-16 游标，候选位置随组合文字变化。确认前不会写入 PTY；取消只移除覆盖层，不改 CLI 缓冲。普通滚轮清理已复制的选择快照，交还原生对话滚动；Shift+滚轮继续查看终端缓存。剪贴板 CRLF/CR 仅在 bracketed paste 体内变成 LF，右键不会生成 Enter。
+
+
+## 0.14.4 绘制、编辑、偏好与时区
+
+当前交互以本节为准：Codex已协商鼠标后立即转发按下、拖动和释放；宿主另保留复制快照。字符半格及宽字符边界决定插入点。Ctrl+A仅在就绪Codex中选择草稿，Delete在确认存在草稿后请求CLI原生清空；历史选择不进入编辑删除。右键只粘贴，所有菜单移至右上角，取代旧版Shift右键菜单。
+
+`terminal_paint.py`使用有界QStaticText/行LRU缓存；`smart_terminal.py`分批解析输出、合并脏区域更新，保留输入顺序和最终EOF。`terminal_preferences.py`提供独立schema1、原子写入、跨进程字段合并及关闭提交；`window_effects.py`仅操作自有HWND、遵守系统透明/高对比度开关，失败回退纯色。首次启用透明窗口须下次打开生效。
+
+`workspace_timezone.py`在项目原可写层部署固定公开时区文件，浏览器通过无网络/无用户挂载的离线准备容器生成公共配置镜像并恢复原UID/入口/命令。浏览器运行保持只读和原沙箱；不提交用户层，不修改Etc/UTC数据库。旧控制容器文件独立诊断。
+
+文件、风险、实测数据、回滚和实体Windows待验范围见[终端外观与性能](terminal-appearance-performance.zh-CN.md)。参考[Qt QStaticText](https://doc.qt.io/qt-6/qstatictext.html)、[Qt透明属性约束](https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum)、[Microsoft系统背景](https://learn.microsoft.com/en-us/windows/apps/develop/ui/system-backdrops)及[Codex原生草稿清空](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/tui/src/bottom_pane/chat_composer.rs)。无新依赖，许可不变。

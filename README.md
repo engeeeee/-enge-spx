@@ -3,7 +3,7 @@
 <p align="center"><strong>Windows 上的 AI 编程隔离工作台</strong></p>
 <p align="center">为 Claude Code、Codex 和浏览器提供容器工作区，以及可指定、可核对的代理出口。</p>
 <p align="center">
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.3-windows">下载 Windows 版</a> ·
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.4-windows">下载 Windows 版</a> ·
   <a href="https://enge1337.cn/">官方网站</a> ·
   <a href="#界面预览">界面预览</a> ·
   <a href="docs/quickstart.zh-CN.md">快速入门</a> ·
@@ -12,8 +12,8 @@
 </p>
 <p align="center">
   <a href="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml"><img src="https://github.com/engeeeee/ENGE-SPX/actions/workflows/ci.yml/badge.svg" alt="Windows / Linux CI"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.3-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
-  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.3-windows"><img src="https://img.shields.io/badge/0.14.3-Stable-3F8F61" alt="0.14.3 正式版"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.4-windows"><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"></a>
+  <a href="https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.4-windows"><img src="https://img.shields.io/badge/0.14.4-Stable-3F8F61" alt="0.14.4 正式版"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-6D5BD0" alt="PolyForm Noncommercial"></a>
 </p>
 
@@ -77,15 +77,15 @@ flowchart LR
 
 新增 **[Smart Clipboard 智能粘贴](docs/smart-clipboard.zh-CN.md)**：在自有终端的 Claude Code / Codex 当前输入区 Ctrl+V 粘贴文字、截图和文件，无额外上传对话框、不自动发送。完整功能需要智能粘贴终端；显式 Windows Terminal / PowerShell / 自定义终端保留原有行为。图片按当前会话的原生附件标记确认，兼容记录与限制见[验证记录](docs/validation-smart-clipboard.zh-CN.md)。
 
-当前版本为 **[0.14.3 正式版](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.3-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
+当前版本为 **[0.14.4 正式版](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.4-windows)**。支持 Windows x64，需要 Docker Desktop 的 **Linux containers / WSL 2** 后端，Docker Engine **28+**。安装版和便携版均不需要另装 Python。
 
-本版修复 Windows 10 原生鼠标协商丢失、中文输入法与提示文字重叠，以及复制文字后无法回看长对话的问题。右键只粘贴到草稿，末尾换行也不会变成发送按键；仍由你按 Enter 发送。网络检查新增进程 TZ 与 `/etc/localtime` 的独立证据；本版尚未统一容器系统时区文件。已有账号、代理、身份、预算与镜像继续使用。见 [发布说明](docs/releases/0.14.3.zh-CN.md)、[智能粘贴使用](docs/smart-clipboard.zh-CN.md)与 [验证范围](docs/validation-smart-clipboard.zh-CN.md)。
+本版优化智能终端绘制、字符点击定位及 Codex 草稿选择删除，增加可保存的 Acrylic 毛玻璃、配色、字体和鼠标偏好；命令行右键只粘贴，选项集中在右上角 ⋯。重新打开工具会统一项目容器与浏览器的进程 TZ、`/etc/timezone` 和 `/etc/localtime`，保留原项目与账号。外观开启方法、Windows 对比数据和时区范围见[终端外观与性能](docs/terminal-appearance-performance.zh-CN.md)。见 [发布说明](docs/releases/0.14.4.zh-CN.md)、[智能粘贴使用](docs/smart-clipboard.zh-CN.md)与 [验证范围](docs/validation-smart-clipboard.zh-CN.md)。
 
 | 下载方式 | 适合谁 |
 | --- | --- |
-| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.3-windows/ENGE-SPX-Windows-x64-0.14.3-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
-| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.3-windows/ENGE-SPX-Windows-x64-0.14.3-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
-| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.3-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
+| **[Windows 安装版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.4-windows/ENGE-SPX-Windows-x64-0.14.4-Setup.exe)** | 常规使用；当前用户安装，提供开始菜单和桌面快捷方式 |
+| **[Windows 便携版](https://github.com/engeeeee/ENGE-SPX/releases/download/v0.14.4-windows/ENGE-SPX-Windows-x64-0.14.4-Portable.zip)** | 自行管理程序目录；完整解压后运行 `ENGE-SPX.exe`，保留 `_internal` |
+| **[发布记录与 SHA-256](https://github.com/engeeeee/ENGE-SPX/releases/tag/v0.14.4-windows)** | 查看改动、校验文件与同版本资产；两个 Windows 包均包含 `spx.exe` 命令行入口 |
 
 1. **安装一次 Docker Desktop**：按 [官方安装说明](https://docs.docker.com/desktop/setup/install/windows-install/)完成许可、WSL 和 Linux 引擎初始化。
 2. **点击“一键准备环境”**：软件自动启动已安装的 Docker，等待引擎就绪，再复用已有运行环境，或下载、校验并导入。
