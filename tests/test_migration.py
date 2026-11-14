@@ -134,7 +134,7 @@ class MigrationTests(unittest.TestCase):
                 engine.ensure_forward = Mock()
                 engine.wait_line_listener = Mock()
                 engine.policy = Mock(return_value="policy")
-                engine.probe_chain = Mock(return_value={"ip": "203.0.113.1", "direct_blocked": True})
+                engine.probe_chain = Mock(return_value={"ip": "203.0.113.1", "direct_blocked": True, "timezone": "America/Los_Angeles"})
                 engine.set_lease = Mock()
                 engine.start_guard = Mock()
                 engine.check()

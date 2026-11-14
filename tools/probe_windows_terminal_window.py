@@ -105,6 +105,12 @@ with tempfile.TemporaryDirectory(prefix='spx-owned-window-') as folder, context:
         send(hwnd, 0x232)
         pump()
         assert not window.interaction_active and int(window.winId()) == original_hwnd
+        # A caption click may send SC_MOVE without entering a modal move loop.
+        # Use only this owned Qt widget; no global mouse/keyboard injection.
+        QTest.mouseClick(window.titlebar, Qt.MouseButton.LeftButton, pos=QPoint(window.titlebar.width() // 2, 20))
+        pump(.35)
+        assert not window.interaction_active, 'Caption click left material suspended'
+        assert window.backdrop_backend == backend, 'Caption click did not restore material'
         assert window.preferences.value['appearance'] == 'acrylic'
         assert window.backdrop_backend == backend
         assert window.windowOpacity() == 1.0

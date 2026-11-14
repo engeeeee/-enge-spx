@@ -324,7 +324,7 @@ class Engine:
             self.store.write("nodes.json", [])
             self.store.write("settings.json", settings)
 
-    def save_settings(self, selected: str, timezone: str, context: str, relay=None):
+    def save_settings(self, selected: str, timezone: str, context: str, relay=None, timezone_mode=None):
         try:
             ZoneInfo(timezone)
         except (ZoneInfoNotFoundError, ValueError) as error:
@@ -347,14 +347,13 @@ class Engine:
                 self.backend.gateway_config(outbounds, "127.0.0.1", relay["enabled"])
             if old.get("context") != context and self.store.read("images.json"):
                 raise SPXError("已安装的环境不能切换 Docker 上下文。请使用新的专用数据目录。")
-            established = self.store.read("environment.json")
-            if established and established["timezone"] != timezone:
-                raise SPXError("已有持久化环境的时区固定。改变时区请使用新的专用数据目录。")
+            from .exit_timezone import mode as validate_timezone_mode
+            timezone_mode = validate_timezone_mode({"timezone_mode": timezone_mode or old.get("timezone_mode", "exit")})
             old_route = route_config(old["relay"])
             new_route = route_config(relay)
-            if (old["selected"], old["timezone"], old["context"], old_route) != (selected, timezone, context, new_route):
+            if (old["selected"], old["timezone"], old["context"], old_route, old.get("timezone_mode", "exit")) != (selected, timezone, context, new_route, timezone_mode):
                 self._stop("设置已更新，请重新检查连接。")
-            self.store.write("settings.json", {**old, "selected": selected, "timezone": timezone, "context": context, "relay": relay})
+            self.store.write("settings.json", {**old, "selected": selected, "timezone": timezone, "manual_timezone": timezone if timezone_mode == 'manual' else old.get('manual_timezone', timezone), "timezone_mode": timezone_mode, "context": context, "relay": relay})
 
     def node(self):
         return self.node_by_id(self.store.settings()["selected"])
@@ -379,6 +378,7 @@ class Engine:
         line = self.node_by_id(relay["line_id"]) if relay.get("mode") == "managed" else None
         result = {"node": self.node(), "line": line, "timezone": settings["timezone"], "context": settings["context"], "relay": relay, "recipe": self.recipe, "line_guard": 2, "network_policy": 1, "proxy_backend": self.backend.name}
         from .workspace_profiles import load, policy, SHARED
+        result['timezone_mode'] = settings.get('timezone_mode', 'exit')
         workspace = load(self.store)
         if workspace["selected"] != SHARED or workspace["projects"]:
             result["workspace"] = policy(workspace)
@@ -556,6 +556,9 @@ class Engine:
                 self.wait_line_listener(state)
                 self.log("通过所选节点核对两个出口来源，并检查容器直连是否被阻断…")
                 evidence = self.probe_chain(state)
+                from .exit_timezone import apply_verified_exit
+                zone = apply_verified_exit(self, evidence)
+                state['timezone'] = zone
                 state.update({"phase": "review", "policy": self.policy(), "checked": time.time(), "evidence": evidence})
                 self.store.write("runtime.json", state)
                 return evidence
@@ -627,6 +630,9 @@ class Engine:
                 evidence = self.probe_chain(state)
                 if evidence["ip"] != state["evidence"]["ip"]:
                     raise SPXError("复核时出口 IP 已改变，请重新检查和核对。")
+                from .exit_timezone import mode as timezone_mode, validate_zone
+                if timezone_mode(self.store.settings()) == 'exit' and validate_zone(evidence.get('timezone')) != self.store.settings()['timezone']:
+                    raise SPXError('复核时落地时区发生变化，请重新检查并核对；未启用工作区。')
                 state.update({"phase": "ready", "evidence": evidence, "heartbeat": time.time(), "confirmed": time.time(), "browser_token": secrets.token_hex(32)})
                 self.set_lease(time.time() + 180, state)
                 self.store.write("runtime.json", state)

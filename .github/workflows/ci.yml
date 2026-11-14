@@ -17,6 +17,7 @@ concurrency:
 
 env:
   PYTHONPATH: src
+  SPX_CLIENT_RELEASE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[client-update]') && 'true' || 'false' }}
 
 jobs:
   supersede:
@@ -80,7 +81,7 @@ jobs:
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ENGE-SPX-UI-0.14.6
+          name: ENGE-SPX-UI-0.15.0
           path: ${{ runner.temp }}/spx-ui-checks
           if-no-files-found: error
       - if: runner.os == 'Windows'
@@ -105,6 +106,21 @@ jobs:
           choco install innosetup --no-progress -y
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
           ./packaging/windows/Build-Windows.ps1 -Python (Join-Path $env:pythonLocation 'python.exe')
+      - name: Verify real portable and installed client update handoff
+        shell: pwsh
+        run: python tests/integration_app_update.py --bundle dist/ENGE-SPX-Windows-x64-0.15.0-Portable.zip --setup dist/ENGE-SPX-Windows-x64-0.15.0-Setup.exe --output '${{ runner.temp }}/app-update-e2e.json'
+      - name: Verify caption click restores terminal material
+        shell: pwsh
+        run: python tools/probe_windows_terminal_window.py --output '${{ runner.temp }}/terminal-caption.json'
+      - name: Retain client update acceptance
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ENGE-SPX-Client-Update-Acceptance
+          path: |
+            ${{ runner.temp }}/app-update-e2e.json
+            ${{ runner.temp }}/terminal-caption*
+          if-no-files-found: warn
       - name: Verify packaged CLI
         shell: pwsh
         run: |
@@ -156,7 +172,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = Join-Path $env:RUNNER_TEMP 'spx-installed'
-          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.14.6-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
+          $setup = Start-Process -FilePath ./dist/ENGE-SPX-Windows-x64-0.15.0-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$appDir" -PassThru -Wait
           if ($setup.ExitCode -ne 0 -or -not (Test-Path "$appDir/ENGE-SPX.exe")) { throw 'Setup failed.' }
           & "$appDir/spx.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed.' }
@@ -170,10 +186,10 @@ jobs:
           if ((Get-Content (Join-Path $privateData 'uninstall-test.txt')) -ne 'preserved') { throw 'Uninstall removed private data.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: ENGE-SPX-Windows-x64-0.14.6
+          name: ENGE-SPX-Windows-x64-0.15.0
           path: |
-            dist/ENGE-SPX-Windows-x64-0.14.6-Portable.zip
-            dist/ENGE-SPX-Windows-x64-0.14.6-Setup.exe
+            dist/ENGE-SPX-Windows-x64-0.15.0-Portable.zip
+            dist/ENGE-SPX-Windows-x64-0.15.0-Setup.exe
             dist/*.sha256
           if-no-files-found: error
   containers:
@@ -184,6 +200,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Validate bounded client release scope
+        if: env.SPX_CLIENT_RELEASE == 'true'
+        run: python3 tools/check_client_release_scope.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -194,30 +213,41 @@ jobs:
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends libegl1 libgl1 libxkbcommon0
       - name: Verify real cgroup budgets, stopped updates and container data reuse
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: python -u tests/integration_resources.py --context default --output "$RUNNER_TEMP/resource-results.json"
       - name: Verify real recording observes owned startup and complete stop without changing other instances
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: python -u tests/integration_recording.py --context default --output "$RUNNER_TEMP/field-recording.json"
       - name: Verify profile data, recursive read-only grants and cross-instance boundaries
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: python -u tests/integration_workspace_data.py --context default --output "$RUNNER_TEMP/workspace-data.json"
       - name: Verify stopped network migration, rollback and DNS/UDP/IPv6 boundaries
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: python -u tests/integration_network_policy.py --context default --output "$RUNNER_TEMP/p1-network-policy.json"
       - name: Build isolated protocol fixtures
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: docker build -f tools/Dockerfile.proxy-test -t spx-proxy-test .
       - name: Verify real TLS, Reality, gRPC, QUIC and fixed-chain failures
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 512m spx-proxy-test
       - name: Verify actual bounded HTTPS transfer, TLS rejection, redirect and drip timeout
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 512m --entrypoint python3 spx-proxy-test -u /opt/spx-test/integration_network_transfer.py --core /usr/local/bin/sing-box --output /tmp/network-transfer.json
       - name: Native x64 Docker integration
         env:
           PYTHONPATH: src
         run: python -u tests/integration_runtime.py --context default --output "$RUNNER_TEMP/integration-results.json"
+      - name: Verify two automatic exit zones without losing project data
+        run: python -u tests/integration_exit_timezone.py --runtime-report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/exit-timezone.json"
       - name: Verify local line and landing chain
         env:
           PYTHONPATH: src
         run: python -u tests/integration_chain.py --context default
       - name: Verify real Chromium identity, accounts, diagnostics and fail-closed shutdown
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: python -u tests/integration_profiles.py --context default --runtime-report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/workspace-profiles-results.json"
       - name: Measure same-runner baseline, normal and low-resource stages
+        if: env.SPX_CLIENT_RELEASE != 'true'
         run: python -u tools/benchmark_resources.py --baseline e27f6579d0033915e6bd98808cee10a77496e5d1 --context default --runtime-report "$RUNNER_TEMP/integration-results.json" --output "$RUNNER_TEMP/resources-docker.json"
       - name: Retain resource and stage measurements
         if: always()
@@ -233,6 +263,7 @@ jobs:
             ${{ runner.temp }}/field-recording.json
             ${{ runner.temp }}/integration-results.json
             ${{ runner.temp }}/clipboard-native-api.json
+            ${{ runner.temp }}/exit-timezone.json
             ${{ runner.temp }}/clipboard-terminal.png
           if-no-files-found: warn
       - name: Export the verified native environment
@@ -266,7 +297,7 @@ jobs:
         if: github.repository == 'engeeeee/ENGE-SPX' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: ENGE-SPX-Runtime-0.14.6
+          name: ENGE-SPX-Runtime-0.15.0
           path: ${{ runner.temp }}/runtime-package/*
           compression-level: 0
           retention-days: 1
@@ -281,11 +312,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: ENGE-SPX-Windows-x64-0.14.6
+          name: ENGE-SPX-Windows-x64-0.15.0
           path: verified-package
       - uses: actions/download-artifact@v4
         with:
-          name: ENGE-SPX-Runtime-0.14.6
+          name: ENGE-SPX-Runtime-0.15.0
           path: verified-runtime
       - name: Publish the verified ENGE SPX release
         uses: actions/github-script@v7

@@ -29,6 +29,24 @@ def dpi_awareness():
     return 'unavailable'
 
 
+def moving_or_sizing():
+    """Read this GUI thread's native modal state, without hooks or input polling."""
+    if os.name != 'nt':
+        return False
+    class GuiThreadInfo(ctypes.Structure):
+        _fields_ = [('size', wintypes.DWORD), ('flags', wintypes.DWORD),
+                    *[(name, wintypes.HWND) for name in ('active', 'focus', 'capture', 'menu', 'move', 'caret')],
+                    ('caret_rect', wintypes.RECT)]
+    try:
+        user = ctypes.WinDLL('user32', use_last_error=True)
+        user.GetGUIThreadInfo.argtypes, user.GetGUIThreadInfo.restype = [wintypes.DWORD, ctypes.POINTER(GuiThreadInfo)], wintypes.BOOL
+        info = GuiThreadInfo()
+        info.size = ctypes.sizeof(info)
+        return bool(info.flags & 2) if user.GetGUIThreadInfo(0, ctypes.byref(info)) else None
+    except (AttributeError, OSError):
+        return None
+
+
 def apply_acrylic(window, color, enabled=True):
     """Return the actual accepted backend, or an explicit opaque fallback."""
     if os.name != "nt":

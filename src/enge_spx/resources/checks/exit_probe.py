@@ -42,7 +42,7 @@ def probe(proxy, detailed=False):
     if detailed:
         evidence.update(country="未知", city="未知", timezone="未知")
         try:
-            geo = json.loads(fetch("https://ipwho.is/"))
+            geo = json.loads(fetch("https://ipwho.is/" + first))
             if geo.get("success") and geo.get("ip") == first:
                 evidence.update(country=geo.get("country", "未知"), city=geo.get("city", "未知"), timezone=geo.get("timezone", {}).get("id", "未知"))
         except Exception:

@@ -75,6 +75,15 @@ class Controller(QObject):
         self.exit_close_desktop = False
         self.exit_skip_desktop = False
         self.exit_diagnostics = None
+        self.pending_update = None
+        self.update_release = None
+        from ..app_updates import preferences as update_preferences
+        try:
+            self.update_preferences = update_preferences(store)
+            update_message = '自动检查正式版；安装前由你确认，保留原配置和数据。'
+        except SPXError as error:
+            self.update_preferences = {'schema': 1, 'auto_check': False}
+            update_message = str(error)
         self.desktop_exit_supported = os.name == "nt"
         try:
             self.saved_close_desktop = load_exit_preference(store)
@@ -123,6 +132,9 @@ class Controller(QObject):
         defaults = {
             "selected": settings["selected"], "line_selected": relay.get("line_id", ""),
             "timezone": settings["timezone"], "context": settings["context"],
+            "timezone_mode": settings.get("timezone_mode", "exit"),
+            "auto_check_updates": self.update_preferences['auto_check'],
+            "update_status": update_message, "update_progress": 0, "update_available": False,
             "project": (settings["projects"] or [""])[-1], "relay_enabled": relay.get("enabled", False),
             "relay_url": proxy_url(relay) or "", "relay_downloads": relay.get("downloads", True),
             "line_mode": relay.get("mode", "local" if relay.get("enabled") else "managed"),
@@ -159,9 +171,10 @@ class Controller(QObject):
         for name, value in self.values.items():
             setattr(self, name, value)
         self.steps = ["等待检测", "等待核验", "等待配置", "由你确认"]
-        for name in ("selected", "line_selected", "timezone", "context", "relay_enabled", "relay_url", "relay_downloads", "line_mode", "line_server_ip", "line_expected_ip"):
+        for name in ("selected", "line_selected", "timezone", "timezone_mode", "context", "relay_enabled", "relay_url", "relay_downloads", "line_mode", "line_server_ip", "line_expected_ip"):
             self.values[name].changed.connect(lambda unused: self.schedule_refresh())
         self.resource_mode.changed.connect(self.resource_preset_changed)
+        self.timezone_mode.changed.connect(lambda value: self.timezone.set(self.store.settings().get('manual_timezone', 'America/Los_Angeles')) if value == 'manual' else None)
         self.close_docker_desktop.changed.connect(lambda value: self.exit_preferences_status.set("更改尚未保存；点击“保存退出偏好”后生效。" if value != self.saved_close_desktop else "退出偏好已保存。"))
         for name, value in self.values.items():
             if name.startswith("budget_") or name == "auto_browser":
@@ -187,6 +200,13 @@ class Controller(QObject):
         self.workspace_access.changed.connect(lambda unused: self.workspace_selection_changed())
         self.load_workspace_project()
         self.refresh_nodes()
+        try:
+            update_result = store.read('update-result.json', {})
+        except (SPXError, OSError):
+            update_result = {}
+            self.update_status.set('上次更新记录暂不可读；可手动重新检查更新。')
+        if isinstance(update_result, dict) and update_result.get('schema') == 1 and type(update_result.get('success')) is bool:
+            self.update_status.set('上次更新已完成，当前版本 ' + __version__ + '。' if update_result['success'] else '上次更新未完成，备份与用户数据保留；请检查目录权限，关闭其它终端后重试。')
 
     def load_workspace_project(self):
         if not self.workspace_config:
@@ -612,14 +632,73 @@ class Controller(QObject):
     def captured_relay(self):
         return relay_config(self.relay_enabled.get(), self.relay_url.get(), self.relay_downloads.get(), self.line_mode.get(), self.line_selected.get(), self.line_server_ip.get(), self.line_expected_ip.get())
 
+    def save_update_preferences(self):
+        value = {'schema': 1, 'auto_check': self.auto_check_updates.get()}
+        def save(engine):
+            engine.store.write('update-preferences.json', value)
+            return value
+        self.run(save, lambda saved: (setattr(self, 'update_preferences', saved), self.update_status.set('更新偏好已保存。')))
+
+    def check_updates(self, automatic=False):
+        if automatic and (not self.update_preferences['auto_check'] or os.name != 'nt' or not getattr(__import__('sys'), 'frozen', False)):
+            return
+        if self.busy or self.exit_mode is not None:
+            if automatic and self.exit_mode is None:
+                QTimer.singleShot(15000, lambda: self.check_updates(True))
+            return
+        self.update_status.set('正在检查官方正式版本…')
+        def action(engine):
+            from ..app_updates import check
+            try:
+                return {'release': check(engine.store, force=not automatic)}
+            except SPXError as error:
+                return {'error': self.clean_message(error)}
+        def done(result):
+            if 'error' in result:
+                self.update_status.set(result['error'])
+                return
+            self.update_release = result['release']
+            self.update_available.set(self.update_release is not None)
+            self.update_status.set('发现正式版 ' + self.update_release['version'] + '，可下载并重启更新。' if self.update_release else '当前已是最新正式版 ' + __version__ + '。')
+            if self.update_release:
+                self.operation.set('发现新版本 ' + self.update_release['version'] + '，可在偏好设置中更新。')
+            if self.update_release and not automatic:
+                self.page_requested.emit('settings')
+        self.run(action, done, True, '检查软件更新…')
+
+    def install_update(self):
+        if self.busy or self.exit_mode is not None or not self.update_release:
+            return
+        from ..app_updates import application_directory
+        try:
+            application_directory()
+        except SPXError as error:
+            self.update_status.set(str(error))
+            return
+        if not self.ask('更新 ENGE SPX', '下载并校验正式版 ' + self.update_release['version'] + '。完成后会停止当前工作区并重新打开软件，Docker Desktop 保持运行。\n\n请先保存 CLI 中的工作并关闭其它 ENGE SPX 终端窗口。配置、账号和项目数据保留。现在更新？'):
+            return
+        release = self.update_release
+        def action(engine):
+            from ..app_updates import prepare
+            return prepare(engine.store, release, lambda value: self.events.put(('app_update_progress', value)), self.cancel)
+        def done(plan):
+            if self.cancel.is_set():
+                self.update_status.set('更新已取消，已下载内容保留；未开始安装或重启。')
+                return
+            self.pending_update = plan
+            self.update_progress.set(100)
+            self.update_status.set('更新已准备，正在停止工作区；随后安装并重新打开。')
+            self.request_exit('stop', skip_desktop=True)
+        self.run(action, done, True, '下载并准备软件更新…')
+
     def captured_settings(self):
-        return self.selected.get(), self.timezone.get().strip(), self.context.get().strip(), self.captured_relay()
+        return self.selected.get(), self.timezone.get().strip(), self.context.get().strip(), self.captured_relay(), self.timezone_mode.get()
 
     def settings_match(self):
         saved = self.store.settings()
         try:
-            selected, timezone, context, relay = self.captured_settings()
-            return (selected, timezone, context, route_config(relay)) == (saved["selected"], saved["timezone"], saved["context"], route_config(saved["relay"]))
+            selected, timezone, context, relay, zone_mode = self.captured_settings()
+            return (selected, timezone, context, route_config(relay), zone_mode) == (saved["selected"], saved["timezone"], saved["context"], route_config(saved["relay"]), saved.get("timezone_mode", "exit"))
         except SPXError:
             return False
 
@@ -674,6 +753,20 @@ class Controller(QObject):
                 self.storage_status.set(value["message"])
                 if value.get("total"):
                     self.storage_progress.set(min(95, value["bytes"] / value["total"] * 95))
+            elif kind == 'app_update_progress':
+                self.update_status.set(value['message'])
+                self.update_progress.set(value['progress'])
+            elif kind == 'update_helper_ready':
+                self.busy = False
+                self.exit_stage = 'closing'
+                self.close_requested.emit()
+            elif kind == 'update_helper_error':
+                self.pending_update = None
+                self.busy = self.close_pending = False
+                self.exit_mode = None
+                self.exit_stage = 'failed'
+                self.update_status.set(value)
+                self.notify('更新未开始', value, True)
             elif kind == "resources":
                 self.resource_inflight = False
                 epoch, evidence = value
@@ -728,6 +821,7 @@ class Controller(QObject):
                 else:
                     self.notify("退出偏好未保存", self.exit_preferences_status.get(), True)
             elif kind == "exit_error":
+                self.pending_update = None
                 value = self.receive_exit_failure(value)
                 self.busy = self.cancelable = self.close_pending = False
                 self.exit_mode = None
@@ -835,6 +929,7 @@ class Controller(QObject):
         self.startup_active, self.startup_error = True, None
         log.info("docker-check-start auto-start=%s", auto_start)
         def done(result):
+            self.timezone.set(self.store.settings()['timezone'])
             self.prepared(result)
             log.info("docker-check-ready runtime=%s", self.runtime_ok)
         self.run(lambda engine: prepare_workspace(engine, progress=self.preparation_progress, cancel=self.cancel, auto_start=auto_start, install=False, check=False), done, True)
@@ -1245,6 +1340,22 @@ class Controller(QObject):
                 self.refresh()
             return
         if self.exit_stage != "closing":
+            if self.pending_update is not None:
+                if self.exit_stage == 'update_starting':
+                    return
+                self.exit_stage = 'update_starting'
+                self.busy, self.cancelable = True, False
+                self.operation.set('工作区已停止，正在准备更新助手…')
+                def worker():
+                    from ..app_updates import launch_helper
+                    try:
+                        launch_helper(self.pending_update)
+                        self.events.put(('update_helper_ready', None))
+                    except Exception as error:
+                        self.events.put(('update_helper_error', self.clean_message(error)))
+                self.delivery.start()
+                threading.Thread(target=worker, name='spx-update-helper', daemon=True).start()
+                return
             self.exit_stage = "closing"
             log.info("gui-exit-complete mode=%s desktop-stopped=%s desktop-wait-skipped=%s", self.exit_mode, self.exit_desktop_done, self.exit_skip_desktop)
             self.close_requested.emit()

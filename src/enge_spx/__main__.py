@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--smoke-gui", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--terminal-preview", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--apply-update", type=Path, help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="action")
     for action in ("gui", "doctor", "diagnostics", "check", "confirm", "browser", "stop", "status", "guard", "relay", "forward", "shell"):
         sub.add_parser(action)
@@ -89,6 +90,9 @@ def main():
         parser.error("unrecognized arguments: " + " ".join(forwarded))
     resource_query = args.action == "resources" and not (args.apply or args.restore or args.show_settings)
     try:
+        if args.apply_update:
+            from .update_apply import run as apply_update
+            return apply_update(args.apply_update)
         if args.terminal_preview:
             from .smart_terminal import preview
             return preview()

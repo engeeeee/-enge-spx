@@ -1,5 +1,30 @@
 # Changes
 
+## 0.15.0 automatic exit timezone and in-app client updates — 2026-11-14
+
+- Follow the final exit's IANA timezone after dual-source IP verification;
+  look up that exact IP through the controlled proxy. Reconfirm the zone
+  before enabling the workspace. Keep explicit manual mode and the old manual
+  value; unknown geography requires a retry or explicit manual selection.
+- Allow stopped existing workspaces to change timezone without losing project
+  layers, identity or account data. CLI launch environment and system files
+  use the selected zone; readonly browser images retain the existing sandbox.
+  Report an old Docker default TZ separately from the app CLI environment.
+- Add opt-out daily stable-release checks and user-confirmed download/restart
+  updates. Validate official repository/tag/asset URLs, GitHub digests, checksum
+  files and bounded archive paths; preserve the configured download proxy.
+- Use a staged ordinary-user helper after verified workspace shutdown. Update
+  installed clients with Inno Setup; swap portable program files with rollback,
+  preserving extra files and data. Keep one prior program backup where possible.
+  No unattended interruption of active CLI work or Docker Desktop shutdown.
+- Restore Acrylic after a caption click/cancel without a paired move-end
+  message; watch only the current GUI thread while moving. Tool badge and
+  control hover colours follow the selected tint. No idle polling or global hooks.
+- Validate client scope before using this release's shorter CI path; retain
+  Windows packaging, actual installed/portable helper acceptance, real Docker
+  workspace/guard/chain checks, two-zone migration and archive import checks.
+  Unchanged full protocol/resource benchmarks retain their 0.14.6 evidence.
+
 ## 0.14.6 terminal pixel alignment and resize performance — 2026-11-14
 
 - Align row spacing, raster padding and image origins to physical pixels;

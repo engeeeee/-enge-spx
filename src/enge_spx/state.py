@@ -222,7 +222,8 @@ class Store:
     def settings(self) -> dict:
         # Older versions enabled Desktop startup when opening the GUI. Keep the
         # legacy field false even for those settings; startup now requires a click.
-        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "selected": "", "projects": [], "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **self.read("settings.json", {}), "auto_start_docker": False}
+        saved = self.read("settings.json", {})
+        return {"context": "desktop-linux", "timezone": "America/Los_Angeles", "timezone_mode": "exit", "manual_timezone": saved.get("timezone", "America/Los_Angeles"), "selected": "", "projects": [], "terminal": {"kind": "auto"}, "relay": {"enabled": False, "downloads": True}, **saved, "auto_start_docker": False}
 
     @contextmanager
     def lock(self, name="operation", timeout=0, on_wait=None):

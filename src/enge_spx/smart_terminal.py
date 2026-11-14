@@ -1283,6 +1283,9 @@ class TerminalWindow(QMainWindow):
         from .terminal_preferences import Preferences
         self.preferences = Preferences(preferences_store, self)
         self.interaction_active = False
+        self.interaction_guard = QTimer(self)
+        self.interaction_guard.setInterval(120)
+        self.interaction_guard.timeout.connect(self.recover_interaction)
         self.effect_key = self.chrome_key = None
         self._frame_configured = False
         self.translucent_surface = os.name == "nt" and self.preferences.value["appearance"] == "acrylic"
@@ -1424,6 +1427,11 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         chrome_key = base, header, glass
         if chrome_key != self.chrome_key:
             sheet = self.base_stylesheet.replace("#1c1a18", base).replace("#24221f", header)
+            badge_fg, badge_bg, badge_border = {'clay': ('#e5b194', '#3a2e26', '#5e4333'),
+                                               'purple': ('#dbc2e5', '#44304d', '#775985'),
+                                               'graphite': ('#bed2e2', '#2f3e4b', '#587186')}[values['tint']]
+            sheet = sheet.replace('#e5b194', badge_fg).replace('#3a2e26', badge_bg).replace('#5e4333', badge_border)
+            sheet = sheet.replace('#39342e', color.lighter(145).name()).replace('#39312a', color.lighter(145).name())
             if glass:
                 sheet = sheet.replace('#4a4239', 'rgba(232, 227, 220, 45)').replace('#39352f', 'rgba(232, 227, 220, 24)')
             self.setStyleSheet(sheet)
@@ -1437,9 +1445,16 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         if os.name != 'nt' or self.interaction_active == active:
             return
         self.interaction_active = active
+        self.interaction_guard.start() if active else self.interaction_guard.stop()
         # Accent Acrylic on Windows 10 stalls in the system move/resize loop.
         # Suspend composition before entering that loop, then restore once.
         self.apply_preferences(self.preferences.value)
+
+    def recover_interaction(self):
+        if self.interaction_active:
+            from .window_effects import moving_or_sizing
+            if moving_or_sizing() is False:
+                self.set_interaction_active(False)
 
     def frame_hit_test(self, point):
         if not self.rect().contains(point):
@@ -1476,10 +1491,12 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
                     hit = self.frame_hit_test(point) if point is not None else None
                     if hit is not None:
                         return True, hit
-                if event.message == 0x231 or event.message == 0x112 and event.wParam & 0xfff0 in (0xf000, 0xf010):
+                if event.message == 0x231:
                     self.set_interaction_active(True)
                 elif event.message == 0x232:
                     QTimer.singleShot(0, lambda: self.set_interaction_active(False))
+                elif event.message in (0x1f, 0x215, 0xa2, 0x202):
+                    QTimer.singleShot(0, self.recover_interaction)
             except (AttributeError, OSError, ValueError):
                 pass
         return super().nativeEvent(kind, message)
@@ -1547,6 +1564,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         self.message.setText("终端连接已结束。工作区和持久资料按现有规则保留；可关闭此窗口。")
 
     def closeEvent(self, event):
+        self.interaction_guard.stop()
         self.preferences.flush()
         self.view.stop()
         event.accept()

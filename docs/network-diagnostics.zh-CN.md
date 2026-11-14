@@ -36,7 +36,7 @@ spx network-check --output D:\Reports\spx-network.json
 
 报告比较浏览器与容器的实际时区偏移、主要语言，并展示出口近似时区的偏移差异。不同 IANA 名称可能具有相同当前偏移；同一国家也可能有多个时区。差异不等于泄漏，不会触发自动语言/时区伪装。
 
-本批语言只读。镜像使用 en_US.UTF-8，终端仍能输入和输出中文；未增加中文字体。时区继续使用明确设置的 IANA 值，已经建立的持久环境保持固定；更换时区需采用独立数据目录及重新确认流程。不会修改 Windows 系统时区、语言、浏览器 UA、WebGL 或字体指纹。
+语言只读。镜像使用 en_US.UTF-8，终端仍能输入和输出中文；未增加中文字体。0.15.0 默认在连接检查时跟随最终落地 IP 的 IANA 时区，保留手动固定模式；已有环境可停止后切换，CLI 与浏览器系统文件按选择同步。诊断本身仍只读，不修改 Windows 系统时区、语言、浏览器 UA、WebGL 或字体指纹。项目报告以应用启动 CLI 时提供的 TZ 检查系统文件，并另列原 Docker 创建配置的默认 TZ。见[自动时区与更新](updates-and-timezone.zh-CN.md)。
 
 0.14.3 补充系统时区文件证据：`name` / `offset_seconds` 来自进程 `TZ`，`localtime_name` / `localtime_offset_seconds` 来自 `/etc/localtime` 的真实 TZif；`localtime_matches_process_offset` 比较当前偏移，`localtime_matches_tzif` 比较所选 IANA 文件与系统文件内容。文件缺失、畸形或未知时为 `null` / `unavailable`。报告不导出文件内容或任意链接路径。当前设置只传入 TZ，镜像的系统 localtime 仍可能是 UTC，因此 `date` 显示 PST 而系统文件指向 UTC 的现象属实；本版诊断不修复该文件，也不把“浏览器偏移与进程相同”当作系统文件一致的证明。统一系统文件需要单独的只读镜像/现有容器迁移，不能靠 root exec 或放宽只读根目录处理。
 

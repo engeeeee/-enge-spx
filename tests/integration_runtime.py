@@ -137,7 +137,7 @@ def run(context, output):
     with tempfile.TemporaryDirectory(prefix="spx-integration-") as temporary:
         base = Path(temporary)
         store = Store(base / "private")
-        store.write("settings.json", {**store.settings(), "context": context})
+        store.write("settings.json", {**store.settings(), "context": context, "timezone_mode": "manual"})
         engine = Engine(store, lambda message: print(message, flush=True))
         node_name = engine.prefix + "-test-node"
         try:

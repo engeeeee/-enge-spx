@@ -25,7 +25,7 @@ def run(context):
     with tempfile.TemporaryDirectory(prefix="spx-chain-") as directory:
         root = Path(directory)
         store = Store(root / "private")
-        store.write("settings.json", {**store.settings(), "context": context})
+        store.write("settings.json", {**store.settings(), "context": context, "timezone_mode": "manual"})
         engine = Engine(store, lambda text: None)
         engine.start_guard = lambda: None  # Check line loss deterministically below.
         engine.install()

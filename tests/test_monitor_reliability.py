@@ -63,7 +63,7 @@ class MonitorReliabilityTests(unittest.TestCase):
         self.store.write("runtime.json", old)
         engine = Engine(self.store, Mock())
         engine.audit_topology = Mock()
-        engine.probe_chain = Mock(return_value={"ip": "8.8.8.8"})
+        engine.probe_chain = Mock(return_value={"ip": "8.8.8.8", "timezone": "America/Los_Angeles"})
         engine._stop = Mock()
         original = self.store.write
         failed = []
@@ -140,7 +140,7 @@ class MonitorReliabilityTests(unittest.TestCase):
         engine.ensure_forward = Mock()
         engine.wait_line_listener = Mock()
         engine.audit_topology = Mock()
-        engine.probe_chain = Mock(return_value={"ip": "8.8.8.8"})
+        engine.probe_chain = Mock(return_value={"ip": "8.8.8.8", "timezone": "America/Los_Angeles"})
         engine.start_guard = Mock()
         engine.check()
         engine.confirm()

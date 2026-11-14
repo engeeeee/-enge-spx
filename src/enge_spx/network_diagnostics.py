@@ -192,8 +192,8 @@ def browser_evidence(raw):
     return {"status": "observed", "language": _language(observation.get("language")), "languages": [_language(value) for value in observation.get("languages", [])[:8]] if isinstance(observation.get("languages"), list) else [], "request_languages": language_header, "timezone": _zone(observation.get("timezone")), "offset_minutes": _number(observation.get("offset_minutes"), -1440, 1440), "webrtc": {"available": rtc.get("available") is True, "offer_created": rtc.get("offer_created") is True, "candidates": candidates, "local_stun_datagrams": _number(raw.get("local_stun_datagrams"), 0, 65535), "policy_file": "disable_non_proxied_udp" if raw.get("webrtc_policy_file") == "disable_non_proxied_udp" else "other_or_unavailable", "scope": "local ICE candidates and container-loopback STUN sink only; public STUN/TURN not tested"}}
 
 
-def _exec_json(engine, container, name, active=False, authorization=None):
-    result = engine.docker.run("exec", *(["-i"] if authorization is not None else []), container, "python3", "-c", script(name), *(["--active"] if active else []), input_data=json.dumps(authorization) if authorization is not None else None, timeout=25 if authorization is not None else 12)
+def _exec_json(engine, container, name, active=False, authorization=None, timezone_name=None):
+    result = engine.docker.run("exec", *(["-i"] if authorization is not None else []), *(['--env', 'TZ=' + timezone_name] if timezone_name else []), container, "python3", "-c", script(name), *(["--active"] if active else []), input_data=json.dumps(authorization) if authorization is not None else None, timeout=25 if authorization is not None else 12)
     if len(result) > 128 * 1024:
         raise ValueError("Oversized diagnostic evidence")
     return json.loads(result)
@@ -284,8 +284,9 @@ def collect(engine, browser=True):
                 project = engine.owned(engine.docker.inspect('container', identifier))
                 if (project.get('Config', {}).get('Labels') or {}).get(engine.role) != 'project' or not project.get('State', {}).get('Running'):
                     continue
-                facts = environment_evidence(_exec_json(engine, project['Id'], 'environment_probe.py', active=False))
-                report['objects']['project_workspaces'].append({'container': project['Id'], 'scope': 'actual project container default process and system timezone files', 'timezone': facts['timezone']})
+                facts = environment_evidence(_exec_json(engine, project['Id'], 'environment_probe.py', active=False, timezone_name=engine.store.settings()['timezone']))
+                default_tz = next((item[3:] for item in project.get('Config', {}).get('Env', []) if isinstance(item, str) and item.startswith('TZ=')), '')
+                report['objects']['project_workspaces'].append({'container': project['Id'], 'scope': 'actual project filesystem and the TZ supplied by the app CLI launcher; original Docker default separately reported', 'timezone': facts['timezone'], 'container_default_timezone': _zone(default_tz)})
         except (SPXError, OSError, ValueError, TypeError):
             report['objects']['project_timezone_status'] = 'partial_or_unavailable'
         report["objects"]["browser"] = {"status": "skipped" if not browser else "not_running"}
