@@ -19,7 +19,7 @@ def validate(value):
         raise SPXError("终端字号或背景不透明度超出范围，原设置已保留。")
     if not isinstance(result["font_family"], str) or len(result["font_family"]) > 80 or any(ord(c) < 32 for c in result["font_family"]):
         raise SPXError("终端字体设置无效，原文件已保留。")
-    if any(type(result[key]) is not bool for key in ("copy_on_select", "right_click_paste")) or result["appearance"] not in ("solid", "acrylic") or result["tint"] not in TINTS:
+    if any(type(result[key]) is not bool for key in ("copy_on_select", "right_click_paste")) or not isinstance(result["appearance"], str) or not isinstance(result["tint"], str) or result["appearance"] not in ("solid", "acrylic") or result["tint"] not in TINTS:
         raise SPXError("终端外观或鼠标设置无效，原文件已保留。")
     return result
 

@@ -277,7 +277,12 @@ class Controller(QObject):
                 self.notify("网络检查未通过", summary, True)
             zone = report.get("objects", {}).get("session", {}).get("timezone", {})
             if zone.get("localtime_matches_process_offset") is False or zone.get("localtime_matches_tzif") is False:
-                summary += " 检测到进程 TZ 与 /etc/localtime 不一致，详细报告分别列出了来源和偏移；检查未更改时区。"
+                summary += " 网络控制容器的默认 TZ 与系统文件不一致；它与 CLI 不共享文件系统，项目和浏览器的实际时区另列。检查未更改时区。"
+            for workspace in report.get('objects', {}).get('project_workspaces', []):
+                zone = workspace.get('timezone', {})
+                if any(zone.get(key) is False for key in ('localtime_matches_process_offset', 'localtime_matches_tzif', 'timezone_file_matches_process')):
+                    summary += ' 项目系统时区尚未统一，请关闭旧终端后从新版重新打开工具。'
+                    break
             self.network_summary.set(summary)
             self.operation.set("网络检查完成，报告已脱敏。")
         return self.run(lambda engine: engine.network_diagnostics(), done, description="检查当前工作区的出口、路由与浏览器环境，不修改宿主网络…")

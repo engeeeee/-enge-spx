@@ -38,6 +38,8 @@ class FixtureAPI(ThreadingHTTPServer):
         self.requests = []
         self.lock = threading.Lock()
         self.got_images = threading.Event()
+        self.hold_response = False
+        self.release_response = threading.Event()
 
 
 def image_blocks(value):
@@ -127,16 +129,20 @@ class Handler(BaseHTTPRequestHandler):
                 {"type": "message_stop"},
             ]
         else:
-            item = {"type": "message", "id": "msg_clipboard_fixture", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": message, "annotations": []}]}
+            continuation = '\nSPX-STREAM-REMAINS'
+            item = {"type": "message", "id": "msg_clipboard_fixture", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": message + continuation, "annotations": []}]}
             events = [
                 {"type": "response.created", "response": {"id": "resp_clipboard_fixture"}},
                 {"type": "response.output_item.added", "output_index": 0, "item": {**item, "status": "in_progress", "content": []}},
                 {"type": "response.output_text.delta", "item_id": item["id"], "output_index": 0, "content_index": 0, "delta": message},
+                {"type": "response.output_text.delta", "item_id": item["id"], "output_index": 0, "content_index": 0, "delta": continuation},
                 {"type": "response.output_item.done", "output_index": 0, "item": item},
                 {"type": "response.completed", "response": {"id": "resp_clipboard_fixture", "status": "completed", "output": [item], "usage": {"input_tokens": 12, "output_tokens": 15, "total_tokens": 27}}},
             ]
         try:
             for event in events:
+                if self.server.hold_response and event.get('delta') == '\nSPX-STREAM-REMAINS':
+                    self.server.release_response.wait(20)
                 self.wfile.write(("event: " + event["type"] + "\ndata: " + json.dumps(event) + "\n\n").encode())
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
@@ -418,6 +424,10 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                     tui.wait(lambda value: 'DELETE-ALL-FIXTURE' in value and '待删除' in value)
                     tui.delete_selection(all_draft=True)
                     tui.wait(lambda value: 'DELETE-ALL-FIXTURE' not in value and '待删除' not in value)
+                    tui.delete_selection(all_draft=True)
+                    tui.delete_selection(all_draft=True)
+                    tui.text()
+                    assert tui.pty.poll() is None, 'Delete on an empty selected draft must not quit the CLI'
                     tui.paste(Snapshot('text', 'KEEP-A_REMOVE_KEEP-B'))
                     tui.wait(lambda value: 'KEEP-A_REMOVE_KEEP-B' in value)
                     tui.drag_text('REMOVE')
@@ -480,12 +490,22 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             with api.lock:
                 assert not api.requests, "Pasting must not submit any image data before Enter"
             alive_pid = tui.pty.pid
+            if qt_terminal and tool == 'codex':
+                api.hold_response = True
             if qt_terminal:
                 tui.submit()
             else:
                 tui.pty.write(b"\r")  # explicit user submission, only in this test
             if not api.got_images.wait(25):
                 raise AssertionError("Native CLI never serialized two visual image inputs")
+            if qt_terminal and tool == 'codex':
+                tui.wait(lambda value: 'SCROLL-FIXTURE-119' in value)
+                tui.paste(Snapshot('text', 'LIVE-DRAFT-TO-DELETE'))
+                tui.wait(lambda value: 'LIVE-DRAFT-TO-DELETE' in value)
+                tui.delete_selection(all_draft=True)
+                tui.wait(lambda value: 'LIVE-DRAFT-TO-DELETE' not in value)
+                api.release_response.set()
+                tui.wait(lambda value: 'SPX-STREAM-REMAINS' in value)
             assert tui.pty.pid == alive_pid and tui.pty.poll() is None
             with api.lock:
                 requests = list(api.requests)
@@ -499,7 +519,7 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 text = "\n".join(text for request in requests for text in request["text"])
                 assert "wo xiang" not in text and text.count("输入法确认") == 1
             if mouse_edit:
-                tui.wait(lambda value: "SCROLL-FIXTURE-119" in value)
+                tui.wait(lambda value: "SPX-STREAM-REMAINS" in value)
                 tui.paste(Snapshot("text", "HISTORY-DRAFT"), right_click=True)
                 tui.wait(lambda value: "HISTORY-DRAFT" in value)
                 # Regression: after copying, the selection snapshot previously
@@ -512,10 +532,11 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 from PySide6.QtCore import Qt
                 from PySide6.QtTest import QTest
                 QTest.keyClick(tui.window.view, Qt.Key.Key_Escape)
-                tui.wait(lambda value: "HISTORY-DRAFT" in value and "SCROLL-FIXTURE-119" in value)
+                tui.wait(lambda value: "HISTORY-DRAFT" in value and "SPX-STREAM-REMAINS" in value)
                 assert not any("HISTORY-DRAFT" in text for request in api.requests for text in request["text"]), "Reviewing history or pasting must not submit the next draft"
             return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "qt_mouse_cursor_edit": mouse_edit, "qt_right_click_paste": mouse_edit, "qt_ime_preedit": qt_terminal, "linux_pty_relay": True, "qt_conversation_history": mouse_edit, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": paste_elapsed, "fixture_only": True, "real_model_understanding": "not_tested"}
         finally:
+            api.release_response.set()
             tui.close()
             api.shutdown()
             api.server_close()

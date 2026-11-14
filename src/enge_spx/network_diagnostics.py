@@ -108,8 +108,9 @@ def environment_evidence(raw):
     namespace = raw.get("network_namespace")
     result = {"routes": routes, "dns_servers": [value for item in raw.get("dns_servers", [])[:8] if (value := _ip(item))] if isinstance(raw.get("dns_servers"), list) else [], "network_namespace": namespace if isinstance(namespace, str) and re.fullmatch(r"net:\[[0-9]{1,20}\]", namespace) else "unavailable", "ipv6_interfaces": raw.get("ipv6_interfaces") is True, "language": languages, "timezone": {"name": _zone(zone.get("name")), "offset_seconds": _number(zone.get("offset_seconds"), -86400, 86400)}}
     result["timezone"].update(localtime_name=_zone(zone.get("localtime_name")),
+                              timezone_file_name=_zone(zone.get('timezone_file_name')),
                               localtime_offset_seconds=_number(zone.get("localtime_offset_seconds"), -86400, 86400))
-    for key in ("localtime_matches_process_offset", "localtime_matches_tzif"):
+    for key in ("localtime_matches_process_offset", "localtime_matches_tzif", 'timezone_file_matches_process'):
         result["timezone"][key] = zone.get(key) if type(zone.get(key)) is bool else None
     checks = []
     allowed = {"public_ipv4_tcp", "public_ipv6_tcp", "public_dns_udp"}
@@ -261,7 +262,7 @@ def collect(engine, browser=True):
         report["objects"]["final_exit"] = {**next((row for row in timings if row["scope"] == "final_exit"), {"result": "unavailable"}), "sources": ["api.ipify.org", "checkip.amazonaws.com"], "geography": {"source": "ipwho.is; supplementary prior observation for the confirmed IP", "timezone": _zone(geography.get("timezone")), "country": _place(geography.get("country")), "city": _place(geography.get("city"))}}
         try:
             session = environment_evidence(_exec_json(engine, state["session"], "environment_probe.py", active=True))
-            session.update(scope="isolated session; CLI/browser share this audited network namespace", container=state["session"])
+            session.update(scope="network control container filesystem; CLI/browser share its audited network namespace, not its filesystem", container=state["session"])
             session["dns_path"] = {"configured_servers": ["127.0.0.1"], "source": "audit_topology verified Docker session DNS; HTTP proxy handles application target names", "limits": "loopback resolver configuration and blocking probes are not a complete packet capture or proof for all DNS destinations"}
             geo_timezone = _zone(geography.get("timezone"))
             offset = session.get("timezone", {}).get("offset_seconds")
@@ -277,6 +278,16 @@ def collect(engine, browser=True):
             report["objects"]["browser"] = {"status": "not_run", "reason": "workspace_stopped_after_bypass_evidence"}
             return obscure(report)
         report["status"] = "checked" if len(session.get("direct_tests", [])) == 3 else "partial"
+        report['objects']['project_workspaces'] = []
+        try:
+            for identifier in engine.managed()[:8]:
+                project = engine.owned(engine.docker.inspect('container', identifier))
+                if (project.get('Config', {}).get('Labels') or {}).get(engine.role) != 'project' or not project.get('State', {}).get('Running'):
+                    continue
+                facts = environment_evidence(_exec_json(engine, project['Id'], 'environment_probe.py', active=False))
+                report['objects']['project_workspaces'].append({'container': project['Id'], 'scope': 'actual project container default process and system timezone files', 'timezone': facts['timezone']})
+        except (SPXError, OSError, ValueError, TypeError):
+            report['objects']['project_timezone_status'] = 'partial_or_unavailable'
         report["objects"]["browser"] = {"status": "skipped" if not browser else "not_running"}
         if browser:
             obj = engine.inspect("browser")
@@ -296,6 +307,10 @@ def collect(engine, browser=True):
                     engine.secret_values.add(state["browser_token"])
                     observed = browser_evidence(_exec_json(engine, obj["Id"], "browser_probe.py", authorization={"token": state["browser_token"]}))
                     observed["container"] = obj["Id"]
+                    try:
+                        observed['system_timezone'] = environment_evidence(_exec_json(engine, obj['Id'], 'environment_probe.py', active=False))['timezone']
+                    except (SPXError, OSError, ValueError, TypeError):
+                        observed['system_timezone'] = {'status': 'unavailable'}
                     report["objects"]["browser"] = observed
                     if observed["status"] != "observed":
                         report["status"] = "partial"

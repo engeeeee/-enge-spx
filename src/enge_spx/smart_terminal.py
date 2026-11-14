@@ -597,6 +597,7 @@ class TerminalView(QWidget):
         self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
         self.fonts.clear()
         self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
+        self.row_painter.background = self.background
         self._resize_grid()
         self.font_changed.emit(size)
         self.update()
@@ -1245,6 +1246,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         menu.addAction(opacity)
         font_action = QWidgetAction(menu)
         fonts = QFontComboBox()
+        fonts.setEditable(False)
         fonts.setFontFilters(QFontComboBox.FontFilter.MonospacedFonts)
         fonts.setCurrentFont(self.view.font)
         fonts.currentFontChanged.connect(lambda font: self.preferences.set("font_family", font.family()))

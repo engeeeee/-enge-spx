@@ -110,9 +110,10 @@ class BudgetTests(unittest.TestCase):
         self.engine.image_ids = Mock(return_value={"work": "image"})
         self.engine.ensure_container = Mock(return_value={"Id": "kept", "Name": self.engine.prefix + "-project-" + key, "Config": {"User": "1000:1000", "Labels": {self.engine.role: "project"}}, "State": {"Running": True}, "HostConfig": {"Privileged": False, "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"]}, "Mounts": [{"Type": "volume", "Name": self.engine.prefix + "-tools-home", "Destination": "/home/workspace", "RW": True}, {"Type": "bind", "Source": str(path), "Destination": "/workspace/" + key, "RW": True}]})
         self.engine.proxy_env = Mock(return_value=[])
-        self.engine._project(str(path), {"session": "network-session"})
+        with patch('enge_spx.workspace_timezone.prepare_project'):
+            self.engine._project(str(path), {"session": "network-session"})
         self.assertEqual(self.engine.ensure_container.call_args.kwargs["resource_key"], key)
-        with patch.object(self.store, "write") as write:
+        with patch.object(self.store, "write") as write, patch('enge_spx.workspace_timezone.prepare_project'):
             self.engine._project(str(path), {"session": "network-session"})
             write.assert_not_called()
 

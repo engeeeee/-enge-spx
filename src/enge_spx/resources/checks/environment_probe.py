@@ -24,7 +24,7 @@ def read_text(path, limit=16384):
         return ""
 
 
-def timezone_facts(localtime="/etc/localtime", zoneinfo="/usr/share/zoneinfo"):
+def timezone_facts(localtime="/etc/localtime", zoneinfo="/usr/share/zoneinfo", timezone_file="/etc/timezone"):
     if hasattr(time, "tzset"):
         time.tzset()
     instant = datetime.now(timezone.utc)
@@ -32,6 +32,9 @@ def timezone_facts(localtime="/etc/localtime", zoneinfo="/usr/share/zoneinfo"):
     result = {"name": os.environ.get("TZ", "")[:80], "offset_seconds": int(effective.total_seconds()) if effective is not None else None,
               "localtime_name": "unavailable", "localtime_offset_seconds": None, "localtime_matches_process_offset": None,
               "localtime_matches_tzif": None}
+    declared = read_text(timezone_file, 128).strip()
+    result['timezone_file_name'] = declared if re.fullmatch(r'[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*', declared) else 'unavailable'
+    result['timezone_file_matches_process'] = declared == result['name'] if declared and result['name'] else None
     try:
         with Path(localtime).open("rb") as source:
             data = source.read(131073)

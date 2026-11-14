@@ -312,15 +312,15 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.pump(lambda: bool(self.written))
         self.assertEqual(self.written, [b"\x1b[200~one\n" + "中文".encode() + b"\n\n\x1b[201~"])
 
-    def test_native_single_click_is_deferred_and_delivered_without_arrow_keys(self):
+    def test_native_single_click_preserves_press_release_without_arrow_keys(self):
         self.output.put(b"\x1b[?1000h\x1b[?1006h")
         self.pump(lambda: self.view.screen.mouse)
         QTest.mousePress(self.view, Qt.MouseButton.LeftButton, pos=self.point(5, 2))
-        time.sleep(.02)
-        self.assertFalse(self.written)
-        QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(5, 2))
         self.pump(lambda: bool(self.written))
-        self.assertEqual(self.written, [b"\x1b[<0;6;3M\x1b[<0;6;3m"])
+        self.assertEqual(self.written, [b"\x1b[<0;6;3M"])
+        QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(5, 2))
+        self.pump(lambda: len(self.written) == 2)
+        self.assertEqual(self.written, [b"\x1b[<0;6;3M", b"\x1b[<0;6;3m"])
 
     def test_copy_selection_does_not_trap_native_conversation_scrolling(self):
         self.output.put(b"history\x1b[?1000h\x1b[?1006h")
@@ -340,13 +340,43 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.assertEqual(QGuiApplication.clipboard().text(), copied)
         self.assertEqual(self.written, [b"\x1b[<64;5;3M"])
 
-    def test_drag_copies_even_when_cli_requests_mouse_without_moving_its_cursor(self):
+    def test_drag_copies_and_preserves_native_editable_selection(self):
         self.output.put("copy 中文\x1b[?1000h\x1b[?1006h".encode())
         self.pump(lambda: self.view.screen.mouse)
         QTest.mousePress(self.view, Qt.MouseButton.LeftButton, pos=self.point(0))
         QTest.mouseMove(self.view, self.point(8))
         QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(8))
         self.assertEqual(QGuiApplication.clipboard().text(), "copy 中文")
+        self.pump(lambda: len(self.written) >= 3)
+        self.assertIn(b'\x1b[<32;', b''.join(self.written))
+
+    def test_click_uses_nearest_boundary_for_ascii_cjk_and_combining_characters(self):
+        self.output.put('A中e\u0301🙂\x1b[?1000h\x1b[?1006h'.encode())
+        self.pump(lambda: self.view.screen.mouse)
+        for position, column in ((.2, 0), (.8, 1), (1.7, 1), (2.3, 3), (3.8, 4), (5.3, 6)):
+            self.written.clear()
+            point = QPoint(round(self.view.PAD_X + position * self.view.cell_width), round(self.view.PAD_Y + .4 * self.view.cell_height))
+            QTest.mouseClick(self.view, Qt.MouseButton.LeftButton, pos=point)
+            self.pump(lambda: len(self.written) == 2)
+            self.assertEqual(self.written, [f'\x1b[<0;{column+1};1M'.encode(), f'\x1b[<0;{column+1};1m'.encode()])
+
+    def test_ctrl_a_delete_clears_known_codex_draft_without_enter_and_empty_is_safe(self):
+        self.view.sender.transfer = Mock(tool='codex')
+        QTest.keyClicks(self.view, 'draft')
+        QTest.keyClick(self.view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(self.view, Qt.Key.Key_Delete)
+        self.pump(lambda: b'\x03' in self.written)
+        self.assertNotIn(b'\r', self.written)
+        self.assertEqual(self.written.count(b'\x03'), 1)
+        QTest.keyClick(self.view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(self.view, Qt.Key.Key_Delete)
+        self.app.processEvents()
+        time.sleep(.04)
+        self.assertEqual(self.written.count(b'\x03'), 1)
+
+    def test_history_select_all_delete_does_not_send_a_cli_edit(self):
+        self.view.select_all()
+        QTest.keyClick(self.view, Qt.Key.Key_Delete)
         self.assertFalse(self.written)
 
     def test_single_click_does_not_overwrite_clipboard(self):
@@ -430,7 +460,7 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.clipboard.read.assert_not_called()
         menu.close()
 
-    def test_shift_drag_selects_with_mouse_reporting_and_preserves_plain_ctrl_a(self):
+    def test_shift_drag_selects_output_and_ctrl_a_selects_codex_draft(self):
         self.output.put(b"hello world\x1b[?1000h\x1b[?1006h")
         self.pump(lambda: self.view.screen.mouse)
         QTest.mousePress(self.view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, self.point(0))
@@ -441,8 +471,8 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.assertFalse(self.written)
         self.view.clear_selection()
         QTest.keyClick(self.view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
-        self.pump(lambda: bool(self.written))
-        self.assertEqual(self.written, [b"\x01"])
+        self.assertTrue(self.view.draft_all_selected)
+        self.assertFalse(self.written)
 
     def test_double_click_copies_unicode_word(self):
         self.output.put("日志文件.txt next".encode())

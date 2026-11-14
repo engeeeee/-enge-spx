@@ -15,7 +15,7 @@ from enge_spx.workspace_timezone import prepare_project, browser_image, probe, r
 with tempfile.TemporaryDirectory(prefix='spx-timezone-probe-') as folder:
     root = Path(folder)
     dockerfile = root / 'Dockerfile'
-    dockerfile.write_text('FROM python:3.12-slim-bookworm\nRUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*\nRUN useradd -m -u 1000 workspace\nUSER 1000:1000\nCMD ["sleep","infinity"]\n')
+    dockerfile.write_text('FROM python:3.12-slim-bookworm\nRUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*\nRUN useradd -m -u 1000 workspace\nUSER 1000:1000\nENTRYPOINT ["/usr/bin/env"]\nCMD ["sleep","infinity"]\n')
     store = Store(root / 'data')
     store.write('settings.json', {**store.settings(), 'context': 'default'})
     engine = Engine(store, print)

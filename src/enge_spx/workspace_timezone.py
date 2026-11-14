@@ -105,16 +105,19 @@ def browser_image(engine, base):
     zone = zone_name(engine)
     key = fingerprint({'base': base, 'zone': zone, 'prepare': PREPARE})[:24]
     tag = 'enge-spx/timezone-' + engine.store.instance + ':' + key
+    image = engine.docker.inspect('image', base)
+    config = image.get('Config') or {}
+    if config.get('Volumes') or not config.get('Entrypoint') or str(config.get('User', '')).split(':')[0] != '1000':
+        raise SPXError('浏览器基础镜像不符合离线时区准备条件。')
+    def valid_configuration(candidate):
+        actual = candidate.get('Config') or {}
+        return all(actual.get(key) == config.get(key) for key in ('User', 'Entrypoint', 'Cmd'))
     existing = engine.docker.inspect('image', tag)
     if existing:
         labels = (existing.get('Config') or {}).get('Labels') or {}
-        if labels.get(LABEL) != zone or labels.get(BASE) != base or labels.get(FORMAT) != key or str((existing.get('Config') or {}).get('User', '')).split(':')[0] != '1000':
+        if labels.get(LABEL) != zone or labels.get(BASE) != base or labels.get(FORMAT) != key or labels.get(engine.owner) != engine.store.instance or not valid_configuration(existing):
             raise SPXError('浏览器时区镜像记录不符，已拒绝使用。')
         return existing['Id']
-    image = engine.docker.inspect('image', base)
-    config = image.get('Config') or {}
-    if config.get('Volumes') or str(config.get('User', '')).split(':')[0] != '1000':
-        raise SPXError('浏览器基础镜像不符合离线时区准备条件。')
     name = engine.prefix + '-timezone-build-' + uuid.uuid4().hex[:8]
     identifier = None
     engine.log('正在离线准备浏览器系统时区；不下载文件、不挂载项目或账号。')
@@ -134,8 +137,8 @@ def browser_image(engine, base):
                           '--change', 'CMD ' + json.dumps(config.get('Cmd') or []),
                           '--change', 'ENV TZ=' + zone, identifier, tag, timeout=30)
         created = engine.docker.inspect('image', tag)
-        if not created or str((created.get('Config') or {}).get('User', '')).split(':')[0] != '1000':
-            raise SPXError('浏览器时区镜像未能保持原用户，已拒绝启动。')
+        if not created or not valid_configuration(created):
+            raise SPXError('浏览器时区镜像未能保持原用户和启动命令，已拒绝启动。')
         return created['Id']
     finally:
         if identifier:
