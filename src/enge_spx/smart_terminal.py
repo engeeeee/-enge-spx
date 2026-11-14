@@ -1290,6 +1290,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
         self.titlebar = TitleBar(self, "ENGE SPX  /  智能终端")
+        # A custom QWidget does not paint a stylesheet background by default.
+        # Alpha-zero caption pixels pass through a layered HWND before hit-test.
+        self.titlebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         self.titlebar.caption.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         logo = QLabel()
         logo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -1444,6 +1447,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
     def showEvent(self, event):
         super().showEvent(event)
         if self.translucent_surface:
+            self.effect_key = None
             self.apply_preferences(self.preferences.value)
 
     def show_options(self, button):

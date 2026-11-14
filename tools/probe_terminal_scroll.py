@@ -23,7 +23,7 @@ if os.name != 'nt':
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import qVersion
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from enge_spx.smart_terminal import TerminalView
 
 
@@ -39,9 +39,14 @@ class FixturePTY:
 app = QApplication([])
 pty = FixturePTY()
 view = TerminalView(pty)
+host = QWidget()
+host.resize(800, 600)
+view.setParent(host)
+host.show()
 view.show()
-view.resize(args.width, args.height)  # after show: no automatic desktop-size clamp
+view.resize(args.width, args.height)  # child: Windows cannot clamp to the CI desktop
 app.processEvents()
+assert (view.width(), view.height()) == (args.width, args.height), 'requested viewport was clamped'
 view.blink_timer.stop()
 view.blink = False
 view.scrollbar.hide()
@@ -94,7 +99,7 @@ try:
     final = render().copy()
     bad = sum(sample != previous for sample in samples)
     assert final == expected, 'final completed frame does not match the complete reference'
-    report = {'schema': 1, 'scope': 'Synthetic full-size VT scroll and controlled packet-boundary paints; not physical monitor FPS',
+    report = {'schema': 1, 'scope': 'Synthetic offscreen full-size VT viewport and controlled packet-boundary paints; not physical monitor FPS',
               'system': platform.system(), 'architecture': platform.machine(), 'python': platform.python_version(),
               'qt': qVersion(), 'viewport': [view.width(), view.height()], 'grid': [view.screen.columns, view.screen.lines],
               'dpr': view.devicePixelRatioF(), 'frames': args.frames,
@@ -109,4 +114,5 @@ try:
 finally:
     view.stop()
     view.close()
+    host.close()
     view.reader.join(2)

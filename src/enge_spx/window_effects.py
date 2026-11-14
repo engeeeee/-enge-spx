@@ -42,6 +42,8 @@ def apply_acrylic(window, color, enabled=True):
         dwm = ctypes.WinDLL("dwmapi", use_last_error=True)
         dwm.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
         dwm.DwmSetWindowAttribute.restype = ctypes.c_long
+        dark = ctypes.c_int(1)
+        dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
         value = ctypes.c_int(3 if enabled else 1)  # DWMSBT_TRANSIENTWINDOW / NONE
         if sys.getwindowsversion().build >= 22621 and dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(value), ctypes.sizeof(value)) >= 0:
             return "system-acrylic" if enabled else "solid"
@@ -89,7 +91,7 @@ def configure_frame(window):
 
 
 def client_point(window, lparam):
-    """Convert signed physical NCHITTEST coordinates using this HWND's bounds."""
+    """Convert signed physical NCHITTEST coordinates into this HWND's client."""
     from PySide6.QtCore import QPoint
     user = ctypes.WinDLL('user32', use_last_error=True)
     user.GetWindowRect.argtypes, user.GetWindowRect.restype = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL

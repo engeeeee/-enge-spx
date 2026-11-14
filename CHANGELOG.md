@@ -1,5 +1,22 @@
 # Changes
 
+## 0.14.5 Acrylic interaction and complete terminal frames — 2026-11-14
+
+- Paint custom caption backgrounds explicitly: alpha-zero pixels on layered
+  Windows windows passed mouse input through to other windows. Add owned-HWND
+  caption/corner hit-testing and maximized client-area handling.
+- Suspend Acrylic before native moving/sizing and restore afterward, keeping
+  the same HWND, CLI and saved settings. Remove the duplicate native tint,
+  request dark material and unify chrome; allow 30–100% background opacity.
+- Respect DEC2026 synchronized updates and queries. Commit immutable completed
+  frames even when a following frame begins in the same read; retain the last
+  image during partial erases and bound an unfinished update to 150ms.
+- Cache bounded row rasters and the current surface, batch safe in-row cells,
+  and keep complex text semantics in pyte with differential VT regression.
+- Add real Windows pixel/window-pick, native/Accent, maximize and DPI probes,
+  plus explicitly sized 1080p scroll/split-frame comparison. Physical Windows10
+  mouse dragging and DWM material appearance remain separate manual acceptance.
+
 ## 0.14.4 terminal rendering, persistent appearance and workspace timezone — 2026-11-14
 
 - Cache bounded terminal row layouts, batch output parsing and repaint dirty regions;

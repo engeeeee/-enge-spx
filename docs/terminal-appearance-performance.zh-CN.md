@@ -2,13 +2,15 @@
 
 0.14.4 为 ENGE SPX 智能终端增加可保存的外观设置，并优化绘制和 Codex 草稿编辑。第三方终端继续使用自己的外观及快捷键设置。
 
+**当前0.14.5修复0.14.4在Acrylic下标题栏透明穿透、拖动停滞及全屏滚动半帧闪烁的问题。** 下方0.14.4静态数字作为历史记录保留，不能代替全屏滚动验收。
+
 ## 自定义并保存
 
 打开智能终端右上角 **⋯**：
 
 - 背景效果：纯色或 Windows Acrylic 毛玻璃。
 - 背景配色：暖灰、紫晶、石墨。
-- 背景不透明度：55–100%，只影响毛玻璃背景，文字保持不透明。
+- 背景不透明度：30–100%，建议55–70%，只影响背景，文字保持不透明。新偏好默认65%；已保存的数值保留。
 - 等宽字体及8–24 pt字号；原有 Ctrl+滚轮、Ctrl++/− 继续可用。
 - 拖选后自动复制、右键直接粘贴。
 
@@ -47,6 +49,48 @@ python tools/benchmark_terminal.py --source /path/to/0.14.3/src --frames 40 --ou
 python tools/benchmark_terminal.py --frames 40 --output after.json
 ```
 
+## 0.14.5：拖动、材质与完整帧
+
+0.14.4的实际Windows截图显示，标题栏空白像素alpha为零。分层窗口会让这些像素的鼠标穿透；只向窗口发送命中测试消息无法发现这一点。0.14.5显式启用标题栏背景绘制，并在自有HWND处理标题栏与边缘命中、最大化客户区。窗口按钮和命令行区域保持各自输入行为。
+
+进入Windows移动／缩放循环前暂停Acrylic、使用不透明背景，退出后恢复，不改变偏好或CLI。效果切换只在状态变化时执行，不在每次移动或设置开关时重复初始化。去除兼容接口里第二层80%深色遮罩，使用深色系统材质和统一的标题栏／内容色调，防止颜色被重复压暗。实际质感仍受Windows主题、透明效果设置和桌面背景影响。
+
+真实Codex0.169.0的合成会话记录到280组同步更新边界。旧版没有尊重这些边界，清屏和绘制分包时可能显示中间状态。新实现识别DEC2026及查询，保留最新完整帧；即使同一读取开始下一帧，也可显示上一张刚完成的画面。光标、曝光、选择重绘都从已提交位图绘制，不直接暴露正在修改的VT缓冲。未结束的同步更新150ms后恢复，协议和输出队列仍有界。
+
+| 文件 | 实现 |
+| --- | --- |
+| `smart_terminal.py` | 完整帧捕获与提交、局部更新、原生窗口交互、幂等网格调整 |
+| `terminal_render.py` | 同步更新／查询与分包解析，保留原OSC限制 |
+| `terminal_paint.py` | 行位图复用，LRU最多128行、64MiB，不缓存整个对话的位图 |
+| `window_effects.py` | 自有窗口的材质、命中坐标和最大化客户区 |
+| `terminal_preferences.py` | 原schema1偏好兼容，范围扩展与默认值 |
+
+当前帧位图按实际物理像素分配，1920×1080约7.91MiB；另有行缓存、Qt／系统合成缓冲及解析状态，不能视为终端总内存。普通行内文字批量更新并复用字形属性，复杂换行、插入、字符集、零宽组合等回到原解析器；500组固定种子的混合VT操作对原pyte逐格比较一致。无新依赖、线程监听或网络行为。
+
+复现窗口检查（一次性Windows测试桌面，不读取剪贴板、不操作其它窗口）：
+
+```powershell
+python tools/probe_windows_terminal_window.py --output native-window.json
+python tools/probe_windows_terminal_window.py --legacy-accent --output accent-window.json
+$env:QT_SCALE_FACTOR = '1.5'
+python tools/probe_windows_terminal_window.py --output native-dpi150.json
+Remove-Item Env:QT_SCALE_FACTOR
+```
+
+检查包括实际HWND命中、标题栏非零像素、`WindowFromPoint`选中自己的窗口、按钮／边缘、最大化、移动循环效果暂停和恢复、输入不丢及HWND不替换。兼容Accent接口在CI实际Windows构建上强制选用，不能记为Windows10实体鼠标拖动通过。PNG来自运行的合成测试窗口，`QWidget.grab()`不包含完整桌面DWM材质，不能把它当作实机毛玻璃观感证据。
+
+滚动测试显式分配1920×1080的离屏子视口，避免CI桌面将顶层窗口缩成1028×749：
+
+```bash
+python tools/probe_terminal_scroll.py --source /path/to/0.14.4/src --output before.json --frames 30
+python tools/probe_terminal_scroll.py --output after.json --frames 30
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_terminal*.py' -v
+```
+
+记录解析加提交的中位数／P95、分包期间的半帧次数、最终像素一致性及缓存字节数。新实现要求半帧次数为零；合成视口不是物理显示器帧率。Windows10实机鼠标拖动、真实触控板、高刷新率和最终材质观感仍需实测反馈；不以API成功代替这些体验检查。
+
+依据：[Microsoft窗口命中](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest)、[进入移动循环](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-entersizemove)、[退出移动循环](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-exitsizemove)、[Qt样式背景属性](https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum)。没有并入其它终端的代码、字体或渲染器，许可不变。
+
 ## 工作区系统时区
 
 重新打开 CLI 时，核对项目容器的 `TZ`、`/etc/timezone` 和 `/etc/localtime` TZif。旧项目通过固定两项的 Docker 归档更新公开时区配置，保留容器ID、可写层和原挂载；不会把洛杉矶时区数据写进 UTC 数据库。失败时拒绝启动新CLI，状态栏给出错误。
@@ -60,3 +104,5 @@ python tools/benchmark_terminal.py --frames 40 --output after.json
 ## 回滚
 
 外观偏好为独立schema1文件；旧版忽略它，不迁移代理/账号配置。停止工作区并关闭终端后可换回旧程序。需要恢复UTC时，应先在应用里选择UTC并重新打开新版工作区，再回滚；不要手动改写zoneinfo数据库。时区派生镜像仅含公开文件，不提交、导出或复制用户项目/账号数据。
+
+若回滚到0.14.4，先将背景不透明度调回55–100%；0.14.4不接受新增的30–54%范围。0.14.5会保留并读取旧版本全部合法偏好，不改变账号或代理格式。

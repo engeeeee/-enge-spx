@@ -45,6 +45,7 @@ user.GetClientRect.argtypes, user.GetClientRect.restype = [wintypes.HWND, ctypes
 user.ClientToScreen.argtypes, user.ClientToScreen.restype = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)], wintypes.BOOL
 user.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
 user.SendMessageTimeoutW.restype = ctypes.c_ssize_t
+user.WindowFromPoint.argtypes, user.WindowFromPoint.restype = [wintypes.POINT], wintypes.HWND
 
 
 def pump(seconds=.02):
@@ -115,13 +116,26 @@ with tempfile.TemporaryDirectory(prefix='spx-owned-window-') as folder, context:
         window.showNormal()
         pump()
         assert hit(QPoint(1, 1)) == 13
+        window.view.stream.feed('\x1b[?2026h\x1b[2J\x1b[H\x1b[38;2;229;177;148mOwned terminal rendering fixture\x1b[0m\r\n\r\nNative caption / resize / synchronized frames\r\n\x1b[32mUnicode: 中文  e\u0301  🙂\x1b[0m\x1b[?2026l')
+        pump()
         # Actual owned-window pixels, synthetic content; never user clipboard.
         image = window.grab()
+        caption = window.titlebar.mapTo(window, QPoint(window.titlebar.width() // 2, window.titlebar.height() // 2))
+        assert image.toImage().pixelColor(round(caption.x() * image.devicePixelRatio()), round(caption.y() * image.devicePixelRatio())).alpha() > 0, 'caption pixels are click-through'
+        window.raise_()
+        window.activateWindow()
+        pump()
+        bounds = wintypes.RECT()
+        assert user.GetClientRect(hwnd, ctypes.byref(bounds))
+        native_caption = wintypes.POINT(round(caption.x() * bounds.right / window.width()), round(caption.y() * bounds.bottom / window.height()))
+        assert user.ClientToScreen(hwnd, ctypes.byref(native_caption))
+        assert int(user.WindowFromPoint(native_caption) or 0) == original_hwnd, 'caption input passes to another window'
         args.output.parent.mkdir(parents=True, exist_ok=True)
         assert image.save(str(args.output.with_suffix('.png')))
         report = {'schema': 1, 'scope': 'Owned Windows HWND hit-testing, resize/maximize and move-loop messages; no physical mouse or visual acceptance',
                   'windows_build': real_build, 'requested_legacy_accent_api': args.legacy_accent, 'backend': backend,
                   'dpr': window.devicePixelRatioF(), 'caption_hit': True, 'buttons_remain_interactive': True,
+                  'caption_alpha_and_window_pick': True,
                   'resize_corners': True, 'maximized_client_visible': True, 'move_loop_suspends_effect': True,
                   'same_hwnd_and_input': True, 'preferences_preserved': True, 'foreground_opacity': window.windowOpacity(),
                   'move_resize_dispatch_median_ms': round(statistics.median(durations), 3),

@@ -123,6 +123,8 @@ class TerminalPreferenceTests(unittest.TestCase):
                 second.show()
                 self.app.processEvents()
                 self.assertEqual(second.view.font.pointSize(), 15)
+                from PySide6.QtCore import Qt
+                self.assertTrue(second.titlebar.testAttribute(Qt.WidgetAttribute.WA_StyledBackground))
                 self.assertEqual(second.view.background.name(), '#302034')
                 self.assertFalse(second.view.copy_on_select)
                 self.assertFalse(second.view.right_click_paste)

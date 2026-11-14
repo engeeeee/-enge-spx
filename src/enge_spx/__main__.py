@@ -99,6 +99,11 @@ def main():
             TerminalStream(terminal_screen).feed("\x1b[2;38:2::12:34:56mX\x1b]11;?\x07")
             assert terminal_screen.buffer[0][0].faint and terminal_screen.buffer[0][0].fg == "0c2238"
             assert terminal_replies and terminal_replies[0].startswith(b"\x1b]11;rgb:")
+            synchronized = TerminalStream(terminal_screen)
+            synchronized.feed('\x1b[?2026h\x1b[?2026$p')
+            assert terminal_replies[-1] == b'\x1b[?2026;1$y'
+            synchronized.feed('\x1b[?2026l')
+            assert synchronized.synchronized_at is None and synchronized.frame_serial == 1
             from .downloads import client
             from .forward import tunnel_type
             from .platform_ui import ASSETS
