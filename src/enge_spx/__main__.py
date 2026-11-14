@@ -124,7 +124,8 @@ def main():
             codec = CredentialCodec("000000000000")
             fixture = [{"password": "synthetic-self-test-only"}]
             assert codec.decode("nodes.json", codec.encode("nodes.json", fixture)) == fixture
-            print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True, "credential_protection": "dpapi-current-user" if codec.enabled else "private-files"}))
+            from .window_effects import dpi_awareness
+            print(json.dumps({"app": "ENGE SPX", "version": __version__, "python": sys.version.split()[0], "resources": True, "proxy_transports": True, "credential_protection": "dpapi-current-user" if codec.enabled else "private-files", "dpi_awareness": dpi_awareness()}))
             return 0
         store = Store(args.data)
         # Internal children may be started while the parent holds the operation

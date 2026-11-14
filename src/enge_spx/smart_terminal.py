@@ -402,10 +402,12 @@ class TerminalView(QWidget):
         self.output_finished = False
         self.line_text = []
         self.surface = QImage()
+        self.surface_allocations = 0
         self.surface_signature = None
         self.surface_rows = []
         self.surface_dirty = set()
         self.presented_cursor = (0, 0, True)
+        self.presented_blank = self.screen.default_char
         self.frame_started = None
         self.last_output = 0
         self.frame_region = QRegion()
@@ -422,9 +424,7 @@ class TerminalView(QWidget):
         self.font.setFixedPitch(True)
         self.font.setKerning(False)
         self.setFont(self.font)
-        self.metrics = QFontMetricsF(self.font, self)
-        self.cell_width = self.metrics.horizontalAdvance("M")
-        self.cell_height = self.metrics.height() + 2
+        self._measure_font()
         self.selection = None
         self.selection_lines = None
         self.explicit_selection = False
@@ -496,10 +496,14 @@ class TerminalView(QWidget):
     def _capture_frame(self):
         # Retain the newest complete VT frame, even if another begins in the
         # same pipe read. Never wait for a continuously busy pipe to go idle.
-        blank = self.screen.default_char
-        self.completed_frame = ([tuple(self.screen.buffer[y].get(x, blank) for x in range(self.screen.columns))
-                                 for y in range(self.screen.lines)],
-                                (self.screen.cursor.x, self.screen.cursor.y, self.screen.cursor.hidden))
+        screen = self.screen
+        blank, buffer, columns = screen.default_char, screen.buffer, range(screen.columns)
+        rows = []
+        for y in range(screen.lines):
+            get = buffer[y].get
+            rows.append(tuple(get(x, blank) for x in columns))
+        cursor = screen.cursor
+        self.completed_frame = rows, (cursor.x, cursor.y, cursor.hidden)
         self.completed_generation += 1
 
     def _frame_blocked(self):
@@ -685,8 +689,7 @@ class TerminalView(QWidget):
             return
         self.font.setPointSize(size)
         self.setFont(self.font)
-        self.metrics = QFontMetricsF(self.font, self)
-        self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
+        self._measure_font()
         self.fonts.clear()
         self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
         self.row_painter.background = self.background
@@ -706,8 +709,7 @@ class TerminalView(QWidget):
             self.font.setFamilies(families)
             self.font.setPointSize(preferences["font_size"])
             self.setFont(self.font)
-            self.metrics = QFontMetricsF(self.font, self)
-            self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
+            self._measure_font()
         background = QColor(TINTS[preferences["tint"]])
         background.setAlpha(round(preferences["opacity"] * 2.55) if glass else 255)
         changed = font_changed or background != self.background
@@ -716,8 +718,9 @@ class TerminalView(QWidget):
         if changed:
             self.colors.clear()
             self.fonts.clear()
-            self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
-            self.row_painter.background = self.background
+            if font_changed:
+                self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
+            self.row_painter.set_background(self.background)
         self.copy_on_select, self.right_click_paste = preferences["copy_on_select"], preferences["right_click_paste"]
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, not glass)
         if font_changed:
@@ -740,57 +743,79 @@ class TerminalView(QWidget):
         return result
 
     def _compose_surface(self):
+        self._check_render_environment()
         completed = self.completed_generation != self.presented_generation and self.selection_lines is None and not self.offset
         blocked = not completed and self._frame_blocked()
-        if blocked and not self.surface.isNull():
+        dpr = self.devicePixelRatioF()
+        signature = (self.width(), self.height(), self.render_environment, id(self.row_painter), self.background.rgba(), self.offset,
+                     self.selection if self.has_selection else None, id(self.selection_lines))
+        complete = signature != self.surface_signature
+        stable = self.surface_rows if blocked and not self.surface.isNull() else None
+        if blocked and stable and not complete:
             if not self.frame_timer.isActive():
                 self.frame_region |= QRegion(self.rect())
                 self.frame_timer.start(8)
             return
-        dpr = self.devicePixelRatioF()
-        signature = (self.width(), self.height(), dpr, id(self.row_painter), self.offset,
-                     self.selection if self.has_selection else None, id(self.selection_lines))
-        complete = signature != self.surface_signature
         dirty = set(range(self.screen.lines)) if completed else self.surface_dirty | self.screen.dirty
         if not complete and not dirty:
             self.presented_cursor = self.screen.cursor.x, self.screen.cursor.y, self.screen.cursor.hidden
             return
         size = (math.ceil(self.width() * dpr), math.ceil(self.height() * dpr))
-        if (self.surface.width(), self.surface.height()) != size:
-            self.surface = QImage(*size, QImage.Format.Format_ARGB32_Premultiplied)
+        area = max(1, size[0] * size[1])
+        if self.surface.width() < size[0] or self.surface.height() < size[1] or self.surface.width() * self.surface.height() > area * 2:
+            # A small reserve avoids allocating the full image for every pixel
+            # of a resize. Release it again when the viewport shrinks materially.
+            capacity = tuple(math.ceil(value / 64) * 64 for value in size)
+            self.surface = QImage(*capacity, QImage.Format.Format_ARGB32_Premultiplied)
+            self.surface_allocations += 1
+            complete = True
+        if complete:
             self.surface.setDevicePixelRatio(dpr)
             self.surface.setDotsPerMeterX(round(self.logicalDpiX() / .0254))
             self.surface.setDotsPerMeterY(round(self.logicalDpiY() / .0254))
-            complete = True
-        if complete:
             self.surface.fill(self.background)
             dirty = set(range(self.screen.lines))
             self.surface_rows = [None] * self.screen.lines
         p = QPainter(self.surface)
         selected = sorted(self.selection) if self.has_selection else None
         first = self.selection_start()
-        blank = self.screen.default_char
-        rows = self.completed_frame[0] if completed else self.rows()
-        for y, line in enumerate(rows):
+        blank = self.presented_blank if stable else self.screen.default_char
+        rows = stable if stable else self.completed_frame[0] if completed else self.rows()
+        for y in range(self.screen.lines):
             if y not in dirty:
                 continue
             span = None
             if selected and selected[0][0] <= y + first <= selected[1][0]:
                 span = (selected[0][1] if y + first == selected[0][0] else 0,
                         selected[1][1] if y + first == selected[1][0] else self.screen.columns - 1)
-            cells = line if completed else tuple(line.get(x, blank) for x in range(self.screen.columns))
+            if stable:
+                saved = rows[y] if y < len(rows) else None
+                cells, span = saved if saved is not None else ((), None)
+                cells = cells[:self.screen.columns] + (blank,) * max(0, self.screen.columns - len(cells))
+            elif completed:
+                cells = rows[y] if y < len(rows) else (blank,) * self.screen.columns
+            else:
+                line = rows[y] if y < len(rows) else {}
+                cells = tuple(line.get(x, blank) for x in range(self.screen.columns))
             record = cells, span
             if not complete and y < len(self.surface_rows) and self.surface_rows[y] == record:
                 continue
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-            p.fillRect(QRectF(0, self.PAD_Y + y * self.cell_height, self.width(), self.cell_height), self.background)
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            top = round((self.PAD_Y + y * self.cell_height) * dpr) / dpr
+            p.fillRect(QRectF(0, top, self.width(), self.cell_height), self.background)
             self.row_painter.draw(p, cells, span,
                                   self.PAD_X, self.PAD_Y + y * self.cell_height)
             self.surface_rows[y] = record
         p.end()
         self.surface_signature = signature
+        if stable:
+            # Re-rasterize the last committed cells at the new device scale or
+            # geometry, rather than stretching an obsolete bitmap while held.
+            self.frame_region |= QRegion(self.rect())
+            self.frame_timer.start(8)
+            return
         self.surface_dirty.clear()
+        self.presented_blank = blank
         if completed:
             self.presented_cursor = self.completed_frame[1]
             self.presented_generation = self.completed_generation
@@ -809,6 +834,7 @@ class TerminalView(QWidget):
         # Copy one committed surface. Expose/blink/transparent-parent paints
         # cannot expose a live screen between erase and redraw.
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         p.drawImage(QPointF(), self.surface)
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         x, y, hidden = self.presented_cursor
@@ -832,7 +858,25 @@ class TerminalView(QWidget):
             p.restore()
 
     def resizeEvent(self, event):
+        self._check_render_environment()
         self._resize_grid()
+
+    def _measure_font(self):
+        self.metrics = QFontMetricsF(self.font, self)
+        self.cell_width = self.metrics.horizontalAdvance('M')
+        dpr = self.devicePixelRatioF()
+        self.cell_height = math.ceil((self.metrics.height() + 2) * dpr) / dpr
+        self.render_environment = (dpr, self.logicalDpiX(), self.logicalDpiY(), self.font.toString())
+
+    def _check_render_environment(self):
+        environment = (self.devicePixelRatioF(), self.logicalDpiX(), self.logicalDpiY(), self.font.toString())
+        if environment == self.render_environment:
+            return
+        self._measure_font()
+        self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
+        self.row_painter.set_background(self.background)
+        self._resize_grid()
+        self.update_input_method()
 
     def _resize_grid(self):
         self.scrollbar.setGeometry(self.width() - 12, 4, 10, self.height() - 8)
@@ -918,11 +962,7 @@ class TerminalView(QWidget):
 
     def event(self, event):
         if event.type() == QEvent.Type.DevicePixelRatioChange and hasattr(self, "row_painter"):
-            self.metrics = QFontMetricsF(self.font, self)
-            self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
-            self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
-            self.row_painter.background = self.background
-            self._resize_grid()
+            self._check_render_environment()
         # QWidget otherwise moves focus before Tab/Backtab reaches the CLI.
         if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
             self.keyPressEvent(event)

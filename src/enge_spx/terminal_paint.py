@@ -13,6 +13,15 @@ class RowPainter:
     MAX_ROWS = 128
     MAX_RASTER_BYTES = 64 * 1024 * 1024
 
+    @staticmethod
+    def blit(painter, origin, image):
+        mode = painter.compositionMode()
+        if mode != QPainter.CompositionMode.CompositionMode_Source:
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.drawImage(origin, image)
+        if mode != QPainter.CompositionMode.CompositionMode_Source:
+            painter.setCompositionMode(mode)
+
     def __init__(self, font, width, height, color):
         self.font = QFont(font)
         self.width, self.height, self.color = width, height, color
@@ -22,6 +31,29 @@ class RowPainter:
         self.rasters = OrderedDict()
         self.raster_bytes = self.raster_builds = 0
         self.cells = self.layout_builds = 0
+
+    def set_background(self, color):
+        color = QColor(color)
+        if color.rgb() != self.background.rgb():
+            self.rows.clear()
+            self.rasters.clear()
+            self.cells = self.raster_bytes = 0
+        if color != self.background:
+            self.styles.clear()
+        self.background = color
+
+    @staticmethod
+    def compact(cells, selected):
+        # Blank viewport padding has no ink. Keeping it in the raster key made
+        # every one-column resize rebuild otherwise identical text bitmaps.
+        end = len(cells)
+        minimum = min(end, selected[1] + 1) if selected is not None else 0
+        while end > minimum:
+            char = cells[end - 1]
+            if char.data != ' ' or char.bg != 'default' or char.reverse or char.underscore or char.strikethrough:
+                break
+            end -= 1
+        return cells[:end]
 
     def style(self, char, selected):
         key = (*char[1:], selected)
@@ -35,6 +67,8 @@ class RowPainter:
             fg = QColor(*(round(a * .58 + b * .42) for a, b in zip(fg.getRgb()[:3], bg.getRgb()[:3])))
         if selected:
             fg, bg = self.selection_fg, self.selection_bg
+        fg = QColor(fg)
+        fg.setAlpha(255)  # Reverse video must not inherit background opacity.
         font = QFont(self.font)
         font.setBold(char.bold)
         font.setItalic(char.italics)
@@ -94,26 +128,42 @@ class RowPainter:
         return result
 
     def draw(self, painter, cells, selected, x, y):
+        cells = self.compact(cells, selected)
+        if not cells:
+            return
         dpr = painter.device().devicePixelRatioF()
-        key = cells, selected, dpr
+        dpi = painter.device().logicalDpiX(), painter.device().logicalDpiY()
+        margin = math.ceil(2 * dpr)
+        # Rasterize and blit at the same physical-pixel phase. Two logical
+        # pixels are 2.5 physical pixels at 125%, which blurred the old cache.
+        origin = QPointF((round(x * dpr) - margin) / dpr, round(y * dpr) / dpr)
+        inset = margin / dpr
+        key = cells, selected, dpr, dpi, self.background.rgba()
         if key in self.rasters:
             self.rasters.move_to_end(key)
-            painter.drawImage(QPointF(x - 2, y), self.rasters[key])
+            self.blit(painter, origin, self.rasters[key])
             return
-        image = QImage(math.ceil((len(cells) * self.width + 4) * dpr), math.ceil(self.height * dpr),
+        image = QImage(math.ceil(len(cells) * self.width * dpr) + 2 * margin, math.ceil(self.height * dpr),
                        QImage.Format.Format_ARGB32_Premultiplied)
         image.setDevicePixelRatio(dpr)
         image.setDotsPerMeterX(round(painter.device().logicalDpiX() / .0254))
         image.setDotsPerMeterY(round(painter.device().logicalDpiY() / .0254))
-        image.fill(Qt.GlobalColor.transparent)
+        # Cache the actual composited row, not transparent text. Qt's fallback
+        # glyph antialiasing (notably CJK) differs on a transparent destination.
+        # Source-copying this row also avoids applying the tint twice.
+        image.fill(self.background)
         row = QPainter(image)
+        # Apply the integer-physical-pixel inset as a transform. Adding its
+        # fractional logical value to glyph positions rounds CJK fallback
+        # coordinates a second time inside Qt's fixed-point text engine.
+        row.translate(inset, 0)
         fills, glyphs = self.layout(cells, selected)
         for left, width, color in fills:
-            row.fillRect(QRectF(2 + left, 0, width, self.height), color)
+            row.fillRect(QRectF(left, 0, width, self.height), color)
         for left, text, (fg, bg, font) in glyphs:
             row.setFont(font)
             row.setPen(fg)
-            row.drawStaticText(QPointF(2 + left, 0), text)
+            row.drawStaticText(QPointF(left, 0), text)
         row.end()
         self.raster_builds += 1
         size = image.sizeInBytes()
@@ -123,4 +173,4 @@ class RowPainter:
             while len(self.rasters) > self.MAX_ROWS or self.raster_bytes > self.MAX_RASTER_BYTES:
                 _, old = self.rasters.popitem(last=False)
                 self.raster_bytes -= old.sizeInBytes()
-        painter.drawImage(QPointF(x - 2, y), image)
+        self.blit(painter, origin, image)

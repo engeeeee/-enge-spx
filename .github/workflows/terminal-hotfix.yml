@@ -1,7 +1,7 @@
 name: Terminal glass and scrolling probes
 on:
   push:
-    branches: [fix/terminal-glass-scroll]
+    branches: [fix/terminal-glass-scroll, fix/terminal-pixel-grid]
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,3 +44,32 @@ jobs:
         with:
           name: terminal-glass-scroll
           path: ${{ runner.temp }}/glass
+  pixels:
+    if: github.ref == 'refs/heads/fix/terminal-pixel-grid' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - shell: pwsh
+        run: |
+          $baseline = Join-Path $env:RUNNER_TEMP 'pixels-before'
+          git worktree add --detach $baseline b19956bbff225fc8e8aaf6f361b3cb3a58ac9409
+          foreach ($scale in @('1', '1.25', '1.5', '1.75', '2')) {
+            $env:QT_SCALE_FACTOR = $scale
+            python tools/probe_terminal_pixels.py --source "$baseline/src" --output "${{ runner.temp }}/pixels/before-$scale.json"
+            if ($LASTEXITCODE -ne 0) { throw "Baseline pixel probe failed: $scale" }
+            python tools/probe_terminal_pixels.py --output "${{ runner.temp }}/pixels/after-$scale.json"
+            if ($LASTEXITCODE -ne 0) { throw "Pixel probe failed: $scale" }
+            $report = Get-Content "${{ runner.temp }}/pixels/after-$scale.json" -Raw | ConvertFrom-Json
+            if (-not $report.pixel_reference_passed) { throw "Text differs from aligned single-pass reference: $scale" }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-pixel-grid
+          path: ${{ runner.temp }}/pixels

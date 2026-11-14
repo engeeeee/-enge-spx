@@ -115,6 +115,7 @@ jobs:
           $selfTest | Write-Output
           $runtime = $selfTest | ConvertFrom-Json
           if ($runtime.python -notlike '3.12.*') { throw 'Packaged Python differs from the source test interpreter.' }
+          if ($runtime.dpi_awareness -ne 'per-monitor-v2') { throw 'Packaged client is not per-monitor DPI aware.' }
           $smokeHome = Join-Path $env:RUNNER_TEMP 'spx-packaged-smoke'
           $budgets = & ./dist/ENGE-SPX/spx.exe --data $smokeHome resources --show-settings
           if ($LASTEXITCODE -ne 0 -or ($budgets | ConvertFrom-Json).schema -ne 1) { throw 'Packaged resource settings failed.' }

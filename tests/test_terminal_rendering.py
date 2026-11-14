@@ -168,3 +168,62 @@ class TerminalRenderingTests(unittest.TestCase):
         self.view.stream.feed('\x1b[?2026h\x1b[2J\x1b[HNew grid\x1b[?2026l')
         self.image()
         self.assertEqual(len(self.view.surface_rows), self.view.screen.lines)
+
+    def test_width_resize_reuses_ink_rasters_instead_of_viewport_padding(self):
+        self.view.stream.feed('Stable resize text 中文')
+        self.image()
+        painter, builds = self.view.row_painter, self.view.row_painter.raster_builds
+        for width in (1007, 1031, 1087, 1133, 1000):
+            self.view.resize(width, 620)
+            self.image()
+        self.assertIs(self.view.row_painter, painter)
+        self.assertEqual(painter.raster_builds, builds)
+
+    def test_background_opacity_preserves_opaque_text_and_row_cache(self):
+        self.view.stream.feed('Opacity keeps text sharp\x1b[7m reversed\x1b[0m')
+        original = self.image()
+        painter, builds = self.view.row_painter, self.view.row_painter.raster_builds
+        layouts = painter.layout_builds
+        for opacity in (65, 100):
+            self.view.apply_display({**DEFAULTS, 'opacity': opacity}, glass=True)
+            self.image()
+            self.assertIs(self.view.row_painter, painter)
+            self.assertEqual(painter.layout_builds, layouts)
+        builds = painter.raster_builds
+        for opacity in (65, 100, 65, 100):
+            self.view.apply_display({**DEFAULTS, 'opacity': opacity}, glass=True)
+            self.image()
+            self.assertEqual(painter.raster_builds, builds)
+        reverse = next(char for char in self.view.screen.buffer[0].values() if char.reverse)
+        self.assertEqual(painter.style(reverse, False)[0].alpha(), 255)
+        self.view.apply_display(DEFAULTS, glass=False)
+        self.assertEqual(self.image(), original)
+
+    def test_resize_while_frame_held_rerasterizes_committed_text_at_new_size(self):
+        self.view.stream.feed('Committed before resize')
+        self.image()
+        self.view.stream.feed('\x1b[?2026h\x1b[2J\x1b[HPartial hidden frame')
+        self.view.resize(1093, 687)
+        self.image()
+        self.assertGreaterEqual(self.view.surface.width(), round(self.view.width() * self.view.devicePixelRatioF()))
+        text = ''.join(char.data for record in self.view.surface_rows if record for char in record[0])
+        self.assertIn('Committed before resize', text)
+        self.assertNotIn('Partial hidden frame', text)
+        self.view.stream.feed('\x1b[?2026l')
+        self.image()
+        text = ''.join(char.data for record in self.view.surface_rows if record for char in record[0])
+        self.assertIn('Partial hidden frame', text)
+
+    def test_surface_reserve_reuses_small_resizes_and_shrinks_when_needed(self):
+        self.view.stream.feed('Surface capacity')
+        self.image()
+        allocations = self.view.surface_allocations
+        for width in range(1001, 1042, 2):
+            self.view.resize(width, 620)
+            self.image()
+        self.assertLessEqual(self.view.surface_allocations - allocations, 2)
+        self.view.resize(600, 400)
+        self.image()
+        pixels = self.view.width() * self.view.height() * self.view.devicePixelRatioF() ** 2
+        self.assertLessEqual(self.view.surface.width() * self.view.surface.height(), pixels * 2)
+        self.assertAlmostEqual(self.view.cell_height * self.view.devicePixelRatioF(), round(self.view.cell_height * self.view.devicePixelRatioF()))

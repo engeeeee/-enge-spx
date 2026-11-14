@@ -13,6 +13,22 @@ class Composition(ctypes.Structure):
     _fields_ = [("attribute", ctypes.c_int), ("data", ctypes.c_void_p), ("size", ctypes.c_size_t)]
 
 
+def dpi_awareness():
+    if os.name != 'nt':
+        return 'platform-managed'
+    try:
+        user = ctypes.WinDLL('user32', use_last_error=True)
+        user.GetThreadDpiAwarenessContext.argtypes, user.GetThreadDpiAwarenessContext.restype = [], wintypes.HANDLE
+        user.AreDpiAwarenessContextsEqual.argtypes, user.AreDpiAwarenessContextsEqual.restype = [wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL
+        context = user.GetThreadDpiAwarenessContext()
+        for value, label in ((-4, 'per-monitor-v2'), (-3, 'per-monitor'), (-2, 'system'), (-1, 'unaware'), (-5, 'unaware-gdi-scaled')):
+            if user.AreDpiAwarenessContextsEqual(context, wintypes.HANDLE(value)):
+                return label
+    except (AttributeError, OSError, ValueError):
+        pass
+    return 'unavailable'
+
+
 def apply_acrylic(window, color, enabled=True):
     """Return the actual accepted backend, or an explicit opaque fallback."""
     if os.name != "nt":
