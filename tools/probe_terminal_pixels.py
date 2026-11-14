@@ -13,9 +13,12 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[1] / 'src')
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--loops', type=int, default=24)
+parser.add_argument('--font-size', type=int, default=11)
 args = parser.parse_args()
 if not 8 <= args.loops <= 80:
     parser.error('loops must be 8..80')
+if not 8 <= args.font_size <= 24:
+    parser.error('font-size must be 8..24')
 sys.path.insert(0, str(args.source))
 if os.name != 'nt':
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -23,6 +26,7 @@ from PySide6.QtCore import QPointF, QRectF, qVersion
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 from enge_spx.smart_terminal import TerminalView
+from enge_spx.terminal_preferences import DEFAULTS
 
 
 class FixturePTY:
@@ -55,7 +59,7 @@ def reference(view):
     painter = QPainter(image)
     blank = view.screen.default_char
     x = round(view.PAD_X*dpr) / dpr
-    for y in range(min(6, view.screen.lines)):
+    for y in range(view.screen.lines):
         row = view.screen.buffer[y]
         cells = tuple(row.get(column, blank) for column in range(view.screen.columns))
         fills, glyphs = view.row_painter.layout(cells, None)
@@ -93,6 +97,7 @@ view = TerminalView(pty)
 view.setParent(host)
 host.show()
 view.show()
+view.apply_display({**DEFAULTS, 'font_size': args.font_size}, glass=False)
 view.blink_timer.stop()
 view.blink = False
 cases = []
@@ -105,7 +110,7 @@ try:
         view._compose_surface()
         dpr = view.devicePixelRatioF()
         crop_width = math.ceil(min(width, 520)*dpr)
-        crop_height = math.ceil((view.PAD_Y*2+6*view.cell_height)*dpr)
+        crop_height = math.ceil(min(height, view.PAD_Y*2+6*view.cell_height)*dpr)
         actual = view.surface.copy(0, 0, crop_width, crop_height)
         expected = reference(view).copy(0, 0, crop_width, crop_height)
         cases.append({'viewport': [width, height], 'grid': [view.screen.columns, view.screen.lines],

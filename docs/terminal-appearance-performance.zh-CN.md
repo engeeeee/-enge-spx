@@ -2,7 +2,7 @@
 
 0.14.4 为 ENGE SPX 智能终端增加可保存的外观设置，并优化绘制和 Codex 草稿编辑。第三方终端继续使用自己的外观及快捷键设置。
 
-**当前0.14.5修复0.14.4在Acrylic下标题栏透明穿透、拖动停滞及全屏滚动半帧闪烁的问题。** 下方0.14.4静态数字作为历史记录保留，不能代替全屏滚动验收。
+**当前0.14.6改善不同窗口比例及分数缩放下的字体清晰度，并减少缩放时的重复绘制和画面分配。** 继续保留0.14.5的Acrylic交互及完整帧修复。下方历史数字不能代替当前版本验收。
 
 ## 自定义并保存
 
@@ -92,6 +92,54 @@ PYTHONPATH=src python -m unittest discover -s tests -p 'test_terminal*.py' -v
 Windows实测（构建26100、AMD64、Python3.12.10、Qt6.12、DPR1、1920×1080、208×52格、30帧）：0.14.4解析加提交中位数46.837ms／P95 56.723ms，修复实现15.317ms／P95 16.351ms；三个分包检查点的半帧由3次变为0，最终像素一致。该次窗口像素／WindowFromPoint、原生／兼容材质和150%DPI检查也通过；记录见[专项运行](https://github.com/engeeeee/ENGE-SPX/actions/runs/43583423905)。该运行另有旧Docker CLI模拟传输用例超时，图形结果独立记录，传输夹具已修正先输出再接收的双工握手并由最终发布回归复核，不能将这个专项任务整体称为全通过。
 
 依据：[Microsoft窗口命中](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest)、[进入移动循环](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-entersizemove)、[退出移动循环](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-exitsizemove)、[Qt样式背景属性](https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum)。没有并入其它终端的代码、字体或渲染器，许可不变。
+
+## 0.14.6：物理像素对齐与缩放缓存
+
+旧实现的字体高度加行间距可能为小数逻辑像素；在125%缩放时，2个逻辑像素的位图留白也会落在半个物理像素上。每行落点及缓存图片的绘制起点因此不统一。另一个独立问题是中文回退字体先画在透明图上、再合成到背景时，抗锯齿与直接绘字不同。新版不缩放现有字形来适配窗口宽高，而是：
+
+- 按当前设备比例向上取整行高；起点、留白在物理像素网格对齐。横向保留字体自然等宽字宽，不通过拉宽字形凑网格。
+- 使用实际背景生成行位图，按 Source 模式拷贝一次；前景保持不透明，避免背景重复混合。禁用画面位图平滑缩放。
+- DPR、逻辑DPI或字体变化时更新度量和缓存。同步更新期间若窗口比例变化，从上一张已提交的字符帧重新绘制，不拉伸旧画面或显示未完成内容。
+- 行缓存忽略末尾无样式空格，但保留选择、背景、下划线及宽字符占位。窗口只变宽时可以命中同一份文字位图。
+- 只改背景透明度时保留布局，分别缓存已有透明度的行位图；RGB配色或字体改变时按需失效。缓存仍最多128行、64MiB。
+- 当前画面按64个物理像素块预留小幅缩放空间；面积超过当前视口两倍时重新收缩。另有最多一个块的取整余量，不无限保留历史最大窗口。1920×1080的裸视口图片约7.91MiB，实际保留容量及Qt／系统缓冲另计。
+
+完整帧捕获只在每行取得一次缓冲和读取方法，捕获的字符、属性、光标数据及提交顺序不变。两个冻结Windows入口共用 `packaging/windows/app.manifest`，声明 `PerMonitorV2,PerMonitor` 和 `asInvoker`；`spx.exe --self-test` 报告实际 `dpi_awareness`，Windows打包流程要求 `per-monitor-v2`。Qt自身也会设置DPI感知，清单用于明确冻结程序契约，不能将旧版缺少清单单独认定为所有发虚的原因。
+
+[Windows像素与缩放专项](https://github.com/engeeeee/ENGE-SPX/actions/runs/43589831711)在Windows构建26100、AMD64、Python3.12.10、Qt6.12、Cascadia Mono 11pt上，同机比较0.14.5与优化实现。每个缩放率检查六种视口：1001×633、1179×761、1597×997、1919×1079、701×953、1807×431；覆盖ASCII、中文、组合字符、emoji及ANSI样式。30组优化后的可见文字与一次性直接绘字参考的像素逐通道一致（允许误差阈值2，实际最大差0）。这是字形合成检查，不是模拟真实Codex对话截图或实体LCD观感测量。
+
+| 进程缩放 | 0.14.5 缩放加呈现中位数／P95 | 优化实现中位数／P95 | 24次缩放：画面分配（前→后） |
+| --- | --- | --- | --- |
+| 100% | 5.338／6.906ms | 3.190／3.954ms | 24→2 |
+| 125% | 7.426／10.233ms | 3.856／5.120ms | 24→2 |
+| 150% | 8.918／12.901ms | 4.376／5.963ms | 24→3 |
+| 175% | 11.427／15.664ms | 4.266／5.854ms | 24→3 |
+| 200% | 10.042／13.132ms | 4.856／6.517ms | 24→3 |
+
+相同固定文字的24次变宽操作，行位图新生成次数从56变为0；125%行缓存从13,885,200字节变为170,600字节；完整帧快照中位数从1.661ms变为0.292ms。这些数字来自特定合成场景，缓存效果取决于输出内容，**不代表聊天速度、物理显示器FPS、整机内存或持续CPU的下降比例**。行距取整会改变可见行数，探针同时记录实际网格。
+
+复现：
+
+```powershell
+$env:QT_SCALE_FACTOR = '1.25'
+python tools/probe_terminal_pixels.py --source C:/src/0.14.5/src --output before-125.json
+python tools/probe_terminal_pixels.py --output after-125.json
+python tools/probe_terminal_pixels.py --font-size 24 --output large-125.json
+Remove-Item Env:QT_SCALE_FACTOR
+```
+
+JSON记录环境、实际视口、逐通道差异、缓存量、分配次数和耗时；相邻PNG分别为实际Qt画面与直接绘字参考。CI另检查125%／150%的16／24pt字号。缩放通过独立进程的 `QT_SCALE_FACTOR` 设置，**尚未代替真实多屏拖动、Windows10不同显卡和DWM毛玻璃的人工验收**。
+
+| 文件 | 0.14.6变化 |
+| --- | --- |
+| `smart_terminal.py` | 物理行距、DPI环境更新、已提交文字重绘、缓冲余量及快照访问 |
+| `terminal_paint.py` | 背景相关位图、物理边距、末尾空白压缩及布局／透明度缓存 |
+| `window_effects.py`、`__main__.py` | 查询并报告当前Windows DPI感知上下文 |
+| `packaging/windows/app.manifest`、`SPX.spec` | GUI和CLI共用逐显示器DPI清单，维持普通用户权限 |
+| `tests/test_terminal_rendering.py` | 缩放、透明度、缓冲回收、未完成同步帧回归 |
+| `tools/probe_terminal_pixels.py` | 参考图、六种视口、字号及缩放性能记录 |
+
+依据：[Qt高DPI与图片像素](https://doc.qt.io/qt-6/highdpi.html)、[Qt静态文字缓存](https://doc.qt.io/qt-6/qstatictext.html)、[Microsoft逐显示器DPI](https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows)。无新增依赖，偏好仍使用schema1，回滚0.14.5无需配置迁移。
 
 ## 工作区系统时区
 

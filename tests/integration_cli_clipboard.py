@@ -90,6 +90,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.answer({"error": "fixture_limit"}, 400)
         value = json.loads(self.rfile.read(length))
         images = list(image_blocks(value))
+        texts = list(text_blocks(value))
+        # Codex 0.169 can start an asynchronous title request after submitting
+        # the conversation. Rendering speed changes when it reaches the server;
+        # it must not be mistaken for a draft edit submitting another turn.
+        title_request = any(text.startswith("Generate a concise, single-line task title") for text in texts)
         summaries = []
         for item in images:
             if item["type"] == "image":
@@ -105,7 +110,8 @@ class Handler(BaseHTTPRequestHandler):
         if "count_tokens" not in self.path and any(route in self.path for route in ("messages", "responses")):
             # Only non-content evidence. Never store full prompts/base64 data.
             with self.server.lock:
-                self.server.requests.append({"route": self.path.split("?", 1)[0], "images": summaries, "text": list(text_blocks(value))})
+                self.server.requests.append({"route": self.path.split("?", 1)[0], "images": summaries, "text": texts,
+                                             "purpose": "task-title" if title_request else "conversation"})
             if len(images) == 2:
                 self.server.got_images.set()
         if "count_tokens" in self.path:
@@ -502,7 +508,7 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             if qt_terminal and tool == 'codex':
                 tui.wait(lambda value: 'SCROLL-FIXTURE-119' in value)
                 with api.lock:
-                    stream_requests = len(api.requests)
+                    stream_requests = sum(req['purpose'] == 'conversation' for req in api.requests)
                 tui.paste(Snapshot('text', 'LIVE-DRAFT-TO-DELETE'))
                 tui.wait(lambda value: 'LIVE-DRAFT-TO-DELETE' in value)
                 tui.delete_selection(all_draft=True)
@@ -511,7 +517,7 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 tui.wait(lambda value: 'SPX-STREAM-REMAINS' in value)
                 assert not api.disconnected.is_set(), 'Draft deletion interrupted the response stream'
                 with api.lock:
-                    assert len(api.requests) == stream_requests, 'Draft deletion started another API request'
+                    assert sum(req['purpose'] == 'conversation' for req in api.requests) == stream_requests, 'Draft deletion started another conversation request'
             assert tui.pty.pid == alive_pid and tui.pty.poll() is None
             with api.lock:
                 requests = list(api.requests)

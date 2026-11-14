@@ -68,6 +68,15 @@ jobs:
             $report = Get-Content "${{ runner.temp }}/pixels/after-$scale.json" -Raw | ConvertFrom-Json
             if (-not $report.pixel_reference_passed) { throw "Text differs from aligned single-pass reference: $scale" }
           }
+          foreach ($scale in @('1.25', '1.5')) {
+            foreach ($size in @(16, 24)) {
+              $env:QT_SCALE_FACTOR = $scale
+              python tools/probe_terminal_pixels.py --font-size $size --output "${{ runner.temp }}/pixels/large-$scale-$size.json"
+              if ($LASTEXITCODE -ne 0) { throw "Large-font pixel probe failed: $scale / $size" }
+              $report = Get-Content "${{ runner.temp }}/pixels/large-$scale-$size.json" -Raw | ConvertFrom-Json
+              if (-not $report.pixel_reference_passed) { throw "Large-font raster differs: $scale / $size" }
+            }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

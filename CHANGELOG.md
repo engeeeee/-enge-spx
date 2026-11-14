@@ -1,5 +1,25 @@
 # Changes
 
+## 0.14.6 terminal pixel alignment and resize performance — 2026-11-14
+
+- Align row spacing, raster padding and image origins to physical pixels;
+  refresh font metrics and caches when device scale or logical DPI changes.
+  Render glyphs against their actual background and copy rasters once,
+  preserving the single-pass Qt antialiasing result, including CJK fallback.
+- Reuse text rasters when only trailing viewport padding changes, retain
+  layout/opacity variants, and reserve a small frame-buffer margin during
+  resizing. Shrink oversized buffers; retain existing bounded row caches.
+- Reduce completed-frame snapshot overhead without changing captured cells.
+  Repaint committed cells at the new pixel grid while a live frame is held;
+  preserve synchronized-update timeout, input ordering and clipboard behavior.
+- Declare PerMonitorV2/PerMonitor and ordinary-user execution in both Windows
+  manifests; require per-monitor-v2 awareness in the frozen runtime check.
+- Add a Windows five-scale/six-geometry pixel-reference comparison, larger
+  fonts, resize/cache measurements and regression coverage. Recorded timings
+  are synthetic rendering costs, not physical monitor FPS or a user guarantee.
+  Existing profiles, appearance, accounts and timezone configuration remain
+  compatible. No new dependencies, ports, mounts or container permissions.
+
 ## 0.14.5 Acrylic interaction and complete terminal frames — 2026-11-14
 
 - Paint custom caption backgrounds explicitly: alpha-zero pixels on layered
