@@ -1306,6 +1306,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         self.preferences.error.connect(self.message.setText)
         if os.name == 'nt':
             from .window_effects import configure_frame
+            # Native creation itself sends NCCALCSIZE. Enable custom handling
+            # only after winId exists; asking for winId inside creation recurses.
+            self.winId()
             self._frame_configured = True
             self._frame_configured = configure_frame(self)
         self.apply_preferences(self.preferences.value)

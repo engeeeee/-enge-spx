@@ -50,6 +50,7 @@ class TerminalStream:
         self.discard_osc = False
         self.synchronized_at = None
         self.frame_complete = frame_complete
+        self.frame_serial = 0
 
     def expire_synchronized_update(self):
         self.synchronized_at = None
@@ -67,6 +68,7 @@ class TerminalStream:
                     self.synchronized_at = time.monotonic()
             else:
                 self.synchronized_at = None
+                self.frame_serial += 1
         return self._sgr(sequence) if sequence.endswith('m') and ':' in sequence else sequence
 
     @staticmethod
@@ -157,8 +159,9 @@ class TerminalStream:
                 index = start + 2 + end.end()
                 sequence = text[start:index]
                 if len(sequence) <= 256:
+                    serial = self.frame_serial
                     plain.append(self._csi(sequence))
-                    if sequence == '\x1b[?2026l' and self.frame_complete is not None:
+                    if self.frame_serial != serial and self.frame_complete is not None:
                         self.stream.feed(''.join(plain))
                         plain = []
                         self.frame_complete()
