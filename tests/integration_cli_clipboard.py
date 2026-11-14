@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -27,7 +28,8 @@ from enge_spx.clipboard_transfer import Attachment, InputAdapter, text_frame
 from enge_spx.smart_terminal import TerminalScreen, TerminalStream, TerminalWindow
 from enge_spx.clipboard import Snapshot
 import codecs
-from enge_spx.terminal_pty import PosixPTY
+from enge_spx.terminal_pty import PosixPTY, DockerPTY
+from enge_spx.brand import PACKAGE_RESOURCES
 
 
 class FixtureAPI(ThreadingHTTPServer):
@@ -141,7 +143,8 @@ class Handler(BaseHTTPRequestHandler):
 
 class TUI:
     def __init__(self, command, environment, project):
-        self.pty = PosixPTY(command, environment, str(project))
+        relay = (PACKAGE_RESOURCES / "checks/terminal_relay.py").read_text(encoding="utf-8")
+        self.pty = DockerPTY([sys.executable, "-I", "-c", relay, "110", "32", *command], environment, str(project))
         self.lock = threading.RLock()
         self.screen = TerminalScreen(120, 40, self.pty.write)
         self.pty.resize(120, 40)
@@ -185,7 +188,8 @@ class QtTUI:
         from enge_spx.ui import style
         self.app = QApplication.instance() or QApplication([])
         style.apply(self.app)
-        self.pty = PosixPTY(command, environment, str(project))
+        relay = (PACKAGE_RESOURCES / "checks/terminal_relay.py").read_text(encoding="utf-8")
+        self.pty = DockerPTY([sys.executable, "-I", "-c", relay, "110", "32", *command], environment, str(project))
         self.snapshot = Snapshot("empty")
         self.serial = 0
         owner = self
@@ -300,7 +304,7 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
         allowed = {"PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "TMP", "TEMP", "PROGRAMFILES", "PROGRAMFILES(X86)"}
         env = {k: v for k, v in os.environ.items() if k.upper() in allowed}
         endpoint = "http://127.0.0.1:" + str(api.server_port)
-        env.update(HOME=str(home), USERPROFILE=str(home), LANG="C.UTF-8", TERM="xterm-256color", COLORTERM="truecolor", NO_PROXY="127.0.0.1,localhost", HTTP_PROXY=endpoint, HTTPS_PROXY=endpoint, DO_NOT_TRACK="1")
+        env.update(HOME=str(home), USERPROFILE=str(home), LANG="C.UTF-8", TERM="xterm-256color", COLORTERM="truecolor", TERM_PROGRAM="ENGE-SPX", NO_PROXY="127.0.0.1,localhost", HTTP_PROXY=endpoint, HTTPS_PROXY=endpoint, DO_NOT_TRACK="1")
         command = [str(Path(executable).resolve())]
         # Record the executable actually tested, never a hardcoded target.
         version_output = subprocess.run([command[0], "--version"], env=env, capture_output=True,
@@ -350,6 +354,17 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             tui.wait(lambda value: ("❯" in value and "Claude Code v" in value and "Yes, I trust" not in value) if tool == "claude" else ("To get started" in value or "GPT-6-Sol" in value))
             if qt_terminal:
                 tui.wait(lambda value: tui.window.view.ready.is_set())
+                from PySide6.QtGui import QInputMethodEvent
+                from PySide6.QtWidgets import QApplication
+                view = tui.window.view
+                # Native input method events must not be echoed into the CLI
+                # before commit; exercise the actual Qt view and its painter.
+                QApplication.sendEvent(view, QInputMethodEvent("wo xiang 输入", []))
+                if capture:
+                    tui.capture(capture.with_name(capture.stem + "-ime.png"))
+                assert not api.requests
+                QApplication.sendEvent(view, QInputMethodEvent())
+                assert not view.preedit
                 prompt = "请分析图片 " + nonce + "："
                 if tool == "codex":
                     prompt += "EDIT-A|EDIT-B\n第二行 END"
@@ -364,6 +379,10 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                     tui.click_text("END")
                     tui.paste(Snapshot("text", "mouse-"))
                     tui.wait(lambda value: "mouse-END" in value)
+                event = QInputMethodEvent()
+                event.setCommitString(" 输入法确认")
+                QApplication.sendEvent(view, event)
+                tui.wait(lambda value: "输入法确认" in value)
             else:
                 tui.pty.write(text_frame("请分析图片 " + nonce + "："))
             adapter = InputAdapter(tool, version)
@@ -414,6 +433,9 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             mouse_edit = qt_terminal and tool == "codex"
             if mouse_edit:
                 assert any("EDIT-A中点|EDIT-B" in text and "mouse-" in text for req in requests for text in req["text"])
+            if qt_terminal:
+                text = "\n".join(text for request in requests for text in request["text"])
+                assert "wo xiang" not in text and text.count("输入法确认") == 1
             return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "qt_mouse_cursor_edit": mouse_edit, "qt_right_click_paste": mouse_edit, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": round(time.monotonic() - first, 3), "fixture_only": True, "real_model_understanding": "not_tested"}
         finally:
             tui.close()

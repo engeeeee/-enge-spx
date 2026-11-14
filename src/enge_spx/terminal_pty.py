@@ -9,9 +9,90 @@ import ctypes
 from ctypes import wintypes as w
 import os
 import subprocess
+import struct
 import threading
 
 from .state import SPXError
+
+
+class DockerPTY:
+    """Raw Docker pipes to the existing container's owned Linux PTY relay.
+
+    The docker client has no local console, so even Windows 10 cannot consume
+    mouse modes, cursor reports or alter the Linux application's VT output.
+    """
+    def __init__(self, command, env, cwd, columns=110, rows=32):
+        self.closed = threading.Event()
+        self.write_lock = threading.Lock()
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL, env=env, cwd=cwd, bufsize=0,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        self.pid = self.process.pid
+        self.resize(columns, rows)
+
+    def read(self, size=16384):
+        try:
+            return self.process.stdout.read(size)
+        except (OSError, ValueError):
+            return b""
+
+    def _frame(self, kind, data):
+        packet = struct.pack("!cI", kind, len(data)) + data
+        while packet:
+            written = self.process.stdin.write(packet)
+            if not written:
+                raise BrokenPipeError()
+            packet = packet[written:]
+
+    def write(self, data):
+        with self.write_lock:
+            if self.closed.is_set():
+                raise SPXError("终端连接已结束，未发送输入。")
+            try:
+                for offset in range(0, len(data), 16384):
+                    self._frame(b"D", data[offset:offset + 16384])
+            except (OSError, ValueError) as error:
+                raise SPXError("终端连接已结束，未发送输入。") from error
+
+    def resize(self, columns, rows):
+        if not 2 <= columns <= 1000 or not 2 <= rows <= 1000:
+            raise SPXError("终端尺寸超出支持范围。")
+        with self.write_lock:
+            if not self.closed.is_set():
+                try:
+                    self._frame(b"R", struct.pack("!HH", columns, rows))
+                except (OSError, ValueError):
+                    pass  # EOF is handled by the output reader.
+
+    def poll(self):
+        return self.process.poll()
+
+    def close(self):
+        if self.closed.is_set():
+            return
+        self.closed.set()
+        # Kill only our Docker client if a stalled write holds the input lock;
+        # disconnecting its stdin makes the Linux relay hang up its own PTY.
+        acquired = self.write_lock.acquire(timeout=.2)
+        try:
+            if acquired:
+                self.process.stdin.close()
+            else:
+                self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=1)
+        finally:
+            if acquired:
+                self.write_lock.release()
+            self.process.stdin.close()
+            self.process.stdout.close()
 
 
 class _COORD(ctypes.Structure):

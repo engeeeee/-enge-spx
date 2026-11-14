@@ -18,6 +18,12 @@ jobs:
         env:
           SPX_TERMINAL_PROBE_REPORT: ${{ runner.temp }}/windows-terminal-probe.json
         run: python tools/probe_windows_terminal.py
+      - name: Verify actual Windows pipe transport and native Qt IME
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p test_terminal_relay.py -v
+          python -m unittest discover -s tests -p test_terminal_usability.py -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

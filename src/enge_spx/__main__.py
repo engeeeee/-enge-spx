@@ -114,7 +114,7 @@ def main():
             assert tunnel_type() and (ASSETS / "app.ico").is_file() and (PACKAGE_RESOURCES / "checks/exit_probe.py").is_file()
             for name in ("browser-seccomp.json", "sandbox_status.py", "runtime_secret.py"):
                 assert (PACKAGE_RESOURCES / "containers" / name).is_file()
-            for name in ("environment_probe.py", "browser_probe.py", "browser_shutdown.py", "network_probe.py", "clipboard_transfer.py"):
+            for name in ("environment_probe.py", "browser_probe.py", "browser_shutdown.py", "network_probe.py", "clipboard_transfer.py", "terminal_relay.py"):
                 assert (PACKAGE_RESOURCES / "checks" / name).is_file()
             codec = CredentialCodec("000000000000")
             fixture = [{"password": "synthetic-self-test-only"}]

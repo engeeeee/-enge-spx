@@ -11,7 +11,7 @@ if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QGuiApplication, QContextMenuEvent
+from PySide6.QtGui import QGuiApplication, QContextMenuEvent, QInputMethodEvent, QTextCharFormat, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QMenu
 
@@ -220,6 +220,66 @@ class TerminalUsabilityTests(unittest.TestCase):
     def point(self, column, row=0):
         return QPoint(round(self.view.PAD_X + (column + .3) * self.view.cell_width),
                       round(self.view.PAD_Y + (row + .4) * self.view.cell_height))
+
+    def preedit(self, text, attributes=()):
+        QApplication.sendEvent(self.view, QInputMethodEvent(text, list(attributes)))
+        self.app.processEvents()
+
+    def test_ime_preedit_masks_placeholder_and_cancel_restores_original(self):
+        self.view.stream.feed("\x1b[1;1HAsk Codex to do anything\x1b[1;1H")
+        self.view.blink = False
+        original = self.view.grab().toImage()
+        self.preedit("wo xiang 输入")
+        composing = self.view.grab().toImage()
+        self.assertNotEqual(original, composing)
+        self.assertEqual(self.view.screen.buffer[0][0].data, "A")
+        self.assertFalse(self.written, "Uncommitted IME text must stay out of the CLI")
+        # Painting over a placeholder must equal painting over empty cells.
+        self.view.stream.feed("\x1b[2K")
+        rectangle = self.view.rect().adjusted(self.view.PAD_X, 0, 0, 0)
+        self.assertEqual(composing.copy(rectangle), self.view.grab().toImage().copy(rectangle))
+        self.view.stream.feed("Ask Codex to do anything\x1b[1;1H")
+        self.preedit("")
+        self.assertEqual(original, self.view.grab().toImage())
+        self.assertFalse(self.written)
+
+    def test_ime_commit_is_sent_once_without_enter_or_duplicate_preedit(self):
+        self.preedit("zhong wen")
+        self.assertFalse(self.written)
+        event = QInputMethodEvent()
+        event.setCommitString("中文🙂")
+        QApplication.sendEvent(self.view, event)
+        self.pump(lambda: bool(self.written))
+        self.assertEqual(self.written, ["中文🙂".encode()])
+        self.assertEqual(self.view.preedit, "")
+
+    def test_ime_baseline_format_and_utf16_candidate_position(self):
+        self.view.stream.feed("\x1b[3;5H")
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor("#654638"))
+        attributes = [QInputMethodEvent.Attribute(QInputMethodEvent.AttributeType.Cursor, 3, 1, None),
+                      QInputMethodEvent.Attribute(QInputMethodEvent.AttributeType.TextFormat, 0, 3, fmt)]
+        self.preedit("🙂A中文", attributes)
+        layout, masks, caret = self.view.composition_layout()
+        line = layout.lineAt(0)
+        self.assertAlmostEqual(line.y() + line.ascent(), self.view.PAD_Y + 2 * self.view.cell_height + self.view.metrics.ascent())
+        self.assertAlmostEqual(caret.x(), line.cursorToX(3)[0])
+        self.assertEqual(caret.toAlignedRect(), self.view.inputMethodQuery(Qt.InputMethodQuery.ImCursorRectangle))
+        self.assertEqual(len(layout.formats()), 2)
+        self.assertEqual(masks[0].right(), self.view.PAD_X + self.view.screen.columns * self.view.cell_width)
+        self.assertFalse(self.written)
+
+    def test_ime_wrap_stays_inside_terminal_and_keeps_native_buffer(self):
+        column = self.view.screen.columns - 3
+        self.view.stream.feed(f"\x1b[2;{column + 1}H")
+        self.preedit("long preedit 中文 composition")
+        layout, masks, caret = self.view.composition_layout()
+        self.assertGreater(len(masks), 1)
+        self.assertEqual(masks[1].left(), self.view.PAD_X)
+        self.assertGreaterEqual(caret.top(), masks[1].top())
+        self.assertLessEqual(caret.right(), self.view.PAD_X + self.view.screen.columns * self.view.cell_width + 2)
+        self.assertEqual(self.view.screen.cursor.x, column)
+        self.assertFalse(self.written)
 
     def test_shift_right_click_keeps_menu_without_reading_clipboard(self):
         QTest.mouseClick(self.view, Qt.MouseButton.RightButton, Qt.KeyboardModifier.ShiftModifier, self.point(2))

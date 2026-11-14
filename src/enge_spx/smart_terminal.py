@@ -1,4 +1,4 @@
-"""Native Qt terminal: local paste events -> the existing CLI's owned ConPTY.
+"""Native Qt terminal: local paste events -> the existing CLI's owned Linux PTY.
 
 This is a terminal display, not a replacement chat composer or CLI protocol.
 The CLI owns its input buffer, editing, history, attachments and submission.
@@ -16,8 +16,8 @@ import threading
 import time
 
 import pyte
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF, QSize
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter, QContextMenuEvent
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF, QSize, QPointF
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter, QContextMenuEvent, QInputMethodEvent, QTextLayout, QTextOption, QTextCharFormat
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QFrame, QMenu, QToolButton, QSizePolicy
 
 from .clipboard import WindowsClipboard
@@ -352,6 +352,9 @@ class TerminalView(QWidget):
         self.quick_paste_click = False
         self.selecting = False
         self.preedit = ""
+        self.preedit_formats = []
+        self.preedit_cursor = 0
+        self.preedit_cursor_visible = True
         self.offset = 0
         self.colors = {}
         self.fonts = {}
@@ -411,6 +414,7 @@ class TerminalView(QWidget):
         if self.offset == 0:
             self.scrollbar.setValue(self.scrollbar.maximum())
         if changed:
+            self.update_input_method()
             self.update()
         if not self.output.empty():
             QTimer.singleShot(0, self._drain)
@@ -546,11 +550,22 @@ class TerminalView(QWidget):
                     p.setPen(fg)
                     p.drawText(rectangle.left(), rectangle.top() + self.metrics.ascent(), char.data)
         cursor = self.screen.cursor
-        if self.blink and self.hasFocus() and self.selection_lines is None and self.offset == 0 and not cursor.hidden:
+        if not self.preedit and self.blink and self.hasFocus() and self.selection_lines is None and self.offset == 0 and not cursor.hidden:
             p.fillRect(QRectF(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + cursor.y * self.cell_height, 2, self.cell_height), QColor("#d89979"))
-        if self.preedit:
-            p.setPen(QColor("#e8e3dc"))
-            p.drawText(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + (cursor.y + 1) * self.cell_height, self.preedit)
+        if self.preedit and self.offset == 0 and self.selection_lines is None:
+            layout, masks, caret = self.composition_layout()
+            p.save()
+            p.setClipRect(QRectF(self.PAD_X, self.PAD_Y, self.screen.columns * self.cell_width, self.screen.lines * self.cell_height))
+            # Preedit belongs to the input method, not the CLI buffer. Hide
+            # placeholder/suffix cells temporarily; cancellation restores them.
+            for rectangle in masks:
+                p.fillRect(rectangle, QColor(BACKGROUND))
+            p.setFont(self.font)
+            p.setPen(QColor(FOREGROUND))
+            layout.draw(p, QPointF())
+            if self.hasFocus() and self.preedit_cursor_visible:
+                p.fillRect(caret, QColor("#d89979"))
+            p.restore()
 
     def resizeEvent(self, event):
         self._resize_grid()
@@ -563,6 +578,7 @@ class TerminalView(QWidget):
         if not self.stopping.is_set():
             self.pty.resize(columns, rows)
         self.clear_selection()
+        self.update_input_method()
 
     def paste(self):
         if self.stopping.is_set():
@@ -625,11 +641,64 @@ class TerminalView(QWidget):
         if event.commitString():
             self.sender.put("keys", event.commitString().encode("utf-8"))
         self.preedit = event.preeditString()
+        self.preedit_cursor = len(self.preedit.encode("utf-16-le")) // 2
+        self.preedit_cursor_visible = True
+        self.preedit_formats = []
+        for attribute in event.attributes():
+            if attribute.type == QInputMethodEvent.AttributeType.Cursor:
+                self.preedit_cursor = attribute.start
+                self.preedit_cursor_visible = bool(attribute.length)
+            elif attribute.type == QInputMethodEvent.AttributeType.TextFormat:
+                item = QTextLayout.FormatRange()
+                item.start, item.length = attribute.start, attribute.length
+                item.format = QTextCharFormat(attribute.value)
+                self.preedit_formats.append(item)
+        self.update_input_method()
         self.update()
         event.accept()
 
+    def composition_layout(self):
+        """Native IME preedit, aligned to the terminal baseline, without echo."""
+        layout = QTextLayout(self.preedit, self.font)
+        option = QTextOption()
+        option.setWrapMode(QTextOption.WrapMode.WrapAnywhere)
+        layout.setTextOption(option)
+        base = QTextLayout.FormatRange()
+        base.start, base.length = 0, len(self.preedit.encode("utf-16-le")) // 2
+        base.format.setForeground(QColor(FOREGROUND))
+        base.format.setUnderlineStyle(QTextCharFormat.UnderlineStyle.DashUnderline)
+        layout.setFormats([base, *self.preedit_formats])
+        cursor = self.screen.cursor
+        row, column = cursor.y, min(cursor.x, self.screen.columns - 1)
+        masks, caret = [], None
+        position = max(0, min(base.length, self.preedit_cursor))
+        layout.beginLayout()
+        while row < self.screen.lines:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            x, y = self.PAD_X + column * self.cell_width, self.PAD_Y + row * self.cell_height
+            width = (self.screen.columns - column) * self.cell_width
+            line.setLineWidth(width)
+            line.setPosition(QPointF(x, y + self.metrics.ascent() - line.ascent()))
+            masks.append(QRectF(x, y, width, self.cell_height))
+            if line.textStart() <= position <= line.textStart() + line.textLength():
+                caret = QRectF(line.cursorToX(position)[0], y, 2, self.cell_height)
+            row, column = row + 1, 0
+        layout.endLayout()
+        if caret is None:
+            caret = masks[-1] if masks else QRectF(self.PAD_X, self.PAD_Y, 2, self.cell_height)
+            caret = QRectF(caret.right() - 2, caret.top(), 2, self.cell_height)
+        return layout, masks, caret
+
+    def update_input_method(self):
+        if self.hasFocus():
+            QGuiApplication.inputMethod().update(Qt.InputMethodQuery.ImCursorRectangle | Qt.InputMethodQuery.ImFont)
+
     def inputMethodQuery(self, query):
         if query == Qt.InputMethodQuery.ImCursorRectangle:
+            if self.preedit:
+                return self.composition_layout()[2].toAlignedRect()
             cursor = self.screen.cursor
             return QRectF(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + cursor.y * self.cell_height, self.cell_width, self.cell_height).toRect()
         if query == Qt.InputMethodQuery.ImFont:
@@ -970,13 +1039,13 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
 
 def run(engine, project, tool, session, container):
     from pathlib import Path
-    from .terminal_pty import start
+    from .terminal_pty import DockerPTY
     app = QApplication.instance() or QApplication([])
     from .ui import style
     style.apply(app)
-    command = engine.attach_command(project, tool, session, container, interactive=True, terminal_capabilities=True)
+    command = engine.attach_command(project, tool, session, container, interactive=True, terminal_capabilities=True, terminal_relay=True)
     transfer = Transfer(engine, project, tool, session, container) if tool in ("claude", "codex") else None
-    pty = start(command, engine.docker.environment(), project)
+    pty = DockerPTY(command, engine.docker.environment(), project)
     clipboard = WindowsClipboard() if os.name == "nt" else None
     window = TerminalWindow(pty, tool, Path(project), transfer, clipboard)
     def close_stopped_workspace():
