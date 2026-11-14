@@ -39,10 +39,12 @@ def moving_or_sizing():
                     ('caret_rect', wintypes.RECT)]
     try:
         user = ctypes.WinDLL('user32', use_last_error=True)
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.GetCurrentThreadId.argtypes, kernel.GetCurrentThreadId.restype = [], wintypes.DWORD
         user.GetGUIThreadInfo.argtypes, user.GetGUIThreadInfo.restype = [wintypes.DWORD, ctypes.POINTER(GuiThreadInfo)], wintypes.BOOL
         info = GuiThreadInfo()
         info.size = ctypes.sizeof(info)
-        return bool(info.flags & 2) if user.GetGUIThreadInfo(0, ctypes.byref(info)) else None
+        return bool(info.flags & 2) if user.GetGUIThreadInfo(kernel.GetCurrentThreadId(), ctypes.byref(info)) else None
     except (AttributeError, OSError):
         return None
 

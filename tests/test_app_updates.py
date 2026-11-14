@@ -82,6 +82,10 @@ class AppUpdateTests(unittest.TestCase):
         target = self.root / 'release.zip'
         with zipfile.ZipFile(target, 'w') as package:
             for name, value in [('ENGE-SPX.exe', b'MZ-GUI'), ('spx.exe', b'MZ-CLI'), ('_internal/client.bin', b'new'), *extra]:
+                if isinstance(name, str):
+                    original = name
+                    name = zipfile.ZipInfo(name)
+                    name.filename = name.orig_filename = original
                 package.writestr(name, value)
         return target
 

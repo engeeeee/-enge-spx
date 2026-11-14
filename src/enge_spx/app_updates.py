@@ -135,7 +135,7 @@ def extract_package(archive, target):
         for item in items:
             path = PurePosixPath(item.filename)
             parts = path.parts
-            if not parts or path.is_absolute() or '\\' in item.filename or any(part in ('.', '..') or ':' in part or part.endswith((' ', '.')) or any(ord(c) < 32 for c in part) or re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?', part) for part in parts) or parts[0] not in ROOTS:
+            if not parts or path.is_absolute() or '\\' in item.orig_filename or '\0' in item.orig_filename or any(part in ('.', '..') or ':' in part or part.endswith((' ', '.')) or any(ord(c) < 32 for c in part) or re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?', part) for part in parts) or parts[0] not in ROOTS:
                 raise SPXError('更新包包含不安全的路径。')
             kind = (item.external_attr >> 16) & 0o170000
             if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or item.flag_bits & 1 or item.file_size > MAX_PACKAGE:

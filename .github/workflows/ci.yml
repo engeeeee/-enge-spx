@@ -61,8 +61,12 @@ jobs:
       - name: Verify formal release publication and immutable assets
         run: node --test tests/test_release_publication.cjs
       - run: python -m unittest discover -s tests -v
+        if: runner.os != 'Windows' || env.SPX_CLIENT_RELEASE != 'true'
         env:
           PYTHONPATH: src
+      - name: Focused Windows client, update and exit regression
+        if: runner.os == 'Windows' && env.SPX_CLIENT_RELEASE == 'true'
+        run: python tools/test_client_release.py
       - if: runner.os == 'Windows'
         run: python tools/smoke_gui.py
         env:
