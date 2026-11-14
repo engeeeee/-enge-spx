@@ -160,6 +160,7 @@ class OrderedInput:
         self.sequence_lock = threading.Lock()
         self.sequence = 0
         self.images = images
+        self.draft_nonempty = False
         self.closed = threading.Event()
         self.pastes = threading.BoundedSemaphore(8)
         self.thread = threading.Thread(target=self._run, name="spx-terminal-input", daemon=True)
@@ -220,6 +221,18 @@ class OrderedInput:
                         self.report("上次粘贴失败，已取消这次回车。输入仍保留；检查后可再次回车。")
                         continue
                     self.pty.write(value)
+                    if value in (b"\r", b"\x03", b"\x7f", b"\x1b[3~"):
+                        self.draft_nonempty = False
+                    elif value and not value.startswith(b"\x1b") and any(byte > 32 for byte in value):
+                        self.draft_nonempty = True
+                elif kind == "clear_draft":
+                    if self.transfer is not None and self.transfer.tool == "codex" and self.ready.is_set() and (self.draft_nonempty or value):
+                        # Codex's native clear_for_ctrl_c clears the editable
+                        # draft, including attachments, without submitting it.
+                        self.pty.write(b"\x03")
+                        self.draft_nonempty = False
+                    else:
+                        self.report("当前没有确认可删除的 Codex 草稿，未发送取消或退出快捷键。")
                 elif kind == "paste":
                     snapshot = value.result(timeout=2)
                     if snapshot.kind == "empty":
@@ -229,6 +242,7 @@ class OrderedInput:
                         raise SPXError("工具输入区尚未启用安全粘贴，请等待 CLI 就绪后重试。")
                     if snapshot.kind == "text":
                         self.pty.write(text_frame(snapshot.value))
+                        self.draft_nonempty |= bool(snapshot.value.strip())
                     else:
                         if self.transfer is None or self.transfer.tool not in ("claude", "codex"):
                             raise SPXError("当前终端只支持文字粘贴；请在 Claude Code / Codex 输入区粘贴附件。")
@@ -244,6 +258,7 @@ class OrderedInput:
                                 raise SPXError("当前终端未启用原生图片确认，附件未插入。")
                             ticket = self.images.ticket() if image and self.images else None
                             self.pty.write(frame)
+                            self.draft_nonempty = True
                             # Separate native paste events; no Enter, clearing,
                             # hotkey injection or new CLI process is involved.
                             if ticket is not None and not self.images.wait(ticket, self.closed, service=self.flush_replies):
@@ -316,7 +331,7 @@ class TerminalView(QWidget):
     option_changed = Signal(str, object)
     PAD_X, PAD_Y = 16, 12
 
-    def __init__(self, pty, transfer=None, clipboard=None):
+    def __init__(self, pty, transfer=None, clipboard=None, tool=None):
         super().__init__()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
@@ -324,6 +339,7 @@ class TerminalView(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(480, 260)
         self.pty, self.clipboard = pty, clipboard
+        self.tool = tool or getattr(transfer, 'tool', None)
         self.ready = threading.Event()
         self.images = ImageAcknowledgement()
         self.sender = OrderedInput(pty, transfer, self.status.emit, self.ready, self.images)
@@ -359,6 +375,11 @@ class TerminalView(QWidget):
         self.left_press = None
         self.left_drag = False
         self.native_drag = False
+        self.native_press_cell = None
+        self.native_press_was_input = False
+        self.native_selected_input = False
+        self.draft_all_selected = False
+        self.draft_anchor = None
         self.quick_paste_click = False
         self.selecting = False
         self.preedit = ""
@@ -437,6 +458,8 @@ class TerminalView(QWidget):
         if was_ready != self.ready.is_set():
             self.readiness_changed.emit(self.ready.is_set())
         if changed:
+            if self.native_press_cell == (self.screen.cursor.y, self.screen.cursor.x):
+                self.native_press_was_input = True
             dirty = self.screen.dirty.copy()
             self.screen.dirty.clear()
             if len(self.line_text) != self.screen.lines:
@@ -519,6 +542,10 @@ class TerminalView(QWidget):
         self.selecting = False
         self.left_press = None
         self.left_drag = False
+        self.native_press_cell = None
+        self.native_press_was_input = False
+        self.native_selected_input = False
+        self.draft_all_selected = False
         if changed:
             self.selection_changed.emit(False)
             self.scrollbar.setRange(0, len(self.screen.history.top))
@@ -537,6 +564,28 @@ class TerminalView(QWidget):
         self.explicit_selection = True
         self.selection_changed.emit(True)
         self.update()
+
+    def select_draft(self):
+        self.clear_selection()
+        self.snapshot_selection()
+        cursor = self.screen.cursor
+        row = min(cursor.y, self.draft_anchor[0]) if self.draft_anchor is not None else cursor.y
+        first = self.selection_start()
+        self.selection = ((row + first, 2), (cursor.y + first, self.screen.columns - 1))
+        self.explicit_selection = self.draft_all_selected = True
+        self.selection_changed.emit(True)
+        self.status.emit("已选择当前 Codex 草稿；Delete 删除，Esc 取消选择。")
+        self.update()
+
+    def visible_draft_text(self):
+        if self.screen.cursor.hidden or not self.screen.mouse:
+            return False
+        row = self.screen.buffer[self.screen.cursor.y]
+        blank = self.screen.default_char
+        # A conservative fallback after native deletion/history navigation.
+        # Placeholder text is dim; do not turn empty-draft Delete into Ctrl+C.
+        return any(char.data.strip() and not getattr(char, 'faint', False) and char.fg in ('default', 'white', 'brightwhite', FOREGROUND[1:])
+                   for x in range(2, self.screen.columns) if (char := row.get(x, blank)))
 
     def zoom(self, amount=0, reset=False):
         size = 11 if reset else min(24, max(8, self.font.pointSize() + amount))
@@ -652,6 +701,8 @@ class TerminalView(QWidget):
         if self.clipboard is None:
             self.status.emit("系统剪贴板桥接仅在 Windows 中启用。")
             return
+        if self.draft_anchor is None:
+            self.draft_anchor = (self.screen.cursor.y, self.screen.cursor.x)
         self.clear_selection()
         self.offset = 0
         self.sender.paste(self.clipboard)
@@ -663,6 +714,23 @@ class TerminalView(QWidget):
             return
         if modifiers & Qt.KeyboardModifier.ControlModifier and modifiers & Qt.KeyboardModifier.ShiftModifier and event.key() == Qt.Key.Key_A:
             self.select_all()
+            event.accept()
+            return
+        if self.tool == 'codex' and self.ready.is_set() and modifiers == Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_A:
+            self.select_draft()
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.has_selection:
+            all_draft, native_input = self.draft_all_selected, self.native_selected_input
+            visible = self.visible_draft_text()
+            self.clear_selection()
+            if all_draft:
+                self.sender.put('clear_draft', visible)
+                self.draft_anchor = None
+            elif native_input:
+                self.sender.put('keys', key_bytes(event, self.screen.application_cursor))
+            else:
+                self.status.emit('历史输出仅供复制，不能删除；请在输入区选择草稿。')
             event.accept()
             return
         if modifiers & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus, Qt.Key.Key_0):
@@ -686,6 +754,10 @@ class TerminalView(QWidget):
         self.offset = 0
         data = key_bytes(event, self.screen.application_cursor)
         if data:
+            if data in (b'\r', b'\x03'):
+                self.draft_anchor = None
+            elif data[:1] != b'\x1b' and any(byte > 32 for byte in data) and self.draft_anchor is None:
+                self.draft_anchor = (self.screen.cursor.y, self.screen.cursor.x)
             self.sender.put("keys", data)
         event.accept()
 
@@ -707,6 +779,8 @@ class TerminalView(QWidget):
 
     def inputMethodEvent(self, event):
         if event.commitString():
+            if self.draft_anchor is None:
+                self.draft_anchor = (self.screen.cursor.y, self.screen.cursor.x)
             self.sender.put("keys", event.commitString().encode("utf-8"))
         self.preedit = event.preeditString()
         self.preedit_cursor = len(self.preedit.encode("utf-16-le")) // 2
@@ -777,8 +851,23 @@ class TerminalView(QWidget):
         return (max(0, min(self.screen.lines - 1, int((event.position().y() - self.PAD_Y) / self.cell_height))),
                 max(0, min(self.screen.columns - 1, int((event.position().x() - self.PAD_X) / self.cell_width))))
 
-    def mouse_packet(self, event, button, release=False):
+    def insertion_cell(self, event):
         y, x = self.cell(event)
+        if self.tool != 'codex' or event.modifiers() != Qt.KeyboardModifier.NoModifier:
+            return y, x
+        row = self.screen.buffer[y]
+        blank = self.screen.default_char
+        start = x
+        while start > 0 and not row.get(start, blank).data:
+            start -= 1
+        end = start + 1
+        while end < self.screen.columns and not row.get(end, blank).data:
+            end += 1
+        position = (event.position().x() - self.PAD_X) / self.cell_width
+        return y, min(self.screen.columns - 1, end if position - start >= (end - start) / 2 else start)
+
+    def mouse_packet(self, event, button, release=False, insertion=False):
+        y, x = self.insertion_cell(event) if insertion else self.cell(event)
         modifiers = event.modifiers()
         button += (4 if modifiers & Qt.KeyboardModifier.ShiftModifier else 0)
         button += (8 if modifiers & Qt.KeyboardModifier.AltModifier else 0)
@@ -801,6 +890,11 @@ class TerminalView(QWidget):
                 self.sender.put("keys", self.mouse_packet(event, 0))
                 return
             self.snapshot_selection()
+            if native:
+                y, x = self.insertion_cell(event)
+                self.native_press_cell = y, x
+                self.native_press_was_input = y == self.screen.cursor.y
+                self.sender.put('keys', self.mouse_packet(event, 0, insertion=True))
             self.selection = ((y + self.selection_start(), x), (y + self.selection_start(), x))
             self.left_press = (event.position(), self.mouse_packet(event, 0), native)
             self.left_drag = False
@@ -819,6 +913,10 @@ class TerminalView(QWidget):
                 self.explicit_selection = True
             y, x = self.cell(event)
             self.selection = (self.selection[0], (y + self.selection_start(), x))
+            if self.left_press is not None and self.left_press[2]:
+                y, x = self.insertion_cell(event)
+                self.selection = (self.selection[0], (y + self.selection_start(), x))
+                self.sender.put('keys', self.mouse_packet(event, 32, insertion=True))
             self.selection_changed.emit(self.has_selection)
             self.update()
         elif self.screen.mouse and self.offset == 0 and self.selection_lines is None and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
@@ -847,13 +945,20 @@ class TerminalView(QWidget):
                     y, x = self.cell(event)
                     self.left_drag = self.explicit_selection = True
                     self.selection = (self.selection[0], (y + self.selection_start(), x))
+            if click is not None and click[2]:
+                self.sender.put('keys', self.mouse_packet(event, 0, True, insertion=True))
+                self.native_selected_input = self.native_press_was_input and self.has_selection
+                if self.has_selection:
+                    first, last = sorted(self.selection)
+                    if last[1] > 0:
+                        last = last[0], last[1] - 1
+                    elif last[0] > first[0]:
+                        last = last[0] - 1, self.screen.columns - 1
+                    if first <= last:
+                        self.selection = first, last
             if self.has_selection:
                 if self.copy_on_select:
                     self.copy()
-            elif click is not None and click[2] and self.screen.mouse and self.offset == 0 and not self.left_drag:
-                # A genuine native click, never synthetic arrows or edits to
-                # the CLI buffer. Delay until release to distinguish dragging.
-                self.sender.put("keys", click[1] + self.mouse_packet(event, 0, True))
             self.left_press = None
             self.left_drag = False
         elif event.button() == Qt.MouseButton.MiddleButton and self.screen.mouse and self.offset == 0:
@@ -1055,7 +1160,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         options.setToolTip("外观、字号和复制粘贴设置；偏好自动保存")
         header.addWidget(options)
         layout.addWidget(session)
-        self.view = TerminalView(pty, transfer, clipboard)
+        self.view = TerminalView(pty, transfer, clipboard, tool)
         layout.addWidget(self.view, 1)
         footer = QFrame()
         footer.setObjectName("TerminalFooter")

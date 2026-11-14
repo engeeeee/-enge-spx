@@ -16,7 +16,9 @@ with tempfile.TemporaryDirectory(prefix='spx-timezone-probe-') as folder:
     root = Path(folder)
     dockerfile = root / 'Dockerfile'
     dockerfile.write_text('FROM python:3.12-slim-bookworm\nRUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*\nRUN useradd -m -u 1000 workspace\nUSER 1000:1000\nCMD ["sleep","infinity"]\n')
-    engine = Engine(Store(root / 'data'), print)
+    store = Store(root / 'data')
+    store.write('settings.json', {**store.settings(), 'context': 'default'})
+    engine = Engine(store, print)
     base = 'spx-timezone-test:' + uuid.uuid4().hex[:12]
     engine.docker.run('build', '-t', base, str(root), timeout=180)
     images, containers = [], []

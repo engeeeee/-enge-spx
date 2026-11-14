@@ -285,6 +285,35 @@ class QtTUI:
                                     round(view.PAD_Y + (y + .4) * view.cell_height)))
         self.wait(lambda value: view.screen.cursor.x == x and view.screen.cursor.y == y)
 
+    def drag_text(self, needle):
+        from PySide6.QtCore import Qt, QPoint
+        from PySide6.QtTest import QTest
+        view = self.window.view
+        target = []
+        for y in range(view.screen.lines):
+            row = view.screen.buffer[y]
+            for x in range(view.screen.columns):
+                if row[x].data and ''.join(row[n].data for n in range(x, min(view.screen.columns, x + len(needle)))).startswith(needle):
+                    target.append((y, x))
+        assert len(target) == 1
+        y, x = target[0]
+        def point(column):
+            return QPoint(round(view.PAD_X + (column + .25) * view.cell_width), round(view.PAD_Y + (y + .4) * view.cell_height))
+        QTest.mousePress(view, Qt.MouseButton.LeftButton, pos=point(x))
+        self.app.processEvents()
+        time.sleep(.04)
+        QTest.mouseMove(view, point(x + len(needle)))
+        self.app.processEvents()
+        time.sleep(.04)
+        QTest.mouseRelease(view, Qt.MouseButton.LeftButton, pos=point(x + len(needle)))
+
+    def delete_selection(self, all_draft=False):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        if all_draft:
+            QTest.keyClick(self.window.view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(self.window.view, Qt.Key.Key_Delete)
+
     def capture(self, path):
         self.app.processEvents()
         assert self.window.grab().save(str(path), "PNG")
@@ -385,6 +414,18 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 prompt = "请分析图片 " + nonce + "："
                 if tool == "codex":
                     prompt += "EDIT-A|EDIT-B\n第二行 END"
+                    tui.paste(Snapshot('text', 'DELETE-ALL-FIXTURE\n多行待删除🙂'))
+                    tui.wait(lambda value: 'DELETE-ALL-FIXTURE' in value and '待删除' in value)
+                    tui.delete_selection(all_draft=True)
+                    tui.wait(lambda value: 'DELETE-ALL-FIXTURE' not in value and '待删除' not in value)
+                    tui.paste(Snapshot('text', 'KEEP-A_REMOVE_KEEP-B'))
+                    tui.wait(lambda value: 'KEEP-A_REMOVE_KEEP-B' in value)
+                    tui.drag_text('REMOVE')
+                    tui.delete_selection()
+                    tui.wait(lambda value: 'KEEP-A__KEEP-B' in value and 'REMOVE' not in value)
+                    tui.delete_selection(all_draft=True)
+                    tui.wait(lambda value: 'KEEP-A__KEEP-B' not in value)
+                    assert not api.requests, 'Draft selection and deletion must not submit'
                     tui.paste(Snapshot("text", "RIGHT-PASTE\r\n右键末尾换行\r\n\r"), right_click=True)
                     tui.wait(lambda value: "右键末尾换行" in value)
                     assert not api.requests, "Right-click trailing newlines must not submit"

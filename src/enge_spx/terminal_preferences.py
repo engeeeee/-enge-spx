@@ -25,6 +25,12 @@ def validate(value):
 
 
 def read(store):
+    if store is not None:
+        from .credentials import check_path
+        check_path(store.home, FILE)
+        path = store.home / FILE
+        if path.exists() and path.stat().st_size > 65536:
+            raise SPXError("终端偏好文件异常过大，原文件已保留。")
     return validate(store.read(FILE, {"schema": 1})) if store is not None else dict(DEFAULTS)
 
 

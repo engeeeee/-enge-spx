@@ -281,11 +281,13 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.assertEqual(self.view.screen.cursor.x, column)
         self.assertFalse(self.written)
 
-    def test_shift_right_click_keeps_menu_without_reading_clipboard(self):
+    def test_shift_right_click_only_pastes_without_opening_options(self):
+        self.clipboard.sequence.return_value = 1
+        self.clipboard.read.return_value = Snapshot("text", "draft")
         QTest.mouseClick(self.view, Qt.MouseButton.RightButton, Qt.KeyboardModifier.ShiftModifier, self.point(2))
-        self.app.processEvents()
-        self.clipboard.read.assert_not_called()
-        self.assertFalse(self.written)
+        self.pump(lambda: bool(self.written))
+        self.assertEqual(self.written, [text_frame("draft")])
+        self.assertFalse(any(m.isVisible() for m in self.view.findChildren(QMenu)))
         menu = self.view.create_context_menu()
         self.assertFalse(next(a for a in menu.actions() if a.objectName() == "TerminalCopy").isEnabled())
         self.assertTrue(next(a for a in menu.actions() if a.objectName() == "TerminalPaste").isEnabled())
@@ -407,13 +409,17 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.assertFalse(self.written)
         self.pty.resize.assert_called()
 
-    def test_actual_context_menu_opens_even_when_cli_requests_mouse(self):
+    def test_options_only_open_from_header_button_even_when_cli_requests_mouse(self):
         self.output.put(b"selectable\x1b[?1000h\x1b[?1006h")
         self.pump(lambda: self.view.screen.mouse)
         self.view.select_all()
         point = self.point(3)
         event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, self.view.mapToGlobal(point))
         QApplication.sendEvent(self.view, event)
+        self.app.processEvents()
+        self.assertIsNone(self.view.findChild(QMenu, "TerminalMenu"))
+        from PySide6.QtWidgets import QToolButton
+        QTest.mouseClick(self.window.findChild(QToolButton, "TerminalOptions"), Qt.MouseButton.LeftButton)
         self.app.processEvents()
         menu = self.view.findChild(QMenu, "TerminalMenu")
         self.assertIsNotNone(menu)
