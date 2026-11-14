@@ -139,6 +139,9 @@ class TerminalPreferenceTests(unittest.TestCase):
                 self.assertEqual(second.windowOpacity(), 1.0)
             finally:
                 second.close()
+                worker = second.preferences.worker
+                if worker:
+                    worker.join(3)
                 second.view.reader.join(2)
         finally:
             first.close()
