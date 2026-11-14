@@ -116,7 +116,9 @@ class Store:
             raise SPXError("数据目录不能包含逗号或换行。")
         self.home.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.instance_file = self.home / "instance.json"
-        with self.lock("instance"):
+        # Independent terminal processes can initialize concurrently. This tiny
+        # identity lock must wait for its peer, unlike the operation lock.
+        with self.lock("instance", timeout=2):
             if not self.instance_file.exists():
                 atomic_json(self.instance_file, {"id": uuid.uuid4().hex[:12], "app": "enge-spx", "schema": 1})
         identity = self.read("instance.json")

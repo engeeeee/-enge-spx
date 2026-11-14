@@ -51,8 +51,14 @@ class TerminalPreferenceTests(unittest.TestCase):
         code = 'import sys,json;from pathlib import Path;from enge_spx.state import Store;from enge_spx.terminal_preferences import save;save(Store(Path(sys.argv[1])),json.loads(sys.argv[2]))'
         processes = [subprocess.Popen([sys.executable, '-c', code, str(self.store.home), json.dumps(patch)])
                      for patch in ({'font_size': 15}, {'right_click_paste': False, 'tint': 'graphite'})]
-        for process in processes:
-            self.assertEqual(process.wait(timeout=10), 0)
+        try:
+            for process in processes:
+                self.assertEqual(process.wait(timeout=10), 0)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.terminate()
+                process.wait(timeout=5)
         settings = read(self.store)
         self.assertEqual(settings['font_size'], 15)
         self.assertFalse(settings['right_click_paste'])
