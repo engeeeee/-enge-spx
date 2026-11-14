@@ -827,6 +827,7 @@ class Window(QMainWindow):
         panel.layout.addWidget(bind_text(label('', 'Muted', True), self.c.update_status))
         panel.layout.addWidget(progress(self.c.update_progress))
         update_row = panel.row()
+        responsive_rows.append(update_row)
         update_row.addWidget(self.action('检查更新', self.c.check_updates, ghost=True))
         update_button = self.action('下载更新并重启…', self.c.install_update, True)
         update_row.addWidget(update_button)

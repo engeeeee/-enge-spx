@@ -151,7 +151,7 @@ Most detailed guides are in Chinese:
 
 Maintained by [engeeeee](https://github.com/engeeeee). Source use requires Python 3.12+ with PySide6 / Qt. Install with `python -m pip install -e .` and launch `spx`, or use `Start-Windows.cmd` on Windows. Windows packaging uses PyInstaller and Inno Setup. See [development instructions](docs/development.md), [0.8.2 lease, proxy, font and download validation](docs/validation-0.8.2.zh-CN.md) and [CHANGELOG](CHANGELOG.md).
 
-The current focus is Windows x64, controlled proxy paths and existing-data compatibility. There is no Windows ARM64 package or automatic updater. XHTTP/KCP, gRPC multi-mode, plugins and port hopping remain unsupported; see the [protocol matrix](docs/proxy-p1.zh-CN.md).
+The current focus is Windows x64, controlled proxy paths and existing-data compatibility. Windows installer and portable builds support in-app stable-release updates; there is no Windows ARM64 package. XHTTP/KCP, gRPC multi-mode, plugins and port hopping remain unsupported; see the [protocol matrix](docs/proxy-p1.zh-CN.md).
 
 ## License and attribution
 
