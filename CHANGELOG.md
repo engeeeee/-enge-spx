@@ -1,5 +1,22 @@
 # Changes
 
+## 0.14.3 Windows mouse transport, IME and conversation scrolling — 2026-11-14
+
+- Keep smart-terminal VT bytes out of the inbox Windows ConPTY renderer:
+  use docker exec -i and a bounded stdlib Linux PTY relay in the existing owned
+  container. Preserve its user, mounts, network controls and native CLI session.
+- Draw opaque IME preedit at the terminal baseline, with native formatting,
+  wrapping and UTF-16 cursor geometry. Cancel restores cells; commit sends once.
+- Release copied selection snapshots when scrolling the native conversation;
+  accumulate smooth wheel deltas and preserve draft text while viewing history.
+- Normalize CRLF/lone CR within bracketed paste. Right-click sends no Enter.
+  Exercise trailing newlines, 120-row native history and no premature API calls.
+- Report process TZ and the system localtime TZif independently. A mismatch is
+  now visible in network diagnostics; existing system timezone files are not
+  migrated or described as fixed by this release.
+- Add Windows raw-pipe/actual Docker CLI transport tests and protected-container
+  relay checks. Preserve external terminal settings, images, data and licenses.
+
 ## 0.14.2 native mouse editing and quick copy/paste — 2026-11-13
 
 - Use atomic input sequence numbers for failed-import Enter cancellation;

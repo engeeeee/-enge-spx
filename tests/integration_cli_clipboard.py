@@ -28,7 +28,7 @@ from enge_spx.clipboard_transfer import Attachment, InputAdapter, text_frame
 from enge_spx.smart_terminal import TerminalScreen, TerminalStream, TerminalWindow
 from enge_spx.clipboard import Snapshot
 import codecs
-from enge_spx.terminal_pty import PosixPTY, DockerPTY
+from enge_spx.terminal_pty import DockerPTY
 from enge_spx.brand import PACKAGE_RESOURCES
 
 
@@ -99,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
             if image.isNull():
                 return self.answer({"error": "invalid_fixture_image"}, 400)
             summaries.append({"type": item["type"], "width": image.width(), "height": image.height(), "pixel": image.pixelColor(10, 10).name(), "sha256": hashlib.sha256(raw).hexdigest()})
-        if images:
+        if "count_tokens" not in self.path and any(route in self.path for route in ("messages", "responses")):
             # Only non-content evidence. Never store full prompts/base64 data.
             with self.server.lock:
                 self.server.requests.append({"route": self.path.split("?", 1)[0], "images": summaries, "text": list(text_blocks(value))})
@@ -110,6 +110,8 @@ class Handler(BaseHTTPRequestHandler):
         if "messages" not in self.path and "responses" not in self.path:
             return self.answer({})
         message = "Synthetic endpoint received the request; this is not a model response."
+        if "responses" in self.path:
+            message += "\n" + "\n".join("SCROLL-FIXTURE-%03d synthetic history row" % i for i in range(120))
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -249,6 +251,21 @@ class QtTUI:
         from PySide6.QtTest import QTest
         QTest.keyClick(self.window.view, Qt.Key.Key_Return)
 
+    def scroll_to_history(self, needle):
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtGui import QWheelEvent
+        from PySide6.QtWidgets import QApplication
+        view = self.window.view
+        position = QPointF(view.PAD_X + 10 * view.cell_width, view.PAD_Y + 5 * view.cell_height)
+        for _ in range(200):
+            event = QWheelEvent(position, QPointF(view.mapToGlobal(position.toPoint())), QPoint(), QPoint(0, 120),
+                                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+            QApplication.sendEvent(view, event)
+            if needle in self.text():
+                return
+            time.sleep(.02)
+        raise AssertionError("Native CLI mouse wheel did not reveal earlier conversation")
+
     def click_text(self, needle, offset=0):
         from PySide6.QtCore import Qt, QPoint
         from PySide6.QtTest import QTest
@@ -368,6 +385,9 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
                 prompt = "请分析图片 " + nonce + "："
                 if tool == "codex":
                     prompt += "EDIT-A|EDIT-B\n第二行 END"
+                    tui.paste(Snapshot("text", "RIGHT-PASTE\r\n右键末尾换行\r\n\r"), right_click=True)
+                    tui.wait(lambda value: "右键末尾换行" in value)
+                    assert not api.requests, "Right-click trailing newlines must not submit"
                 tui.paste(Snapshot("text", prompt))
                 tui.wait(lambda value: nonce in value)
                 if tool == "codex":
@@ -429,6 +449,7 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             with api.lock:
                 requests = list(api.requests)
             images = next(x["images"] for x in requests if len(x["images"]) == 2)
+            paste_elapsed = round(time.monotonic() - first, 3)
             assert [x["pixel"] for x in images] == ["#d97757", "#87bbb6"], images
             mouse_edit = qt_terminal and tool == "codex"
             if mouse_edit:
@@ -436,7 +457,23 @@ def run_tool(tool, executable, qt_terminal=False, capture=None):
             if qt_terminal:
                 text = "\n".join(text for request in requests for text in request["text"])
                 assert "wo xiang" not in text and text.count("输入法确认") == 1
-            return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "qt_mouse_cursor_edit": mouse_edit, "qt_right_click_paste": mouse_edit, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": round(time.monotonic() - first, 3), "fixture_only": True, "real_model_understanding": "not_tested"}
+            if mouse_edit:
+                tui.wait(lambda value: "SCROLL-FIXTURE-119" in value)
+                tui.paste(Snapshot("text", "HISTORY-DRAFT"), right_click=True)
+                tui.wait(lambda value: "HISTORY-DRAFT" in value)
+                # Regression: after copying, the selection snapshot previously
+                # swallowed scrolling and confined history to the visible grid.
+                tui.window.view.select_all()
+                tui.window.view.copy()
+                tui.scroll_to_history("SCROLL-FIXTURE-000")
+                if capture:
+                    tui.capture(capture.with_name(capture.stem + "-history.png"))
+                from PySide6.QtCore import Qt
+                from PySide6.QtTest import QTest
+                QTest.keyClick(tui.window.view, Qt.Key.Key_Escape)
+                tui.wait(lambda value: "HISTORY-DRAFT" in value and "SCROLL-FIXTURE-119" in value)
+                assert not any("HISTORY-DRAFT" in text for request in api.requests for text in request["text"]), "Reviewing history or pasting must not submit the next draft"
+            return {"tool": tool, "version": version_label, "qt_ctrl_v": qt_terminal, "qt_copy_context_menu": qt_terminal, "qt_mouse_cursor_edit": mouse_edit, "qt_right_click_paste": mouse_edit, "qt_ime_preedit": qt_terminal, "linux_pty_relay": True, "qt_conversation_history": mouse_edit, "native_chips": 2, "draft_preserved": True, "no_submit_before_enter": True, "same_process": True, "serialized_images": images, "paste_and_submit_seconds": paste_elapsed, "fixture_only": True, "real_model_understanding": "not_tested"}
         finally:
             tui.close()
             api.shutdown()

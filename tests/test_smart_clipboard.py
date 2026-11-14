@@ -55,7 +55,7 @@ class ClipboardDataTests(unittest.TestCase):
 
     def test_unicode_multiline_is_one_bracketed_paste_without_files_or_enter(self):
         text = "第一行\r\n第二行\nhello 👋 café\tend"
-        self.assertEqual(text_frame(text), b"\x1b[200~" + text.encode() + b"\x1b[201~")
+        self.assertEqual(text_frame(text), b"\x1b[200~" + text.replace("\r\n", "\n").encode() + b"\x1b[201~")
         self.assertFalse(text_frame(text).endswith(b"\r"))
 
     def test_clipboard_cannot_break_out_of_paste_with_escape_sequences(self):

@@ -10,8 +10,8 @@ from unittest.mock import Mock, patch
 if os.name != "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QGuiApplication, QContextMenuEvent, QInputMethodEvent, QTextCharFormat, QColor
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QGuiApplication, QContextMenuEvent, QInputMethodEvent, QTextCharFormat, QColor, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QMenu
 
@@ -303,6 +303,13 @@ class TerminalUsabilityTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(any(m.isVisible() for m in self.view.findChildren(QMenu)))
 
+    def test_right_click_trailing_windows_newlines_stay_inside_one_paste_event(self):
+        self.clipboard.sequence.return_value = 1
+        self.clipboard.read.return_value = Snapshot("text", "one\r\n中文\r\n\r")
+        QTest.mouseClick(self.view, Qt.MouseButton.RightButton, pos=self.point(3))
+        self.pump(lambda: bool(self.written))
+        self.assertEqual(self.written, [b"\x1b[200~one\n" + "中文".encode() + b"\n\n\x1b[201~"])
+
     def test_native_single_click_is_deferred_and_delivered_without_arrow_keys(self):
         self.output.put(b"\x1b[?1000h\x1b[?1006h")
         self.pump(lambda: self.view.screen.mouse)
@@ -312,6 +319,24 @@ class TerminalUsabilityTests(unittest.TestCase):
         QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, pos=self.point(5, 2))
         self.pump(lambda: bool(self.written))
         self.assertEqual(self.written, [b"\x1b[<0;6;3M\x1b[<0;6;3m"])
+
+    def test_copy_selection_does_not_trap_native_conversation_scrolling(self):
+        self.output.put(b"history\x1b[?1000h\x1b[?1006h")
+        self.pump(lambda: self.view.screen.mouse)
+        self.view.select_all()
+        self.view.copy()
+        copied = QGuiApplication.clipboard().text()
+        position = self.point(4, 2)
+        def wheel(delta):
+            QApplication.sendEvent(self.view, QWheelEvent(QPointF(position), QPointF(self.view.mapToGlobal(position)), QPoint(), QPoint(0, delta),
+                                                          Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False))
+        wheel(60)
+        self.assertFalse(self.written)
+        wheel(60)
+        self.pump(lambda: bool(self.written))
+        self.assertIsNone(self.view.selection_lines)
+        self.assertEqual(QGuiApplication.clipboard().text(), copied)
+        self.assertEqual(self.written, [b"\x1b[<64;5;3M"])
 
     def test_drag_copies_even_when_cli_requests_mouse_without_moving_its_cursor(self):
         self.output.put("copy 中文\x1b[?1000h\x1b[?1006h".encode())

@@ -275,6 +275,9 @@ class Controller(QObject):
             if state in ("unsafe", "failed"):
                 summary += "已核验停止。" if report.get("stop", {}).get("verified") else "未能确认停止，请检查 Docker 状态并重试停止工作区。"
                 self.notify("网络检查未通过", summary, True)
+            zone = report.get("objects", {}).get("session", {}).get("timezone", {})
+            if zone.get("localtime_matches_process_offset") is False or zone.get("localtime_matches_tzif") is False:
+                summary += " 检测到进程 TZ 与 /etc/localtime 不一致，详细报告分别列出了来源和偏移；检查未更改时区。"
             self.network_summary.set(summary)
             self.operation.set("网络检查完成，报告已脱敏。")
         return self.run(lambda engine: engine.network_diagnostics(), done, description="检查当前工作区的出口、路由与浏览器环境，不修改宿主网络…")

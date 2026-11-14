@@ -1,7 +1,8 @@
 """Bounded Linux namespace facts and explicit, credential-free blocking probes."""
-from datetime import datetime
+from datetime import datetime, timezone
 import errno
 import ipaddress
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import struct
 import sys
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 
 def read_text(path, limit=16384):
@@ -20,6 +22,40 @@ def read_text(path, limit=16384):
             return stream.read(limit)
     except OSError:
         return ""
+
+
+def timezone_facts(localtime="/etc/localtime", zoneinfo="/usr/share/zoneinfo"):
+    if hasattr(time, "tzset"):
+        time.tzset()
+    instant = datetime.now(timezone.utc)
+    effective = instant.astimezone().utcoffset()
+    result = {"name": os.environ.get("TZ", "")[:80], "offset_seconds": int(effective.total_seconds()) if effective is not None else None,
+              "localtime_name": "unavailable", "localtime_offset_seconds": None, "localtime_matches_process_offset": None,
+              "localtime_matches_tzif": None}
+    try:
+        with Path(localtime).open("rb") as source:
+            data = source.read(131073)
+        if len(data) > 131072:
+            return result
+        system = ZoneInfo.from_file(io.BytesIO(data))
+        offset = instant.astimezone(system).utcoffset()
+        result["localtime_offset_seconds"] = int(offset.total_seconds())
+        result["localtime_matches_process_offset"] = offset == effective
+        root = Path(zoneinfo).resolve()
+        try:
+            result["localtime_name"] = Path(localtime).resolve().relative_to(root).as_posix()
+        except ValueError:
+            pass
+        name = result["name"]
+        # Only IANA keys; no POSIX rule or path from TZ is opened as a filename.
+        if re.fullmatch(r"[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*", name):
+            expected = (root / name).resolve()
+            if expected.is_relative_to(root):
+                with expected.open("rb") as source:
+                    result["localtime_matches_tzif"] = source.read(131073) == data
+    except (OSError, ValueError, EOFError, UnicodeError):
+        pass
+    return result
 
 
 def facts():
@@ -46,14 +82,11 @@ def facts():
                 resolvers.append(str(ipaddress.ip_address(fields[1])))
             except ValueError:
                 pass
-    if hasattr(time, "tzset"):
-        time.tzset()
-    offset = datetime.now().astimezone().utcoffset()
     try:
         namespace = os.readlink("/proc/self/ns/net")
     except OSError:
         namespace = "unavailable"
-    return {"schema": 1, "routes": {"available": Path("/proc/net/route").is_file(), "ipv4": ipv4, "ipv6": ipv6}, "dns_servers": resolvers[:8], "network_namespace": namespace, "ipv6_interfaces": bool(read_text("/proc/net/if_inet6")), "language": {key: os.environ.get(key, "")[:80] for key in ("LANG", "LC_ALL")}, "timezone": {"name": os.environ.get("TZ", ""), "offset_seconds": int(offset.total_seconds()) if offset else 0}}
+    return {"schema": 1, "routes": {"available": Path("/proc/net/route").is_file(), "ipv4": ipv4, "ipv6": ipv6}, "dns_servers": resolvers[:8], "network_namespace": namespace, "ipv6_interfaces": bool(read_text("/proc/net/if_inet6")), "language": {key: os.environ.get(key, "")[:80] for key in ("LANG", "LC_ALL")}, "timezone": timezone_facts()}
 
 
 def failed(error):

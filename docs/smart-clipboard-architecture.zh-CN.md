@@ -7,7 +7,8 @@ GUI Controller.open_tool
   → Engine.terminal → _tool_session / ready / _project
   → 外部终端或自有终端进程的公共 spx attach 参数
   → Engine.attach_command（guard、session、container、Profile、挂载审计）
-  → docker exec -it → tool_session.command → 原有 Claude / Codex TUI
+  → 智能终端：docker exec -i → Linux PTY relay → tool_session.command → 原有 Claude / Codex TUI
+  → 外部终端：docker exec -it → tool_session.command → 原有 TUI
 ```
 
 原有 `terminal.py` 使用 argv 启动 Windows Terminal、无 Profile 的 PowerShell 或自定义 exe。项目目录 bind 位于 `/workspace/<key>`，账号 home 按 Profile 使用既有卷，项目容器与浏览器分开，`attach` 拒绝过期会话。上述保护和 CLI 用户更新逻辑继续复用。
@@ -21,7 +22,7 @@ GUI Controller.open_tool
 ```text
 当前智能终端内的 Qt Ctrl+V 事件
   → WindowsClipboard（序列号绑定的一次性快照）
-  ├─ Text → bracketed paste → 当前 ConPTY → 同一 CLI
+  ├─ Text → bracketed paste → 原始 Docker 管道 → 容器内 Linux PTY → 同一 CLI
   └─ CF_HDROP / PNG / DIBV5 / DIB
        → 文件句柄 / PNG 编码 → 同一输入队列
        → Transfer.verify（复用 attach 审计）
@@ -32,7 +33,7 @@ GUI Controller.open_tool
        → 独立 bracketed paste 事件 → 原生图片标记确认
 ```
 
-键盘与粘贴排在同一有界队列，不重启工具，不发送 Enter，不改写 CLI 的编辑缓冲区。Qt 主线程只处理界面/IME/VT；剪贴板争用重试、PNG 编码、文件流和 Docker 操作在工作线程。输出管道在独立线程排空，输出队列有界。ConPTY resize 和终端报告复用本终端的句柄，不定位外部窗口、不调用 SendInput、不安装钩子。
+键盘与粘贴排在同一有界队列，不重启工具，不发送 Enter，不改写 CLI 的编辑缓冲区。Qt 主线程只处理界面/IME/VT；剪贴板争用重试、PNG 编码、文件流和 Docker 操作在工作线程。输出管道在独立线程排空，输出队列有界。0.14.3 的键盘和 resize 由同一私有管道传递给容器内 PTY，不定位外部窗口、不调用 SendInput、不安装钩子。本机预览仍使用 ConPTY。
 
 `TerminalScreen` 使用 pyte 解析 VT、颜色、光标、历史，补充备用屏幕；`TerminalView` 提供 IME、键盘、选择复制和 CLI 请求的 SGR 鼠标报告。它不是新聊天 UI：CLI 完整 TUI 原样绘制，原生协议决定是否发送和读取附件。OSC52 不会读取或改写系统剪贴板。
 
@@ -45,7 +46,8 @@ GUI Controller.open_tool
 | `clipboard_transfer.py` | 原件流、映射、版本适配、会话复核 | 容器切换、半批导入、CLI 版本变化 |
 | `resources/checks/clipboard_transfer.py` | 无特权 stdin 导入、目录 FD、原子提交、配额/清理 | 链接穿越、并发；Linux 原语及既有可写目录 |
 | `clipboard_cache.py` | 当前终端 OS 锁、作用域与七天保留 | 只清理已关闭会话，不存内容 |
-| `terminal_pty.py` | 自有 ConPTY 进程和管道生命周期 | Win32 ABI、EOF/关闭/resize；POSIX 后端用于测试 |
+| `terminal_pty.py` | 智能终端原始管道；本机 ConPTY / POSIX 生命周期 | 分帧、EOF/关闭/resize，Windows 10 兼容 |
+| `resources/checks/terminal_relay.py` | 同一容器中 rootless Linux PTY | 帧长度/缓冲受限，断开时只挂断本次 PTY |
 | `smart_terminal.py` | Qt 原地输入、VT 绘制、队列、图片确认 | TUI/键盘兼容及渲染成本，是复杂度最高的新增模块 |
 | `terminal.py` / `engine.py` / `__main__.py` | 选择受控显示层并接入现有 attach | 显式外部设置不回退，公共 argv 不含 token |
 | `ui/window.py` | 选项和兼容边界 | 不暗示第三方终端已经支持 |
@@ -92,3 +94,11 @@ pyte 保持未修改；替换路径、源码取得方式和许可证见[第三�
 在自有窗口中延迟判定左键手势：单击把真实网格坐标编码为已协商的SGR Mouse按下/释放；移动超过拖选阈值后只选择终端快照，不向CLI发送拖动，松开时复制。普通点击不改系统剪贴板；不通过方向键、外部窗口标题、全局注入或读写CLI缓冲区定位。右键的主动粘贴复用同一剪贴板/输入队列，抑制该次原生菜单事件避免双重操作；Shift右键及键盘菜单保留。原生鼠标没有启用时不猜测编辑位置。
 
 Qt原生CLI夹具增加多行、中文、指定位置编辑、右键文字/图片粘贴，并在合成API核对实际文本片段和图像。产品不解析屏幕文字来寻找输入区；测试夹具按唯一合成文本定位点击目标，仅用于验证。
+
+## 0.14.3 Windows 10 路径与输入法
+
+Windows 10 内置 ConPTY 会丢弃鼠标跟踪开关，Windows Server 新版的成功不能覆盖这一系统差异。依据：[Microsoft 原始修复](https://github.com/microsoft/terminal/pull/4856)、[Bun 的 Windows 10 / Server 2019 实测与系统版本说明](https://github.com/oven-sh/bun/commit/c508647f35d052d2ef073359e2e2e02f92a99508)。本次 Windows 新版探针也观察到完整透传，但不把它记为 Win10 已复现。
+
+智能终端改用不带本机控制台的 `docker exec -i`，在已审计的同一个项目容器、同一 UID 和访问范围下用 Python 标准库建立 Linux PTY。可信包脚本通过 `python3 -I -c` 运行，不从项目导入模块。宿主 stdin 为 D（输入）/R（网格）/C（关闭）长度帧，单帧不超过64KiB，stdout 原样保留 VT。远端使用有界非阻塞缓冲、PTY 窗口大小和同一终端前台作业的挂断；关闭只结束自己创建的 exec 客户端和 PTY，不关闭 Docker 或其它会话。无需重建镜像、新挂载、端口或权限。每个打开的终端增加一个容器内 Python 中继进程，退出时回收。
+
+`QTextLayout` 仅在 Qt 本地显示 IME 预编辑：按终端基线排列、覆盖提示文本、处理原生格式与 UTF-16 游标，候选位置随组合文字变化。确认前不会写入 PTY；取消只移除覆盖层，不改 CLI 缓冲。普通滚轮清理已复制的选择快照，交还原生对话滚动；Shift+滚轮继续查看终端缓存。剪贴板 CRLF/CR 仅在 bracketed paste 体内变成 LF，右键不会生成 Enter。

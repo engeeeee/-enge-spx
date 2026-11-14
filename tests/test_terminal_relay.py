@@ -1,8 +1,9 @@
 """Actual pipe/PTY transport tests; synthetic input, no accounts or clipboard."""
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
-from pathlib import Path
 import queue
+import shutil
 import struct
 import subprocess
 import sys
@@ -19,8 +20,8 @@ RELAY = (PACKAGE_RESOURCES / "checks/terminal_relay.py").read_text(encoding="utf
 
 
 class TransportHarness:
-    def open(self, command):
-        pty = DockerPTY(command, dict(os.environ), tempfile.gettempdir())
+    def open(self, command, env=None):
+        pty = DockerPTY(command, dict(os.environ) if env is None else env, tempfile.gettempdir())
         self.addCleanup(pty.close)
         self.blocks, self.received = queue.Queue(), bytearray()
         def drain():
@@ -44,6 +45,74 @@ class TransportHarness:
 
 
 class PipeTests(TransportHarness, unittest.TestCase):
+    @unittest.skipUnless(shutil.which("docker"), "Actual Docker CLI required; no daemon is used")
+    def test_actual_docker_cli_hijack_preserves_raw_mouse_and_draft_bytes(self):
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            def log_message(self, *args):
+                pass
+            def answer(self, value):
+                body = json.dumps(value).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Api-Version", "1.47")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+            def do_HEAD(self):
+                self.answer("OK")
+            def do_GET(self):
+                self.answer({"Running": False, "ExitCode": 0} if "/exec/" in self.path else {"ApiVersion": "1.47", "Version": "fixture"})
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                value = json.loads(body or b"{}")
+                if self.path.endswith("/exec"):
+                    self.server.tty = value.get("Tty")
+                    return self.answer({"Id": "owned-fixture-exec"})
+                if not self.path.endswith("/start"):
+                    return self.answer({})
+                self.connection.settimeout(5)
+                self.send_response(101)
+                self.send_header("Connection", "Upgrade")
+                self.send_header("Upgrade", "tcp")
+                self.send_header("Content-Type", "application/vnd.docker.raw-stream")
+                self.end_headers()
+                self.wfile.flush()
+                def frame():
+                    kind, size = struct.unpack("!cI", self.rfile.read(5))
+                    assert size <= 65536
+                    return kind, self.rfile.read(size)
+                def output(data):
+                    self.wfile.write(struct.pack("!BxxxI", 1, len(data)) + data)
+                    self.wfile.flush()
+                kind, data = frame()
+                assert kind == b"R" and data == struct.pack("!HH", 110, 32)
+                output(b"\x1b[?1000h\x1b[?1006hREADY")
+                kind, data = frame()
+                assert kind == b"D"
+                output(b"RESULT:" + data.hex().encode() + b"END")
+                self.close_connection = True
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        with tempfile.TemporaryDirectory() as folder:
+            command = [shutil.which("docker"), "--config", folder, "--host", "tcp://127.0.0.1:" + str(server.server_port),
+                       "exec", "-i", "owned-fixture-container", "synthetic-no-op"]
+            # Do not read or alter any user's Docker context, auth or TLS config.
+            allowed = {"PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "TMP", "TEMP", "HOME"}
+            environment = {key: value for key, value in os.environ.items() if key.upper() in allowed}
+            environment.update(DOCKER_API_VERSION="1.47", NO_PROXY="127.0.0.1,localhost")
+            pty = self.open(command, environment)
+            self.wait(b"READY")
+            self.assertFalse(server.tty)
+            data = "\x1b[<0;21;9M\x1b[<0;21;9m\x1b[200~中文\n\n\x1b[201~".encode()
+            pty.write(data)
+            self.assertIn(b"RESULT:" + data.hex().encode(), self.wait(b"END"))
+            pty.close()
+
     def test_host_pipes_preserve_mouse_modes_unicode_and_paste_without_console(self):
         # Runs on real Windows as well: no ConPTY/console API interprets modes.
         code = '''import sys,struct,os

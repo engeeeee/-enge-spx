@@ -63,3 +63,14 @@ PYTHONPATH=src python tests/integration_cli_clipboard.py \
 用户明确选择默认“左键拖选自动复制到剪贴板、右键输入区粘贴”。新增单击与拖选分流、无选择不覆盖剪贴板、原生鼠标开启时仍能自动复制、右键只粘贴一次、不打开菜单或自动发送、Shift右键/键盘菜单和自动复制开关检查。
 
 真实Codex 0.169.0在同一Qt窗口中点击两行不同位置、插入中文和标记，右键粘贴文字与图片，保留草稿及两张图片，在明确Enter后核对合成API实际文本和图像。Codex的鼠标能力来自原生SGR协商，未模拟方向键。Windows源码、冻结包和Docker结果以0.14.2发布CI为准；真实用户模型与物理设备验收仍另列。
+
+## 0.14.3 Windows 系统差异与长对话回归
+
+- [Windows 专项](https://github.com/engeeeee/ENGE-SPX/actions/runs/43565174057)通过真实 Win32 ConPTY 探针、原始管道、Qt IME 和原鼠标操作测试。该 runner 是较新的 Windows Server，不充当物理 Windows 10；原生鼠标在 Win10 内置 ConPTY 丢失的限制由上游实测佐证。本版智能终端已经绕过该路径。
+- `tests/test_terminal_relay.py` 验证真实宿主 PIPE、鼠标/Unicode/bracketed paste 字节、网格更新、EOF、阻塞写入回收；有 Docker CLI 的 Windows/Linux 还通过一次性回环假 Engine 检查真实 docker 客户端 hijack，不需要 daemon。只有测试夹具使用回环监听，产品没有新增端口。
+- `tests/test_terminal_usability.py` 通过原生 Qt IME preedit/commit/cancel 事件和像素对比检查背景遮盖、字体基线、换行、UTF-16 候选光标；复制快照不能截断后续原生滚动，滚轮小增量会累积。
+- Linux ARM64 的真实 Codex **0.169.0**、镜像 Codex **0.167.0** / Claude **2.1.319** 通过同一 Qt 窗口及实际 Linux PTY relay。检查预编辑不发送、确认一次、原生两图、草稿/进程不变；Codex 另验证右键末尾 CRLF/CR 不发送、120行完整对话、复制后向上滚到第0行、回到底部后草稿仍存在。API夹具会记录所有真实生成请求，文本请求也参与提前提交检查。
+- Docker 集成额外在现有受保护项目容器通过实际 `Engine.attach_command` 启动 relay，核对 UID1000、真实终端、resize、鼠标/多行粘贴字节及同容器复用。完整 Windows 打包及 Docker 结果以0.14.3发布流水线为准。
+- 时区以真实 TZif 分别核对进程与系统文件，LA/UTC不一致和相同文件均有测试；只读报告，不改设置、文件或容器权限。**系统时区统一仍未实现。**
+
+物理 Windows 10 + Docker Desktop、具体输入法候选窗与真实模型理解仍未人工验收。没有实机修改前后 CPU/内存比较；每个打开的智能终端多一个 Python 标准库 PTY relay，缓冲有界，不为每次粘贴创建进程或 AI 会话。

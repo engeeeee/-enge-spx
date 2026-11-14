@@ -1,6 +1,6 @@
-"""Owned ConPTY process, with a POSIX PTY backend for repeatable Linux tests.
+"""Owned raw Docker/Linux PTY transport and local-shell ConPTY/POSIX backends.
 
-Only the child docker exec client is stopped; this module cannot stop Docker,
+Only the owned child client is stopped; this module cannot stop Docker,
 kill a process by window title, or send input outside its own pipe handles.
 """
 from __future__ import annotations

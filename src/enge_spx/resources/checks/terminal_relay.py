@@ -56,14 +56,23 @@ def main():
     arguments = sys.argv[3:]
     if not arguments or not 2 <= columns <= 1000 or not 2 <= rows <= 1000:
         return 2
-    child, master = pty.fork()
+    master, slave = pty.openpty()
+    try:
+        resize(slave, columns, rows)
+        child = os.fork()
+    except BaseException:
+        os.close(master)
+        os.close(slave)
+        raise
     if child == 0:
         try:
-            resize(0, columns, rows)
+            os.close(master)
+            os.login_tty(slave)
             os.execvp(arguments[0], arguments)
         except Exception:
             os.write(2, b"ENGE SPX: terminal command failed.\r\n")
             os._exit(126)
+    os.close(slave)
     status = None
     incoming, pending, output = bytearray(), bytearray(), bytearray()
     closing = False

@@ -107,6 +107,10 @@ def environment_evidence(raw):
     zone = raw.get("timezone") if isinstance(raw.get("timezone"), dict) else {}
     namespace = raw.get("network_namespace")
     result = {"routes": routes, "dns_servers": [value for item in raw.get("dns_servers", [])[:8] if (value := _ip(item))] if isinstance(raw.get("dns_servers"), list) else [], "network_namespace": namespace if isinstance(namespace, str) and re.fullmatch(r"net:\[[0-9]{1,20}\]", namespace) else "unavailable", "ipv6_interfaces": raw.get("ipv6_interfaces") is True, "language": languages, "timezone": {"name": _zone(zone.get("name")), "offset_seconds": _number(zone.get("offset_seconds"), -86400, 86400)}}
+    result["timezone"].update(localtime_name=_zone(zone.get("localtime_name")),
+                              localtime_offset_seconds=_number(zone.get("localtime_offset_seconds"), -86400, 86400))
+    for key in ("localtime_matches_process_offset", "localtime_matches_tzif"):
+        result["timezone"][key] = zone.get(key) if type(zone.get(key)) is bool else None
     checks = []
     allowed = {"public_ipv4_tcp", "public_ipv6_tcp", "public_dns_udp"}
     for row in raw.get("direct_tests", [])[:3] if isinstance(raw.get("direct_tests"), list) else []:

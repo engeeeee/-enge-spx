@@ -38,6 +38,8 @@ spx network-check --output D:\Reports\spx-network.json
 
 本批语言只读。镜像使用 en_US.UTF-8，终端仍能输入和输出中文；未增加中文字体。时区继续使用明确设置的 IANA 值，已经建立的持久环境保持固定；更换时区需采用独立数据目录及重新确认流程。不会修改 Windows 系统时区、语言、浏览器 UA、WebGL 或字体指纹。
 
+0.14.3 补充系统时区文件证据：`name` / `offset_seconds` 来自进程 `TZ`，`localtime_name` / `localtime_offset_seconds` 来自 `/etc/localtime` 的真实 TZif；`localtime_matches_process_offset` 比较当前偏移，`localtime_matches_tzif` 比较所选 IANA 文件与系统文件内容。文件缺失、畸形或未知时为 `null` / `unavailable`。报告不导出文件内容或任意链接路径。当前设置只传入 TZ，镜像的系统 localtime 仍可能是 UTC，因此 `date` 显示 PST 而系统文件指向 UTC 的现象属实；本版诊断不修复该文件，也不把“浏览器偏移与进程相同”当作系统文件一致的证明。统一系统文件需要单独的只读镜像/现有容器迁移，不能靠 root exec 或放宽只读根目录处理。
+
 ## 导出与隐私
 
 “导出脱敏报告”只导出已生成的结果，不重新检查。报告使用字段白名单，IP、网络前缀、mDNS、身份与容器标识以每份报告独立的代号表示；同一份内相同地址保持同一代号，跨报告不复用地址映射。回环及未指定地址保留，便于理解配置。

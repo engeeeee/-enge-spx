@@ -30,6 +30,54 @@ def browser():
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_timezone_report_distinguishes_process_tz_from_system_file(self):
+        raw = namespace()
+        raw["timezone"].update(name="America/Los_Angeles", offset_seconds=-28800, localtime_name="Etc/UTC",
+                               localtime_offset_seconds=0, localtime_matches_process_offset=False, localtime_matches_tzif=False,
+                               localtime_path="/private-host-data")
+        observed = network.environment_evidence(raw)["timezone"]
+        self.assertEqual(observed["name"], "America/Los_Angeles")
+        self.assertEqual(observed["localtime_name"], "Etc/UTC")
+        self.assertIs(observed["localtime_matches_process_offset"], False)
+        self.assertIs(observed["localtime_matches_tzif"], False)
+        self.assertNotIn("private-host", json.dumps(observed))
+        raw["timezone"]["localtime_matches_tzif"] = "true"
+        self.assertIsNone(network.environment_evidence(raw)["timezone"]["localtime_matches_tzif"])
+
+    @unittest.skipUnless(hasattr(__import__("time"), "tzset"), "Native Linux libc TZ selection")
+    def test_actual_timezone_probe_reads_both_tzif_sources_without_changing_them(self):
+        import os
+        import time
+        from importlib.resources import files
+        probe = guest("environment_probe")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data = files("tzdata.zoneinfo")
+            (root / "Etc").mkdir()
+            (root / "America").mkdir()
+            utc = (root / "Etc/UTC")
+            utc.write_bytes(data.joinpath("Etc/UTC").read_bytes())
+            selected = root / "America/Los_Angeles"
+            selected.write_bytes(data.joinpath("America/Los_Angeles").read_bytes())
+            localtime = root / "localtime"
+            localtime.symlink_to(utc)
+            before = utc.read_bytes()
+            try:
+                with patch.dict(os.environ, {"TZ": "America/Los_Angeles"}):
+                    evidence = probe.timezone_facts(localtime, root)
+                    self.assertEqual(evidence["localtime_offset_seconds"], 0)
+                    self.assertEqual(evidence["localtime_name"], "Etc/UTC")
+                    self.assertIs(evidence["localtime_matches_process_offset"], False)
+                    self.assertIs(evidence["localtime_matches_tzif"], False)
+                    localtime.unlink()
+                    localtime.symlink_to(selected)
+                    evidence = probe.timezone_facts(localtime, root)
+                    self.assertIs(evidence["localtime_matches_process_offset"], True)
+                    self.assertIs(evidence["localtime_matches_tzif"], True)
+            finally:
+                time.tzset()
+            self.assertEqual(utc.read_bytes(), before)
+
     def test_environment_filters_unknown_fields_and_never_treats_timeout_as_blocked(self):
         raw = namespace()
         raw.update(password="synthetic-private-password", project="C:/private-project", token="token-secret")

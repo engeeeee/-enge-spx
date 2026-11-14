@@ -8,6 +8,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+import shlex
 import zlib
 import struct
 
@@ -16,6 +19,53 @@ from enge_spx.clipboard import Snapshot
 from enge_spx.clipboard_transfer import Transfer
 from enge_spx.state import SPXError
 from enge_spx.workspace_profiles import project_plan
+
+
+def verify_terminal_relay(engine, project, worker, state):
+    from enge_spx.terminal_pty import DockerPTY
+    command = engine.attach_command(str(project), "shell", state["session"], worker["Id"],
+                                    interactive=True, terminal_capabilities=True, terminal_relay=True)
+    assert "-it" not in command and "-i" in command
+    pty = DockerPTY(command, engine.docker.environment(), project)
+    output = bytearray()
+    def drain():
+        while block := pty.read():
+            if len(output) + len(block) > 65536:
+                break
+            output.extend(block)
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    def wait(marker):
+        deadline = time.monotonic() + 12
+        while marker not in output:
+            if pty.poll() is not None or time.monotonic() > deadline:
+                raise AssertionError("Protected Linux PTY relay did not reach synthetic marker")
+            time.sleep(.01)
+    try:
+        pty.resize(149, 41)
+        code = '''import os,tty,json
+tty.setraw(0);os.write(1,b'SPX_RELAY_READY\\r\\n')
+data=bytearray()
+while not data.endswith(b'\\x16'):data.extend(os.read(0,4096))
+s=os.get_terminal_size(0)
+os.write(1,b'SPX_RELAY_RESULT:'+json.dumps({'uid':os.getuid(),'tty':os.isatty(0),'columns':s.columns,'rows':s.lines,'input':data.hex()}).encode()+b'SPX_RELAY_END\\r\\n')
+'''
+        pty.write(("python3 -I -c " + shlex.quote(code) + "\r").encode())
+        wait(b"SPX_RELAY_READY\r\n")
+        data = "\x1b[<0;12;8M\x1b[<0;12;8m中文\x1b[200~draft\n\n\x1b[201~\x16".encode()
+        pty.write(data)
+        wait(b"SPX_RELAY_END\r\n")
+        # The shell can echo the source command before raw mode. Match only the
+        # actual JSON record, never an echoed program string.
+        import re
+        match = re.search(rb"SPX_RELAY_RESULT:(\{[^\r\n]+\})SPX_RELAY_END", bytes(output))
+        assert match is not None
+        report = json.loads(match[1])
+        assert report == {"uid": 1000, "tty": True, "columns": 149, "rows": 41, "input": data.hex()}
+        return {"uid": 1000, "native_tty": True, "resize": True, "mouse_and_paste_exact": True, "same_container": True}
+    finally:
+        pty.close()
+        reader.join(2)
 
 
 def synthetic_png():
@@ -53,6 +103,7 @@ def verify_protected_transfer(engine, project, worker, state):
             assert changed["Id"] == original["Id"]
             assert changed["HostConfig"] == original["HostConfig"]
             assert changed["Config"]["User"] == original["Config"]["User"]
+            terminal_relay = verify_terminal_relay(engine, project, worker, state)
             stale = Transfer(engine, str(project), "codex", "stale-session", worker["Id"])
             try:
                 try:
@@ -62,7 +113,7 @@ def verify_protected_transfer(engine, project, worker, state):
                     pass
             finally:
                 stale.close()
-            return {"files": len(paths), "stream_bytes": len(values["stream.bin"]), "hashes_match": True, "uid": 1000, "container_reused": True, "mounts_unchanged": True, "stale_session_rejected": True}
+            return {"files": len(paths), "stream_bytes": len(values["stream.bin"]), "hashes_match": True, "uid": 1000, "container_reused": True, "mounts_unchanged": True, "stale_session_rejected": True, "terminal_relay": terminal_relay}
         finally:
             transfer.close()
             cleanup = "/workspace/" + transfer.plan["key"] + "/.enge-spx-clipboard/" + transfer.bridge

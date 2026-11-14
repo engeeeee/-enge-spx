@@ -33,7 +33,9 @@ class Attachment:
 
 def text_frame(text: str) -> bytes:
     # Never allow clipboard bytes to terminate bracketed paste or inject keys.
-    text = "".join(c for c in text if c in "\r\n\t" or 32 <= ord(c) < 127 or ord(c) >= 160)
+    # Treat Windows CRLF and lone CR as draft newlines, never Enter keystrokes.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(c for c in text if c in "\n\t" or 32 <= ord(c) < 127 or ord(c) >= 160)
     return b"\x1b[200~" + text.encode("utf-8", errors="replace") + b"\x1b[201~"
 
 

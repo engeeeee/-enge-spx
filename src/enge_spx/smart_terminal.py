@@ -356,6 +356,7 @@ class TerminalView(QWidget):
         self.preedit_cursor = 0
         self.preedit_cursor_visible = True
         self.offset = 0
+        self.wheel_remainder = 0.0
         self.colors = {}
         self.fonts = {}
         self.scrollbar = QScrollBar(Qt.Orientation.Vertical, self)
@@ -413,6 +414,9 @@ class TerminalView(QWidget):
         self.scrollbar.setRange(0, max(0, len(self.selection_lines) - self.screen.lines) if self.selection_lines is not None else len(self.screen.history.top))
         if self.offset == 0:
             self.scrollbar.setValue(self.scrollbar.maximum())
+        # A full-screen application owns its transcript and its scroll range.
+        # The host's small screen cache is not that application's scrollbar.
+        self.scrollbar.setVisible(not (self.screen.mouse and self.screen.primary is not None and self.offset == 0))
         if changed:
             self.update_input_method()
             self.update()
@@ -823,12 +827,26 @@ class TerminalView(QWidget):
         self.update()
 
     def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if not delta and not event.pixelDelta().isNull():
+            delta = event.pixelDelta().y() * 120 / self.cell_height
+        if not delta:
+            event.accept()
+            return
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self.zoom(1 if event.angleDelta().y() > 0 else -1)
-        elif self.screen.mouse and self.offset == 0 and self.selection_lines is None and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            self.sender.put("keys", self.mouse_packet(event, 64 if event.angleDelta().y() > 0 else 65))
+            self.zoom(1 if delta > 0 else -1)
         else:
-            self.scrollbar.setValue(self.scrollbar.value() - event.angleDelta().y() // 40)
+            self.wheel_remainder += delta / 120
+            steps = max(-32, min(32, int(self.wheel_remainder)))
+            self.wheel_remainder -= int(self.wheel_remainder)
+            if steps and self.screen.mouse and self.offset == 0 and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # A copied selection must not trap the user in a one-screen
+                # snapshot. The native TUI owns its complete conversation.
+                self.clear_selection()
+                self.sender.put("keys", self.mouse_packet(event, 64 if steps > 0 else 65) * abs(steps))
+            elif steps:
+                self.scrollbar.setValue(self.scrollbar.value() - steps * 3)
+        event.accept()
 
     def copy(self):
         if not self.has_selection:
