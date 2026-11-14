@@ -51,7 +51,9 @@ def apply_acrylic(window, color, enabled=True):
         if function is None or sys.getwindowsversion().build < 17763:
             return "unsupported"
         function.argtypes, function.restype = [wintypes.HWND, ctypes.POINTER(Composition)], wintypes.BOOL
-        tint = color.red() | color.green() << 8 | color.blue() << 16 | 0xCC000000
+        # The client already supplies the user's tint/opacity. A second 80%
+        # native tint made the old material almost opaque and muddy.
+        tint = color.red() | color.green() << 8 | color.blue() << 16 | 0x01000000
         accent = Accent(4 if enabled else 0, 2, tint, 0)
         composition = Composition(19, ctypes.cast(ctypes.byref(accent), ctypes.c_void_p), ctypes.sizeof(accent))
         if function(hwnd, ctypes.byref(composition)):
@@ -59,3 +61,68 @@ def apply_acrylic(window, color, enabled=True):
     except (AttributeError, OSError, ValueError):
         pass
     return "unsupported"
+
+
+def configure_frame(window):
+    """Own HWND only: keep OS move/resize semantics beneath custom Qt chrome."""
+    if os.name != 'nt':
+        return False
+    try:
+        hwnd = wintypes.HWND(int(window.winId()))
+        user = ctypes.WinDLL('user32', use_last_error=True)
+        get, put = user.GetWindowLongPtrW, user.SetWindowLongPtrW
+        get.argtypes, get.restype = [wintypes.HWND, ctypes.c_int], ctypes.c_ssize_t
+        put.argtypes, put.restype = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t], ctypes.c_ssize_t
+        # No standard caption: NCCALCSIZE and NCHITTEST are owned by this window.
+        original = get(hwnd, -16)
+        ctypes.set_last_error(0)
+        previous = put(hwnd, -16, original | 0x40000 | 0x80000 | 0x20000 | 0x10000)
+        if previous == 0 and ctypes.get_last_error():
+            return False
+        user.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+        user.SetWindowPos.restype = wintypes.BOOL
+        if not user.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x37):
+            return False
+        return True
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def client_point(window, lparam):
+    """Convert signed physical NCHITTEST coordinates using this HWND's bounds."""
+    from PySide6.QtCore import QPoint
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    user.GetWindowRect.argtypes, user.GetWindowRect.restype = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL
+    user.GetClientRect.argtypes, user.GetClientRect.restype = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL
+    user.ScreenToClient.argtypes, user.ScreenToClient.restype = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)], wintypes.BOOL
+    hwnd = wintypes.HWND(int(window.winId()))
+    bounds = wintypes.RECT()
+    point = wintypes.POINT(ctypes.c_short(lparam & 0xffff).value, ctypes.c_short((lparam >> 16) & 0xffff).value)
+    if not user.GetClientRect(hwnd, ctypes.byref(bounds)) or not user.ScreenToClient(hwnd, ctypes.byref(point)):
+        return None
+    width, height = bounds.right - bounds.left, bounds.bottom - bounds.top
+    if width <= 0 or height <= 0:
+        return None
+    return QPoint(round(point.x * window.width() / width), round(point.y * window.height() / height))
+
+
+def adjust_maximized_client(window, lparam):
+    """Keep custom chrome inside the work area, including the invisible resize rim."""
+    if window.isFullScreen():
+        return
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    hwnd = wintypes.HWND(int(window.winId()))
+    user.IsZoomed.argtypes, user.IsZoomed.restype = [wintypes.HWND], wintypes.BOOL
+    if not user.IsZoomed(hwnd):
+        return
+    class MonitorInfo(ctypes.Structure):
+        _fields_ = [('size', wintypes.DWORD), ('monitor', wintypes.RECT), ('work', wintypes.RECT), ('flags', wintypes.DWORD)]
+    user.MonitorFromWindow.argtypes, user.MonitorFromWindow.restype = [wintypes.HWND, wintypes.DWORD], wintypes.HANDLE
+    user.GetMonitorInfoW.argtypes, user.GetMonitorInfoW.restype = [wintypes.HANDLE, ctypes.POINTER(MonitorInfo)], wintypes.BOOL
+    info = MonitorInfo()
+    info.size = ctypes.sizeof(info)
+    if user.GetMonitorInfoW(user.MonitorFromWindow(hwnd, 2), ctypes.byref(info)):
+        # NCCALCSIZE_PARAMS starts with its proposed client RECT.
+        rect = ctypes.cast(lparam, ctypes.POINTER(wintypes.RECT)).contents
+        rect.left, rect.top = max(rect.left, info.work.left), max(rect.top, info.work.top)
+        rect.right, rect.bottom = min(rect.right, info.work.right), min(rect.bottom, info.work.bottom)

@@ -9,6 +9,7 @@ from concurrent.futures import Future
 from collections import Counter, defaultdict
 from copy import deepcopy
 import codecs
+import math
 import os
 import queue
 import re
@@ -17,7 +18,7 @@ import time
 
 import pyte
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QRectF, QSize, QPointF
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter, QContextMenuEvent, QInputMethodEvent, QTextLayout, QTextOption, QTextCharFormat, QRegion
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QIcon, QKeySequence, QPainter, QContextMenuEvent, QInputMethodEvent, QTextLayout, QTextOption, QTextCharFormat, QRegion, QImage
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollBar, QFrame, QMenu, QToolButton, QSizePolicy, QSlider, QWidgetAction, QFontComboBox
 
 from .clipboard import WindowsClipboard
@@ -344,12 +345,21 @@ class TerminalView(QWidget):
         self.images = ImageAcknowledgement()
         self.sender = OrderedInput(pty, transfer, self.status.emit, self.ready, self.images)
         self.screen = TerminalScreen(110, 32, self.sender.respond)
-        self.stream = TerminalStream(self.screen)
+        self.completed_frame = None
+        self.completed_generation = self.presented_generation = 0
+        self.stream = TerminalStream(self.screen, self._capture_frame)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.output = queue.Queue(maxsize=64)
         self.pending = threading.Event()
         self.output_finished = False
         self.line_text = []
+        self.surface = QImage()
+        self.surface_signature = None
+        self.surface_rows = []
+        self.surface_dirty = set()
+        self.presented_cursor = (0, 0, True)
+        self.frame_started = None
+        self.last_output = 0
         self.frame_region = QRegion()
         self.frame_timer = QTimer(self)
         self.frame_timer.setSingleShot(True)
@@ -428,9 +438,39 @@ class TerminalView(QWidget):
                 self.wake.emit()
 
     def flush_frame(self):
+        if self.completed_generation == self.presented_generation and self._frame_blocked():
+            self.frame_timer.start(8)
+            return
         region, self.frame_region = self.frame_region, QRegion()
         if not region.isEmpty():
             self.update(region)
+
+    def _capture_frame(self):
+        # Retain the newest complete VT frame, even if another begins in the
+        # same pipe read. Never wait for a continuously busy pipe to go idle.
+        blank = self.screen.default_char
+        self.completed_frame = ([tuple(self.screen.buffer[y].get(x, blank) for x in range(self.screen.columns))
+                                 for y in range(self.screen.lines)],
+                                (self.screen.cursor.x, self.screen.cursor.y, self.screen.cursor.hidden))
+        self.completed_generation += 1
+
+    def _frame_blocked(self):
+        now = time.monotonic()
+        if self.stream.synchronized_at is not None:
+            if now - self.stream.synchronized_at < .15 and not self.output_finished:
+                return True
+            # A broken child must not suppress the display indefinitely.
+            self.stream.expire_synchronized_update()
+        if self.frame_started is None or self.output_finished:
+            return False
+        age = now - self.frame_started
+        if age >= .15:
+            return False
+        # Keep the last complete image during split erase/draw packets. Native
+        # synchronized updates are authoritative; this bounded quiet period is
+        # only for older applications that hide the cursor while repainting.
+        return bool(self.stream.pending or (not self.output.empty() and age < .032)
+                    or self.screen.cursor.hidden and now - self.last_output < .012)
 
     def schedule_frame(self, region):
         self.frame_region |= region
@@ -450,6 +490,9 @@ class TerminalView(QWidget):
                 break
             self.stream.feed(self.decoder.decode(data))
             changed = True
+            self.last_output = time.monotonic()
+            if self.frame_started is None:
+                self.frame_started = self.last_output
         was_ready = self.ready.is_set()
         if self.screen.bracketed:
             self.ready.set()
@@ -462,6 +505,7 @@ class TerminalView(QWidget):
                 self.native_press_was_input = True
             dirty = self.screen.dirty.copy()
             self.screen.dirty.clear()
+            self.surface_dirty.update(dirty)
             if len(self.line_text) != self.screen.lines:
                 self.line_text = [""] * self.screen.lines
                 dirty.update(range(self.screen.lines))
@@ -610,24 +654,29 @@ class TerminalView(QWidget):
         from .terminal_preferences import TINTS
         families = [preferences["font_family"]] if preferences["font_family"] else (["Cascadia Mono", "Cascadia Code", "Consolas"] if os.name == "nt" else ["DejaVu Sans Mono", "Liberation Mono"])
         font_changed = self.font.families() != families or self.font.pointSize() != preferences["font_size"]
-        self.font.setFamilies(families)
-        self.font.setPointSize(preferences["font_size"])
-        self.setFont(self.font)
-        self.metrics = QFontMetricsF(self.font, self)
-        self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
-        self.background = QColor(TINTS[preferences["tint"]])
-        self.background.setAlpha(round(preferences["opacity"] * 2.55) if glass else 255)
+        if font_changed:
+            self.font.setFamilies(families)
+            self.font.setPointSize(preferences["font_size"])
+            self.setFont(self.font)
+            self.metrics = QFontMetricsF(self.font, self)
+            self.cell_width, self.cell_height = self.metrics.horizontalAdvance("M"), self.metrics.height() + 2
+        background = QColor(TINTS[preferences["tint"]])
+        background.setAlpha(round(preferences["opacity"] * 2.55) if glass else 255)
+        changed = font_changed or background != self.background
+        self.background = background
         self.screen.terminal_background = TINTS[preferences["tint"]]
-        self.colors.clear()
-        self.fonts.clear()
-        self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
-        self.row_painter.background = self.background
+        if changed:
+            self.colors.clear()
+            self.fonts.clear()
+            self.row_painter = RowPainter(self.font, self.cell_width, self.cell_height, self._color)
+            self.row_painter.background = self.background
         self.copy_on_select, self.right_click_paste = preferences["copy_on_select"], preferences["right_click_paste"]
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, not glass)
         if font_changed:
             self._resize_grid()
             self.font_changed.emit(self.font.pointSize())
-        self.update()
+        if changed:
+            self.update()
 
     def _color(self, value, foreground=True):
         if value == "default" and not foreground:
@@ -642,29 +691,81 @@ class TerminalView(QWidget):
         self.colors[key] = result
         return result
 
-    def paintEvent(self, event):
-        p = QPainter(self)
-        if self.background.alpha() < 255:
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-        p.fillRect(event.rect(), self.row_painter.background)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        p.setFont(self.font)
+    def _compose_surface(self):
+        completed = self.completed_generation != self.presented_generation and self.selection_lines is None and not self.offset
+        blocked = not completed and self._frame_blocked()
+        if blocked and not self.surface.isNull():
+            if not self.frame_timer.isActive():
+                self.frame_region |= QRegion(self.rect())
+                self.frame_timer.start(8)
+            return
+        dpr = self.devicePixelRatioF()
+        signature = (self.width(), self.height(), dpr, id(self.row_painter), self.offset,
+                     self.selection if self.has_selection else None, id(self.selection_lines))
+        complete = signature != self.surface_signature
+        dirty = set(range(self.screen.lines)) if completed else self.surface_dirty | self.screen.dirty
+        if not complete and not dirty:
+            self.presented_cursor = self.screen.cursor.x, self.screen.cursor.y, self.screen.cursor.hidden
+            return
+        size = (math.ceil(self.width() * dpr), math.ceil(self.height() * dpr))
+        if (self.surface.width(), self.surface.height()) != size:
+            self.surface = QImage(*size, QImage.Format.Format_ARGB32_Premultiplied)
+            self.surface.setDevicePixelRatio(dpr)
+            self.surface.setDotsPerMeterX(round(self.logicalDpiX() / .0254))
+            self.surface.setDotsPerMeterY(round(self.logicalDpiY() / .0254))
+            complete = True
+        if complete:
+            self.surface.fill(self.background)
+            dirty = set(range(self.screen.lines))
+            self.surface_rows = [None] * self.screen.lines
+        p = QPainter(self.surface)
         selected = sorted(self.selection) if self.has_selection else None
         first = self.selection_start()
-        clip = event.rect()
         blank = self.screen.default_char
-        for y, line in enumerate(self.rows()):
-            if self.PAD_Y + (y + 1) * self.cell_height < clip.top() or self.PAD_Y + y * self.cell_height > clip.bottom():
+        rows = self.completed_frame[0] if completed else self.rows()
+        for y, line in enumerate(rows):
+            if y not in dirty:
                 continue
             span = None
             if selected and selected[0][0] <= y + first <= selected[1][0]:
                 span = (selected[0][1] if y + first == selected[0][0] else 0,
                         selected[1][1] if y + first == selected[1][0] else self.screen.columns - 1)
-            self.row_painter.draw(p, tuple(line.get(x, blank) for x in range(self.screen.columns)), span,
+            cells = line if completed else tuple(line.get(x, blank) for x in range(self.screen.columns))
+            record = cells, span
+            if not complete and y < len(self.surface_rows) and self.surface_rows[y] == record:
+                continue
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            p.fillRect(QRectF(0, self.PAD_Y + y * self.cell_height, self.width(), self.cell_height), self.background)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            self.row_painter.draw(p, cells, span,
                                   self.PAD_X, self.PAD_Y + y * self.cell_height)
-        cursor = self.screen.cursor
-        if not self.preedit and self.blink and self.hasFocus() and self.selection_lines is None and self.offset == 0 and not cursor.hidden:
-            p.fillRect(QRectF(self.PAD_X + cursor.x * self.cell_width, self.PAD_Y + cursor.y * self.cell_height, 2, self.cell_height), QColor("#d89979"))
+            self.surface_rows[y] = record
+        p.end()
+        self.surface_signature = signature
+        self.surface_dirty.clear()
+        if completed:
+            self.presented_cursor = self.completed_frame[1]
+            self.presented_generation = self.completed_generation
+            if self.stream.synchronized_at is None:
+                # A native prompt/cursor can follow EndSync in the same read.
+                self.frame_region |= QRegion(self.rect())
+                self.frame_timer.start(8)
+        else:
+            self.screen.dirty.clear()
+            self.frame_started = None
+            self.presented_cursor = self.screen.cursor.x, self.screen.cursor.y, self.screen.cursor.hidden
+
+    def paintEvent(self, event):
+        self._compose_surface()
+        p = QPainter(self)
+        # Copy one committed surface. Expose/blink/transparent-parent paints
+        # cannot expose a live screen between erase and redraw.
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        p.drawImage(QPointF(), self.surface)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        x, y, hidden = self.presented_cursor
+        if not self.preedit and self.blink and self.hasFocus() and self.selection_lines is None and self.offset == 0 and not hidden:
+            p.fillRect(QRectF(self.PAD_X + x * self.cell_width, self.PAD_Y + y * self.cell_height, 2, self.cell_height), QColor("#d89979"))
         if self.preedit and self.offset == 0 and self.selection_lines is None:
             layout, masks, caret = self.composition_layout()
             p.save()
@@ -689,7 +790,12 @@ class TerminalView(QWidget):
         self.scrollbar.setGeometry(self.width() - 12, 4, 10, self.height() - 8)
         columns = max(20, int((self.width() - 12 - 2 * self.PAD_X) / self.cell_width))
         rows = max(5, int((self.height() - 2 * self.PAD_Y) / self.cell_height))
+        if (self.screen.columns, self.screen.lines) == (columns, rows):
+            self.update_input_method()
+            return
         self.screen.resize(lines=rows, columns=columns)
+        self.completed_frame = None
+        self.presented_generation = self.completed_generation
         if not self.stopping.is_set():
             self.pty.resize(columns, rows)
         self.clear_selection()
@@ -1078,7 +1184,9 @@ class TerminalResizeEdge(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.window().windowHandle():
-            self.window().windowHandle().startSystemResize(self.edges)
+            self.window().set_interaction_active(True)
+            if not self.window().windowHandle().startSystemResize(self.edges):
+                self.window().set_interaction_active(False)
 
 
 class TerminalWindow(QMainWindow):
@@ -1086,6 +1194,9 @@ class TerminalWindow(QMainWindow):
         super().__init__(None, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         from .terminal_preferences import Preferences
         self.preferences = Preferences(preferences_store, self)
+        self.interaction_active = False
+        self.effect_key = self.chrome_key = None
+        self._frame_configured = False
         self.translucent_surface = os.name == "nt" and self.preferences.value["appearance"] == "acrylic"
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self.translucent_surface)
         self.setWindowTitle("ENGE SPX · " + tool + " · 智能粘贴终端")
@@ -1131,7 +1242,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
         self.titlebar = TitleBar(self, "ENGE SPX  /  智能终端")
+        self.titlebar.caption.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         logo = QLabel()
+        logo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         logo.setPixmap(QIcon(str(ASSETS / "logo-64.png")).pixmap(QSize(20, 20)))
         self.titlebar.layout().insertWidget(0, logo)
         layout.addWidget(self.titlebar)
@@ -1191,6 +1304,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         self.view.setFocus()
         self.preferences.changed.connect(self.apply_preferences)
         self.preferences.error.connect(self.message.setText)
+        if os.name == 'nt':
+            from .window_effects import configure_frame
+            self._frame_configured = True
+            self._frame_configured = configure_frame(self)
         self.apply_preferences(self.preferences.value)
         if self.preferences.load_error:
             self.message.setText(self.preferences.load_error)
@@ -1200,17 +1317,78 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         from .window_effects import apply_acrylic
         color = QColor(TINTS[values["tint"]])
         requested = values["appearance"] == "acrylic"
-        self.backdrop_backend = apply_acrylic(self, color, requested) if self.translucent_surface else "solid"
-        glass = requested and self.translucent_surface and self.backdrop_backend in ("system-acrylic", "accent-acrylic")
+        enabled = requested and not self.interaction_active
+        effect_key = enabled, color.name()
+        if effect_key != self.effect_key:
+            self.backdrop_backend = apply_acrylic(self, color, enabled) if self.translucent_surface else "solid"
+            self.effect_key = effect_key
+        glass = enabled and self.translucent_surface and self.backdrop_backend in ("system-acrylic", "accent-acrylic")
         self.view.apply_display(values, glass)
         self.font_size.setText(str(values["font_size"]) + " pt  ·  UTF-8")
         base = "transparent" if glass else color.name()
-        header = f"rgba({min(255, color.red()+8)}, {min(255, color.green()+8)}, {min(255, color.blue()+8)}, {225 if glass else 255})"
-        self.setStyleSheet(self.base_stylesheet.replace("#1c1a18", base).replace("#24221f", header))
+        header = f"rgba({color.red()+8}, {color.green()+8}, {color.blue()+8}, {round(values['opacity'] * 2.55) if glass else 255})"
+        chrome_key = base, header, glass
+        if chrome_key != self.chrome_key:
+            sheet = self.base_stylesheet.replace("#1c1a18", base).replace("#24221f", header)
+            if glass:
+                sheet = sheet.replace('#4a4239', 'rgba(232, 227, 220, 45)').replace('#39352f', 'rgba(232, 227, 220, 24)')
+            self.setStyleSheet(sheet)
+            self.chrome_key = chrome_key
         if requested and not self.translucent_surface:
             self.message.setText("Acrylic 偏好已保存，下次打开终端生效；当前会话继续保留。")
-        elif requested and not glass:
+        elif requested and not glass and not self.interaction_active:
             self.message.setText("当前系统未提供 Acrylic 或已关闭透明效果，使用纯色背景；偏好已保留。")
+
+    def set_interaction_active(self, active):
+        if os.name != 'nt' or self.interaction_active == active:
+            return
+        self.interaction_active = active
+        # Accent Acrylic on Windows 10 stalls in the system move/resize loop.
+        # Suspend composition before entering that loop, then restore once.
+        self.apply_preferences(self.preferences.value)
+
+    def frame_hit_test(self, point):
+        if not self.rect().contains(point):
+            return None
+        x, y, w, h, b = point.x(), point.y(), self.width(), self.height(), 6
+        if not self.isMaximized() and not self.isFullScreen():
+            left, right, top, bottom = x < b, x >= w-b, y < b, y >= h-b
+            if top and left: return 13
+            if top and right: return 14
+            if bottom and left: return 16
+            if bottom and right: return 17
+            if left: return 10
+            if right: return 11
+            if top: return 12
+            if bottom: return 15
+        local = self.titlebar.mapFrom(self, point)
+        if self.titlebar.rect().contains(local) and not any(button.geometry().contains(local) for button in self.titlebar.controls.values()):
+            return 2  # HTCAPTION; OS dragging/double-click/snap, no injected keys.
+        return None
+
+    def nativeEvent(self, kind, message):
+        if os.name == 'nt' and getattr(self, '_frame_configured', False):
+            import ctypes
+            from ctypes import wintypes
+            try:
+                event = ctypes.cast(int(message), ctypes.POINTER(wintypes.MSG)).contents
+                if event.message == 0x83 and event.wParam:
+                    from .window_effects import adjust_maximized_client
+                    adjust_maximized_client(self, event.lParam)
+                    return True, 0  # custom client area, no default caption
+                if event.message == 0x84 and hasattr(self, 'titlebar'):
+                    from .window_effects import client_point
+                    point = client_point(self, event.lParam)
+                    hit = self.frame_hit_test(point) if point is not None else None
+                    if hit is not None:
+                        return True, hit
+                if event.message == 0x231 or event.message == 0x112 and event.wParam & 0xfff0 in (0xf000, 0xf010):
+                    self.set_interaction_active(True)
+                elif event.message == 0x232:
+                    QTimer.singleShot(0, lambda: self.set_interaction_active(False))
+            except (AttributeError, OSError, ValueError):
+                pass
+        return super().nativeEvent(kind, message)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1235,11 +1413,13 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: trans
         opacity = QWidgetAction(menu)
         panel = QWidget()
         row = QHBoxLayout(panel)
-        row.addWidget(QLabel("背景不透明度"))
+        opacity_label = QLabel(f"背景不透明度 {self.preferences.value['opacity']}%")
+        row.addWidget(opacity_label)
         slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(55, 100)
+        slider.setRange(30, 100)
         slider.setValue(self.preferences.value["opacity"])
-        slider.setToolTip("仅影响背景，文字保持清晰")
+        slider.setToolTip("仅影响背景，文字保持清晰；建议 55–70%")
+        slider.valueChanged.connect(lambda value: opacity_label.setText(f"背景不透明度 {value}%"))
         slider.valueChanged.connect(lambda value: self.preferences.set("opacity", value))
         row.addWidget(slider)
         opacity.setDefaultWidget(panel)

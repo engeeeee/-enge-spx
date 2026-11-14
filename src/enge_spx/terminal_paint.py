@@ -1,15 +1,17 @@
 """Bounded terminal row layouts; Qt objects stay on the GUI thread."""
 from collections import OrderedDict
+import math
 
 from PySide6.QtCore import Qt, QPointF, QRectF
-from PySide6.QtGui import QColor, QFont, QStaticText, QTransform
+from PySide6.QtGui import QColor, QFont, QStaticText, QTransform, QImage, QPainter
 
 from .terminal_render import BACKGROUND, FOREGROUND
 
 
 class RowPainter:
-    MAX_CELLS = 32768
+    MAX_CELLS = 65536
     MAX_ROWS = 128
+    MAX_RASTER_BYTES = 64 * 1024 * 1024
 
     def __init__(self, font, width, height, color):
         self.font = QFont(font)
@@ -17,6 +19,8 @@ class RowPainter:
         self.background = QColor(BACKGROUND)
         self.selection_bg, self.selection_fg = QColor("#654638"), QColor(FOREGROUND)
         self.rows, self.styles = OrderedDict(), {}
+        self.rasters = OrderedDict()
+        self.raster_bytes = self.raster_builds = 0
         self.cells = self.layout_builds = 0
 
     def style(self, char, selected):
@@ -90,10 +94,33 @@ class RowPainter:
         return result
 
     def draw(self, painter, cells, selected, x, y):
+        dpr = painter.device().devicePixelRatioF()
+        key = cells, selected, dpr
+        if key in self.rasters:
+            self.rasters.move_to_end(key)
+            painter.drawImage(QPointF(x - 2, y), self.rasters[key])
+            return
+        image = QImage(math.ceil((len(cells) * self.width + 4) * dpr), math.ceil(self.height * dpr),
+                       QImage.Format.Format_ARGB32_Premultiplied)
+        image.setDevicePixelRatio(dpr)
+        image.setDotsPerMeterX(round(painter.device().logicalDpiX() / .0254))
+        image.setDotsPerMeterY(round(painter.device().logicalDpiY() / .0254))
+        image.fill(Qt.GlobalColor.transparent)
+        row = QPainter(image)
         fills, glyphs = self.layout(cells, selected)
         for left, width, color in fills:
-            painter.fillRect(QRectF(x + left, y, width, self.height), color)
+            row.fillRect(QRectF(2 + left, 0, width, self.height), color)
         for left, text, (fg, bg, font) in glyphs:
-            painter.setFont(font)
-            painter.setPen(fg)
-            painter.drawStaticText(QPointF(x + left, y), text)
+            row.setFont(font)
+            row.setPen(fg)
+            row.drawStaticText(QPointF(2 + left, 0), text)
+        row.end()
+        self.raster_builds += 1
+        size = image.sizeInBytes()
+        if size <= self.MAX_RASTER_BYTES:
+            self.rasters[key] = image
+            self.raster_bytes += size
+            while len(self.rasters) > self.MAX_ROWS or self.raster_bytes > self.MAX_RASTER_BYTES:
+                _, old = self.rasters.popitem(last=False)
+                self.raster_bytes -= old.sizeInBytes()
+        painter.drawImage(QPointF(x - 2, y), image)

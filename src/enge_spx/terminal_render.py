@@ -1,6 +1,7 @@
 """Terminal colour negotiation and bounded VT extensions around unmodified pyte."""
 from collections import namedtuple
 import re
+import time
 
 import pyte
 
@@ -42,11 +43,31 @@ class TerminalStream:
     Keep escape sequences intact across output reads. Bound incomplete OSC/CSI
     buffers so a child cannot grow host memory with an unterminated sequence.
     """
-    def __init__(self, screen):
+    def __init__(self, screen, frame_complete=None):
         self.screen = screen
         self.stream = pyte.Stream(screen)
         self.pending = ""
         self.discard_osc = False
+        self.synchronized_at = None
+        self.frame_complete = frame_complete
+
+    def expire_synchronized_update(self):
+        self.synchronized_at = None
+        self.screen.reset_mode(2026, private=True)
+
+    def _csi(self, sequence):
+        if sequence == '\x1b[?2026$p':
+            state = 1 if self.synchronized_at is not None else 2
+            self.screen.respond(f'\x1b[?2026;{state}$y'.encode())
+            return ''
+        match = re.fullmatch(r'\x1b\[\?([0-9;]+)([hl])', sequence)
+        if match and '2026' in match[1].split(';'):
+            if match[2] == 'h':
+                if self.synchronized_at is None:
+                    self.synchronized_at = time.monotonic()
+            else:
+                self.synchronized_at = None
+        return self._sgr(sequence) if sequence.endswith('m') and ':' in sequence else sequence
 
     @staticmethod
     def _rgb(color):
@@ -136,7 +157,11 @@ class TerminalStream:
                 index = start + 2 + end.end()
                 sequence = text[start:index]
                 if len(sequence) <= 256:
-                    plain.append(self._sgr(sequence) if sequence.endswith("m") and ":" in sequence else sequence)
+                    plain.append(self._csi(sequence))
+                    if sequence == '\x1b[?2026l' and self.frame_complete is not None:
+                        self.stream.feed(''.join(plain))
+                        plain = []
+                        self.frame_complete()
             else:
                 plain.append(text[start:start + 2])
                 index = start + 2

@@ -7,7 +7,7 @@ from .state import SPXError
 
 FILE = "terminal-preferences.json"
 DEFAULTS = {"font_size": 11, "font_family": "", "copy_on_select": True, "right_click_paste": True,
-            "appearance": "solid", "tint": "clay", "opacity": 85}
+            "appearance": "solid", "tint": "clay", "opacity": 65}
 TINTS = {"clay": "#1c1a18", "purple": "#302034", "graphite": "#1d252c"}
 
 
@@ -15,7 +15,7 @@ def validate(value):
     if not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 1 or set(value) - {"schema", *DEFAULTS}:
         raise SPXError("终端偏好格式无效，原文件已保留；可在右上角恢复默认设置。")
     result = {**DEFAULTS, **{key: value[key] for key in DEFAULTS if key in value}}
-    if type(result["font_size"]) is not int or not 8 <= result["font_size"] <= 24 or type(result["opacity"]) is not int or not 55 <= result["opacity"] <= 100:
+    if type(result["font_size"]) is not int or not 8 <= result["font_size"] <= 24 or type(result["opacity"]) is not int or not 30 <= result["opacity"] <= 100:
         raise SPXError("终端字号或背景不透明度超出范围，原设置已保留。")
     if not isinstance(result["font_family"], str) or len(result["font_family"]) > 80 or any(ord(c) < 32 for c in result["font_family"]):
         raise SPXError("终端字体设置无效，原文件已保留。")

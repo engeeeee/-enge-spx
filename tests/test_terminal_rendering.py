@@ -109,3 +109,62 @@ class TerminalRenderingTests(unittest.TestCase):
         self.assertIn(b'input-still-responsive', self.pty.writes)
         self.assertGreater(len(ticks), 3)
         self.assertIn('SPX_LAST_OUTPUT', '\n'.join(self.view.screen.display))
+
+    def test_synchronized_erase_and_partial_redraw_keep_last_complete_pixels(self):
+        self.view.stream.feed('Old completed frame 中文')
+        before = self.image()
+        self.view.stream.feed('\x1b[?2026h\x1b[2J\x1b[H')
+        self.assertEqual(self.image(), before)
+        self.view.stream.feed('New top half')
+        self.assertEqual(self.image(), before)
+        self.view.stream.feed('\x1b[5;1HNew bottom half\x1b[?2026l')
+        after = self.image()
+        self.assertNotEqual(after, before)
+        self.assertIn('New bottom half', '\n'.join(self.view.screen.display))
+        self.assertEqual(self.image(), after)
+
+    def test_synchronized_query_split_sequences_and_broken_child_deadline(self):
+        replies = []
+        self.view.screen.respond = replies.append
+        for char in '\x1b[?2026$p':
+            self.view.stream.feed(char)
+        self.assertEqual(replies, [b'\x1b[?2026;2$y'])
+        self.view.stream.feed('Initial')
+        before = self.image()
+        for char in '\x1b[?2026h\x1b[?2026$p\x1b[2J':
+            self.view.stream.feed(char)
+        self.assertEqual(replies[-1], b'\x1b[?2026;1$y')
+        self.assertEqual(self.image(), before)
+        self.view.stream.synchronized_at = time.monotonic() - .16
+        self.assertNotEqual(self.image(), before)
+        self.assertIsNone(self.view.stream.synchronized_at)
+
+    def test_static_expose_and_cursor_do_not_rebuild_row_rasters(self):
+        self.view.stream.feed('Static 中文 🙂 \x1b[31mRED')
+        self.image()
+        built = self.view.row_painter.raster_builds
+        self.image()
+        self.view.stream.feed('\x1b[2;2H')
+        self.image()
+        self.assertEqual(self.view.row_painter.raster_builds, built)
+        self.assertLessEqual(self.view.row_painter.raster_bytes, self.view.row_painter.MAX_RASTER_BYTES)
+
+    def test_busy_pipe_presents_completed_frame_before_following_partial_frame(self):
+        self.view.stream.feed('First')
+        first = self.image()
+        self.view.stream.feed('\x1b[?2026h\x1b[2J\x1b[HSecond\x1b[?2026l\x1b[?2026h\x1b[2J\x1b[HPartial third')
+        second = self.image()
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.image(), second)
+        self.assertEqual(self.view.presented_generation, self.view.completed_generation)
+        self.view.stream.feed('\x1b[?2026l')
+        self.assertNotEqual(self.image(), second)
+
+    def test_resize_during_synchronized_frame_does_not_use_old_grid_snapshot(self):
+        self.view.stream.feed('\x1b[?2026hOld grid\x1b[?2026l')
+        self.view.resize(800, 480)
+        self.app.processEvents()
+        self.image()
+        self.view.stream.feed('\x1b[?2026h\x1b[2J\x1b[HNew grid\x1b[?2026l')
+        self.image()
+        self.assertEqual(len(self.view.surface_rows), self.view.screen.lines)

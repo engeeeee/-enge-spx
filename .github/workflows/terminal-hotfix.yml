@@ -1,0 +1,37 @@
+name: Terminal glass and scrolling probes
+on:
+  push:
+    branches: [fix/terminal-glass-scroll]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_terminal*.py' -v
+        env:
+          PYTHONPATH: src
+      - shell: pwsh
+        run: |
+          python tools/probe_windows_terminal_window.py --output '${{ runner.temp }}/glass/native.json'
+          python tools/probe_windows_terminal_window.py --legacy-accent --output '${{ runner.temp }}/glass/legacy.json'
+          $env:QT_SCALE_FACTOR = '1.5'
+          python tools/probe_windows_terminal_window.py --output '${{ runner.temp }}/glass/native-dpi150.json'
+          Remove-Item Env:QT_SCALE_FACTOR
+          $baseline = Join-Path $env:RUNNER_TEMP 'terminal-before'
+          git worktree add --detach $baseline 671023b8124b7e75c0cbfc19986eaa43d56fda7f
+          python tools/probe_terminal_scroll.py --source "$baseline/src" --output '${{ runner.temp }}/glass/scroll-before.json' --frames 30
+          python tools/probe_terminal_scroll.py --output '${{ runner.temp }}/glass/scroll-after.json' --frames 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-glass-scroll
+          path: ${{ runner.temp }}/glass
